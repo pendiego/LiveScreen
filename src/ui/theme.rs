@@ -30,6 +30,8 @@ pub const I_WARN: &str = "\u{E7BA}";
 pub const I_ERROR: &str = "\u{E783}";
 pub const I_INFO: &str = "\u{E946}";
 pub const I_SEARCH: &str = "\u{E721}";
+pub const I_UPDATE: &str = "\u{E896}";
+pub const I_SETTINGS: &str = "\u{E713}";
 
 #[derive(Clone, Copy)]
 pub struct Palette {
@@ -252,46 +254,11 @@ pub fn live_pill(ui: &mut egui::Ui) {
     );
 }
 
-/// Ícone 64×64: monitor com "play" branco sobre quadrado arredondado azul.
+/// Ícone da janela; o mesmo desenho vai embutido no .exe pelo `build.rs`.
 pub fn app_icon() -> egui::IconData {
-    const N: i32 = 64;
-    let mut rgba = vec![0u8; (N * N * 4) as usize];
-    let in_rect =
-        |x: i32, y: i32, x0: i32, y0: i32, x1: i32, y1: i32| x >= x0 && x < x1 && y >= y0 && y < y1;
-    for y in 0..N {
-        for x in 0..N {
-            // quadrado arredondado de raio 14
-            let (cx, cy) = (x.clamp(14, N - 15), y.clamp(14, N - 15));
-            let (dx, dy) = ((x - cx) as f32, (y - cy) as f32);
-            if dx * dx + dy * dy > 14.0 * 14.0 {
-                continue;
-            }
-            let mut px = [0x00, 0x67, 0xC0, 0xFF];
-            let frame = in_rect(x, y, 14, 16, 50, 42) && !in_rect(x, y, 18, 20, 46, 38);
-            let foot = in_rect(x, y, 29, 42, 35, 47) || in_rect(x, y, 22, 47, 42, 50);
-            let play = {
-                // triângulo (27,22) (27,36) (39,29)
-                let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-                let e = |ax: f32, ay: f32, bx: f32, by: f32| {
-                    (bx - ax) * (fy - ay) - (by - ay) * (fx - ax)
-                };
-                let (a, b, c) = (
-                    e(27.0, 22.0, 27.0, 36.0),
-                    e(27.0, 36.0, 39.0, 29.0),
-                    e(39.0, 29.0, 27.0, 22.0),
-                );
-                (a >= 0.0 && b >= 0.0 && c >= 0.0) || (a <= 0.0 && b <= 0.0 && c <= 0.0)
-            };
-            if frame || foot || play {
-                px = [255, 255, 255, 255];
-            }
-            let i = ((y * N + x) * 4) as usize;
-            rgba[i..i + 4].copy_from_slice(&px);
-        }
-    }
     egui::IconData {
-        rgba,
-        width: N as u32,
-        height: N as u32,
+        rgba: crate::icon::rgba(64),
+        width: 64,
+        height: 64,
     }
 }

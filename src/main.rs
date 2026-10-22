@@ -5,11 +5,14 @@ mod audio;
 mod capture;
 mod config;
 mod gpu;
+mod icon;
 mod preset;
 mod protocol;
 mod share;
+mod speedtest;
 mod ui;
 mod video;
+mod update;
 mod watch;
 
 fn init_logging() {
@@ -31,7 +34,10 @@ fn main() -> anyhow::Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("--probe-encoder") => video::probe::run_child(),
         Some("--selftest-capture") => capture::selftest(),
-        _ => ui::run(),
+        _ => {
+            update::cleanup();
+            ui::run()
+        }
     }
 }
 

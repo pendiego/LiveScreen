@@ -259,7 +259,7 @@ fn hardware_kind() -> Option<EncoderKind> {
 fn codec_roundtrip() {
     mf::startup();
     let (device, ctx) = crate::gpu::create_device().expect("dispositivo D3D11");
-    let params = crate::preset::encode_params(Preset::P720p30, W, H);
+    let params = crate::preset::encode_params(Preset::P720p30, W, H, 60);
     assert_eq!((params.width, params.height, params.fps), (W, H, 30));
     let pat = patterns();
 

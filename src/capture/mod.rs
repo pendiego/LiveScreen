@@ -12,7 +12,7 @@ use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11DeviceContext, ID
 
 use crate::config::Overrides;
 
-pub use sources::{SourceId, SourceInfo, enumerate, source_size, thumbnail};
+pub use sources::{SourceId, SourceInfo, enumerate, refresh_rate, source_size, thumbnail};
 
 pub trait FrameSink: Send {
     fn on_frame(&mut self, tex: &ID3D11Texture2D, w: u32, h: u32);

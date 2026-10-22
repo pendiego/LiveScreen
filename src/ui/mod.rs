@@ -92,10 +92,21 @@ pub struct App {
     title: String,
     own_hwnd: Option<isize>,
     capture_hidden: bool,
+    /// Release mais nova que esta, achada na verificação ao abrir.
+    pub update: Arc<Mutex<Option<crate::update::Release>>>,
+    /// Download/instalação em andamento.
+    pub updating: Option<std::sync::mpsc::Receiver<Result<()>>>,
+    /// Popups da tela de transmissão.
+    pub quality_open: bool,
+    pub confirm_stop: bool,
+    /// O código de convite desta transmissão já foi para a área de transferência.
+    pub code_auto_copied: bool,
+    /// Upload medido de quem transmite (uma vez por execução, ao abrir o seletor).
+    pub upload: Arc<Mutex<crate::speedtest::Upload>>,
 }
 
 impl App {
-    fn new(rt: Handle, prefs: prefs::Prefs) -> Self {
+    fn new(rt: Handle, prefs: prefs::Prefs, ctx: egui::Context) -> Self {
         crate::video::mf::startup();
         let overrides = crate::config::overrides();
         let encoder = Arc::new(Mutex::new(None));
@@ -104,6 +115,21 @@ impl App {
             std::thread::spawn(move || {
                 let k = crate::video::probe::detect(&overrides);
                 *encoder.lock().unwrap() = Some(k);
+            });
+        }
+        let update = Arc::new(Mutex::new(None));
+        {
+            let update = update.clone();
+            rt.spawn(async move {
+                match crate::update::check().await {
+                    Ok(Some(r)) => {
+                        tracing::info!("atualização disponível: {}", r.version);
+                        *update.lock().unwrap() = Some(r);
+                        ctx.request_repaint();
+                    }
+                    Ok(None) => {}
+                    Err(e) => tracing::info!("verificação de atualização falhou: {e:#}"),
+                }
             });
         }
         App {
@@ -134,6 +160,12 @@ impl App {
             title: "LiveScreen".into(),
             own_hwnd: None,
             capture_hidden: false,
+            update,
+            updating: None,
+            quality_open: false,
+            confirm_stop: false,
+            code_auto_copied: false,
+            upload: Arc::new(Mutex::new(crate::speedtest::Upload::Unknown)),
         }
     }
     /// Exclui (ou devolve) a janela da captura; chamado também antes de criar a captura.
@@ -179,6 +211,9 @@ impl App {
         self.watch_view = Default::default();
         self.kick_pending = None;
         self.copied_at = None;
+        self.quality_open = false;
+        self.confirm_stop = false;
+        self.code_auto_copied = false;
         self.save_prefs();
     }
 
@@ -196,16 +231,21 @@ impl App {
     fn quit_modal(&mut self, ctx: &egui::Context) {
         let mut cancel = false;
         let mut confirm = false;
+        let mut focus_in = false;
         let modal = egui::Modal::new(egui::Id::unique("quit")).show(ctx, |ui| {
             ui.set_width(340.0);
             ui.heading("Encerrar a transmissão?");
             ui.label("Quem está assistindo será desconectado.");
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Continuar transmitindo").clicked() {
+                let keep = ui.button("Continuar transmitindo");
+                focus_in |= keep.has_focus();
+                if keep.clicked() {
                     cancel = true;
                 }
-                if theme::danger_button(ui, "Encerrar e sair").clicked() {
+                let quit = theme::danger_button(ui, "Encerrar e sair");
+                focus_in |= quit.has_focus();
+                if quit.clicked() {
                     confirm = true;
                 }
             });
@@ -213,15 +253,81 @@ impl App {
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || modal.should_close() {
             cancel = true;
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        // Enter é atalho de "Encerrar e sair" só sem foco num botão; com foco, ativa o botão
+        if !focus_in && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
             confirm = true;
         }
-        if confirm {
+        if cancel {
+            self.confirm_quit = false;
+        } else if confirm {
             self.quit_confirmed = true;
             self.confirm_quit = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        } else if cancel {
-            self.confirm_quit = false;
+        }
+    }
+
+    /// Mede o upload em segundo plano; não repete enquanto mede.
+    pub fn measure_upload(&self, ctx: &egui::Context) {
+        {
+            let mut u = self.upload.lock().unwrap();
+            if *u == crate::speedtest::Upload::Measuring {
+                return;
+            }
+            *u = crate::speedtest::Upload::Measuring;
+        }
+        let (upload, ctx) = (self.upload.clone(), ctx.clone());
+        self.rt.spawn(async move {
+            let r = match crate::speedtest::measure_upload().await {
+                Ok(bps) => {
+                    tracing::info!("upload medido: {} kbps", bps / 1000);
+                    crate::speedtest::Upload::Done(bps)
+                }
+                Err(e) => {
+                    tracing::info!("medição de upload falhou: {e:#}");
+                    crate::speedtest::Upload::Failed
+                }
+            };
+            *upload.lock().unwrap() = r;
+            ctx.request_repaint();
+        });
+    }
+
+    /// Baixa, confere e instala em segundo plano; a UI só acompanha.
+    pub fn start_update(&mut self, rel: crate::update::Release, ctx: &egui::Context) {
+        if self.updating.is_some() {
+            return;
+        }
+        self.save_prefs(); // a nova instância lê as preferências antes desta sair
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        self.rt.spawn(async move {
+            let r = match crate::update::download(&rel).await {
+                Ok(bytes) => tokio::task::spawn_blocking(move || crate::update::install(&bytes))
+                    .await
+                    .unwrap_or_else(|e| Err(e.into())),
+                Err(e) => Err(e),
+            };
+            let _ = tx.send(r);
+            ctx.request_repaint();
+        });
+        self.updating = Some(rx);
+    }
+
+    fn poll_update(&mut self, ctx: &egui::Context) {
+        let Some(r) = self.updating.as_ref().and_then(|rx| rx.try_recv().ok()) else {
+            return;
+        };
+        self.updating = None;
+        match r {
+            // a nova versão já está aberta; esta sai
+            Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Err(e) => {
+                tracing::warn!("atualização: {e:#}");
+                self.toasts.push(
+                    format!("Não foi possível atualizar: {e:#}"),
+                    toast::ToastKind::Warn,
+                );
+            }
         }
     }
 }
@@ -252,6 +358,7 @@ impl eframe::App for App {
         if self.confirm_quit {
             self.quit_modal(&ctx);
         }
+        self.poll_update(&ctx);
 
         // não grava janela maximizada/minimizada/tela cheia: o tamanho normal vale
         let (normal, outer, inner) = ctx.input(|i| {
@@ -369,7 +476,7 @@ pub fn run() -> Result<()> {
         options,
         Box::new(move |cc| {
             theme::install(&cc.egui_ctx);
-            Ok(Box::new(App::new(handle, prefs)))
+            Ok(Box::new(App::new(handle, prefs, cc.egui_ctx.clone())))
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))

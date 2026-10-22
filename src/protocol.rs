@@ -4,7 +4,7 @@ use iroh::endpoint::{RecvStream, SendStream};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub const ALPN: &[u8] = b"livescreen/1";
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 pub const MAX_MSG: usize = 64 * 1024;
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
@@ -36,6 +36,12 @@ pub enum HostMsg {
         audio: bool,
         #[serde(default)]
         title: String,
+    },
+    /// Qualidade trocada com a transmissão no ar; o próximo keyframe já vem no novo tamanho.
+    StreamParams {
+        width: u32,
+        height: u32,
+        fps: u32,
     },
     Rejected {
         reason: String,

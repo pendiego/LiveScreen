@@ -24,6 +24,11 @@ yuv = "0.8.19"
 wasapi = "0.26"
 opus = "0.4"
 cpal = "0.18.2"
+# já vem pelo iroh; o updater e a medição de upload só reaproveitam (provider ring do rustls)
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+sha2 = "0.11"
+hex = "0.4"
 windows = { version = "=0.62.2", features = [
   "Foundation", "Foundation_Metadata", "Graphics", "Graphics_Capture", "Graphics_DirectX",
   "Graphics_DirectX_Direct3D11", "Win32_Foundation", "Win32_Graphics_Direct3D",
@@ -34,3 +39,7 @@ windows = { version = "=0.62.2", features = [
   "Win32_UI_WindowsAndMessaging", "Win32_Storage_Xps", "Win32_System_Com_StructuredStorage",
   "Win32_System_Variant", "Win32_UI_HiDpi", "Security_Authorization_AppCapabilityAccess",
 ] }
+
+[dev-dependencies]
+# servidor HTTP falso dos testes da medição de upload
+tokio = { version = "1.44", features = ["net", "io-util"] }

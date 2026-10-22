@@ -177,6 +177,7 @@ async fn run(
         } => (width, height, audio, title),
         HostMsg::Rejected { reason } => return Ok(format!("Recusado: {reason}")),
         HostMsg::StreamEnded => return Ok("Transmissão encerrada".into()),
+        HostMsg::StreamParams { .. } => return Ok("Resposta inesperada do host".into()),
     };
     {
         let mut s = status.lock().unwrap();
@@ -277,8 +278,21 @@ async fn run(
         r = read_loop => { if let Err(e) = r { info!("leitura de vídeo: {e:#}"); } }
         _ = key_loop => {}
         m = stats_loop => return Ok(m),
-        m = read_msg::<HostMsg>(&mut recv) => {
-            if matches!(m, Ok(HostMsg::StreamEnded)) { return Ok("Transmissão encerrada".into()); }
+        ended = async {
+            loop {
+                match read_msg::<HostMsg>(&mut recv).await {
+                    Ok(HostMsg::StreamParams { width, height, .. }) => {
+                        let mut s = status.lock().unwrap();
+                        s.width = width;
+                        s.height = height;
+                    }
+                    Ok(HostMsg::StreamEnded) => break true,
+                    Ok(_) => {}
+                    Err(_) => break false,
+                }
+            }
+        } => {
+            if ended { return Ok("Transmissão encerrada".into()); }
         }
         e = conn.closed() => return Ok(close_reason(&e).into()),
     }
