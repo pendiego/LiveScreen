@@ -50,7 +50,10 @@ pub async fn check() -> Result<Option<Release>> {
         .error_for_status()?
         .bytes()
         .await?;
-    Ok(pick(serde_json::from_slice(&body)?, env!("CARGO_PKG_VERSION")))
+    Ok(pick(
+        serde_json::from_slice(&body)?,
+        env!("CARGO_PKG_VERSION"),
+    ))
 }
 
 fn version(v: &str) -> Option<(u64, u64, u64)> {
@@ -91,7 +94,10 @@ pub async fn download(rel: &Release) -> Result<Vec<u8>> {
         .await?;
     let got = hex::encode(Sha256::digest(&bytes));
     if got != rel.sha256 {
-        bail!("download corrompido (sha256 {got}, esperado {})", rel.sha256);
+        bail!(
+            "download corrompido (sha256 {got}, esperado {})",
+            rel.sha256
+        );
     }
     Ok(bytes.to_vec())
 }
@@ -189,7 +195,16 @@ mod tests {
         assert!(pick(rel("v0.0.9", &ok), "0.1.0").is_none());
         assert!(pick(rel("nightly", &ok), "0.1.0").is_none());
         // só o zip, ou exe sem hash: não dá para conferir, não atualiza
-        assert!(pick(rel("v0.2.0", &[("livescreen-windows-x64.zip", Some("sha256:ab"))]), "0.1.0").is_none());
+        assert!(
+            pick(
+                rel(
+                    "v0.2.0",
+                    &[("livescreen-windows-x64.zip", Some("sha256:ab"))]
+                ),
+                "0.1.0"
+            )
+            .is_none()
+        );
         assert!(pick(rel("v0.2.0", &[("livescreen.exe", None)]), "0.1.0").is_none());
     }
 

@@ -12,6 +12,7 @@ pub struct Overrides {
     pub deny_graphics_capture: bool,
     pub deny_dxgi: bool,
     pub deny_hardware_encoder: bool,
+    pub deny_hardware_decoder: bool,
 }
 
 impl Overrides {
@@ -22,6 +23,7 @@ impl Overrides {
                 "deny-graphics-capture" => o.deny_graphics_capture = true,
                 "deny-dxgi" => o.deny_dxgi = true,
                 "deny-hardware-encoder" => o.deny_hardware_encoder = true,
+                "deny-hardware-decoder" => o.deny_hardware_decoder = true,
                 "" => {}
                 other => warn!("override desconhecido: {other}"),
             }
@@ -67,7 +69,9 @@ mod tests {
             " deny-dxgi ".into(),
             "foo".into(),
             "deny-hardware-encoder".into(),
+            "deny-hardware-decoder".into(),
         ]);
         assert!(o.deny_dxgi && o.deny_hardware_encoder && !o.deny_graphics_capture);
+        assert!(o.deny_hardware_decoder);
     }
 }

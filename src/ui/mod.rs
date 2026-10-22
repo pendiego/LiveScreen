@@ -1,5 +1,6 @@
 mod home;
 mod prefs;
+mod settings;
 mod share_view;
 mod theme;
 mod toast;
@@ -103,6 +104,10 @@ pub struct App {
     pub code_auto_copied: bool,
     /// Upload medido de quem transmite (uma vez por execução, ao abrir o seletor).
     pub upload: Arc<Mutex<crate::speedtest::Upload>>,
+    /// Modal de Configurações (abre de qualquer tela).
+    pub settings_open: bool,
+    pub settings_tab: settings::Tab,
+    update_check: Option<tokio::task::AbortHandle>,
 }
 
 impl App {
@@ -110,29 +115,8 @@ impl App {
         crate::video::mf::startup();
         let overrides = crate::config::overrides();
         let encoder = Arc::new(Mutex::new(None));
-        {
-            let encoder = encoder.clone();
-            std::thread::spawn(move || {
-                let k = crate::video::probe::detect(&overrides);
-                *encoder.lock().unwrap() = Some(k);
-            });
-        }
         let update = Arc::new(Mutex::new(None));
-        {
-            let update = update.clone();
-            rt.spawn(async move {
-                match crate::update::check().await {
-                    Ok(Some(r)) => {
-                        tracing::info!("atualização disponível: {}", r.version);
-                        *update.lock().unwrap() = Some(r);
-                        ctx.request_repaint();
-                    }
-                    Ok(None) => {}
-                    Err(e) => tracing::info!("verificação de atualização falhou: {e:#}"),
-                }
-            });
-        }
-        App {
+        let mut app = App {
             rt,
             screen: Screen::Home,
             overrides,
@@ -166,8 +150,58 @@ impl App {
             confirm_stop: false,
             code_auto_copied: false,
             upload: Arc::new(Mutex::new(crate::speedtest::Upload::Unknown)),
+            settings_open: false,
+            settings_tab: settings::Tab::Video,
+            update_check: None,
+        };
+        app.detect_encoder();
+        if app.prefs.check_updates {
+            app.check_updates(&ctx);
         }
+        ctx.set_theme(app.prefs.theme);
+        app
     }
+
+    /// `config.json`/env somados às preferências da tela de Configurações.
+    pub fn effective_overrides(&self) -> Overrides {
+        self.prefs.apply(self.overrides)
+    }
+
+    /// Refaz a detecção do encoder em segundo plano; `None` até terminar.
+    pub fn detect_encoder(&self) {
+        *self.encoder.lock().unwrap() = None;
+        let (encoder, overrides) = (self.encoder.clone(), self.effective_overrides());
+        std::thread::spawn(move || {
+            let k = crate::video::probe::detect(&overrides);
+            *encoder.lock().unwrap() = Some(k);
+        });
+    }
+
+    /// Cancela a verificação em andamento, se houver, para ela não repor `update` depois.
+    pub fn cancel_update_check(&mut self) {
+        if let Some(t) = self.update_check.take() {
+            t.abort();
+        }
+        *self.update.lock().unwrap() = None;
+    }
+
+    pub fn check_updates(&mut self, ctx: &egui::Context) {
+        self.cancel_update_check();
+        let (update, ctx) = (self.update.clone(), ctx.clone());
+        let task = self.rt.spawn(async move {
+            match crate::update::check().await {
+                Ok(Some(r)) => {
+                    tracing::info!("atualização disponível: {}", r.version);
+                    *update.lock().unwrap() = Some(r);
+                    ctx.request_repaint();
+                }
+                Ok(None) => {}
+                Err(e) => tracing::info!("verificação de atualização falhou: {e:#}"),
+            }
+        });
+        self.update_check = Some(task.abort_handle());
+    }
+
     /// Exclui (ou devolve) a janela da captura; chamado também antes de criar a captura.
     fn sync_capture_exclusion(&mut self, want: bool) {
         if want == self.capture_hidden {
@@ -342,6 +376,13 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm_quit = true;
         }
+        // Esc com Configurações abertas só fecha o modal: consome a tecla antes das telas
+        // (senão "Voltar", sair da tela cheia etc. disparam por baixo).
+        if self.settings_open
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.settings_open = false;
+        }
         match self.screen {
             Screen::Home => home::home(self, ui),
             Screen::SharePicker => share_view::picker(self, ui),
@@ -349,6 +390,13 @@ impl eframe::App for App {
             Screen::WatchInput => watch_view::input(self, ui),
             Screen::Watching => watch_view::watching(self, ui),
             Screen::Ended { .. } => home::ended(self, ui),
+        }
+        // único acesso às configurações em tela cheia
+        if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Comma)) {
+            self.settings_open = true;
+        }
+        if self.settings_open {
+            settings::show(self, &ctx);
         }
         // some da captura enquanto compartilha (evita o espelho infinito)
         self.sync_capture_exclusion(self.share.is_some() || self.starting.is_some());

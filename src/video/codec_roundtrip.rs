@@ -1,7 +1,7 @@
 //! Teste ignorado de ida e volta encode→decode com PSNR.
 //!
 //! `cargo test --release -- --ignored codec_roundtrip --nocapture`
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -79,16 +79,15 @@ struct Rec {
 
 fn fingerprint(f: &RgbaFrame) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
-    for b in f.data.iter().step_by(997) {
-        h = (h ^ *b as u64).wrapping_mul(0x100_0000_01b3);
+    for c in f.pixels.iter().step_by(997) {
+        h = (h ^ c.r() as u64).wrapping_mul(0x100_0000_01b3);
     }
-    h ^ f.data.len() as u64
+    h ^ f.pixels.len() as u64
 }
 
 fn luma(f: &RgbaFrame, x: u32, y: u32) -> f32 {
-    let o = ((y * W + x) * 4) as usize;
-    let d = &f.data[o..o + 3];
-    0.2126 * d[0] as f32 + 0.7152 * d[1] as f32 + 0.0722 * d[2] as f32
+    let c = f.pixels[(y * W + x) as usize];
+    0.2126 * c.r() as f32 + 0.7152 * c.g() as f32 + 0.0722 * c.b() as f32
 }
 
 fn match_index(f: &RgbaFrame, pat: &[Vec<f32>]) -> usize {
@@ -164,6 +163,7 @@ fn roundtrip(
     ctx: &ID3D11DeviceContext,
     params: EncodeParams,
     kind: EncoderKind,
+    hardware_decode: bool,
     pat: &[Vec<f32>],
 ) -> Result<(usize, f64, f64)> {
     let mut conv = Converter::new(device, ctx, params.width, params.height, params.fps)?;
@@ -181,11 +181,14 @@ fn roundtrip(
     )?;
     let slot: Arc<Mutex<Option<RgbaFrame>>> = Arc::default();
     let (dtx, drx) = std::sync::mpsc::channel::<EncodedFrame>();
+    let dstats = Arc::new(decoder::DecodeStats::default());
     let dec = decoder::spawn(
         drx,
         slot.clone(),
         eframe::egui::Context::default(),
         Arc::new(AtomicBool::new(false)),
+        dstats.clone(),
+        hardware_decode,
     );
 
     let mut rec = Rec::default();
@@ -217,6 +220,9 @@ fn roundtrip(
     enc.stop();
     drop(dtx);
     let _ = dec.join();
+    if hardware_decode && !dstats.hardware.load(Ordering::Relaxed) {
+        return Err(anyhow!("decoder de hardware não ficou ativo"));
+    }
 
     if rec.bad_dims {
         return Err(anyhow!("quadro decodificado não é {W}x{H}"));
@@ -274,12 +280,23 @@ fn codec_roundtrip() {
     kinds.push(EncoderKind::Software);
 
     let mut failures = Vec::new();
-    for kind in kinds {
+    for (kind, hardware_decode) in kinds
+        .into_iter()
+        .flat_map(|k| [(k.clone(), true), (k, false)])
+    {
         let name = match &kind {
             EncoderKind::Hardware { name } => name.clone(),
             EncoderKind::Software => "software".to_string(),
         };
-        match roundtrip(&device, &ctx, params, kind, &pat) {
+        let name = format!(
+            "{name} / decoder {}",
+            if hardware_decode {
+                "hardware"
+            } else {
+                "software"
+            }
+        );
+        match roundtrip(&device, &ctx, params, kind, hardware_decode, &pat) {
             Ok((decoded, mean, min)) => {
                 println!(
                     "{name}: decodificados={decoded} PSNR médio={mean:.2} dB (min {min:.2} dB)"

@@ -3,8 +3,26 @@
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::config::Overrides;
 use crate::preset::Preset;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum ThemeChoice {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl From<ThemeChoice> for eframe::egui::ThemePreference {
+    fn from(t: ThemeChoice) -> Self {
+        match t {
+            ThemeChoice::System => Self::System,
+            ThemeChoice::Light => Self::Light,
+            ThemeChoice::Dark => Self::Dark,
+        }
+    }
+}
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -17,6 +35,13 @@ pub struct Prefs {
     pub window: Option<[f32; 4]>,
     /// Limite de pessoas na sala; quem transmite aumenta quando quiser.
     pub room_limit: usize,
+    pub hardware_decode: bool,
+    pub hardware_encoder: bool,
+    pub show_stats: bool,
+    pub theme: ThemeChoice,
+    pub check_updates: bool,
+    pub graphics_capture: bool,
+    pub dxgi_capture: bool,
 }
 
 impl Default for Prefs {
@@ -29,6 +54,13 @@ impl Default for Prefs {
             muted: false,
             window: None,
             room_limit: 4,
+            hardware_decode: true,
+            hardware_encoder: true,
+            show_stats: false,
+            theme: ThemeChoice::System,
+            check_updates: true,
+            graphics_capture: true,
+            dxgi_capture: true,
         }
     }
 }
@@ -68,6 +100,16 @@ impl Prefs {
             self.volume.clamp(0.0, 1.0).powi(2)
         }
     }
+
+    /// `config.json` e a variável de ambiente só negam, então sempre vencem.
+    pub fn apply(&self, o: Overrides) -> Overrides {
+        Overrides {
+            deny_graphics_capture: o.deny_graphics_capture || !self.graphics_capture,
+            deny_dxgi: o.deny_dxgi || !self.dxgi_capture,
+            deny_hardware_encoder: o.deny_hardware_encoder || !self.hardware_encoder,
+            deny_hardware_decoder: o.deny_hardware_decoder || !self.hardware_decode,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -92,5 +134,30 @@ mod tests {
             Prefs::parse(r#"{"window":[10.0,20.0,900.0,600.0]}"#).window,
             Some([10.0, 20.0, 900.0, 600.0])
         );
+    }
+
+    #[test]
+    fn old_ui_json_keeps_new_defaults() {
+        let p = Prefs::parse(r#"{"preset":"P720p30"}"#);
+        assert!(p.hardware_decode && p.hardware_encoder && p.check_updates);
+        assert!(p.graphics_capture && p.dxgi_capture);
+        assert!(!p.show_stats);
+        assert_eq!(p.theme, ThemeChoice::System);
+    }
+
+    #[test]
+    fn file_overrides_win() {
+        let o = Overrides {
+            deny_hardware_decoder: true,
+            ..Default::default()
+        };
+        assert!(Prefs::default().apply(o).deny_hardware_decoder);
+        let p = Prefs {
+            hardware_encoder: false,
+            ..Default::default()
+        };
+        let o = p.apply(Overrides::default());
+        assert!(o.deny_hardware_encoder);
+        assert!(!o.deny_hardware_decoder && !o.deny_graphics_capture && !o.deny_dxgi);
     }
 }

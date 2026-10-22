@@ -41,6 +41,7 @@ pub fn connect(app: &mut App, ctx: &egui::Context) {
         &app.ticket_input,
         &app.prefs.name,
         app.prefs.gain(),
+        !app.effective_overrides().deny_hardware_decoder,
         ctx.clone(),
     ) {
         Ok(w) => {
@@ -60,6 +61,11 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
     if app.ticket_input.chars().any(char::is_whitespace) {
         app.ticket_input.retain(|c| !c.is_whitespace());
     }
+    egui::Panel::bottom("input_footer").show(ui, |ui| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            super::settings::button(app, ui);
+        });
+    });
     egui::CentralPanel::default().show(ui, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space((ui.available_height() / 2.0 - 220.0).max(16.0));
@@ -200,6 +206,20 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
             if ui.button(icon).on_hover_text(tip).clicked() {
                 action = ControlAction::ToggleFullscreen;
             }
+            super::settings::button(app, ui);
+            ui.menu_button("Qualidade", |ui| {
+                ui.label(RichText::new("Só vale se for mais leve que a atual").small().weak());
+                for p in crate::preset::Preset::ALL {
+                    if ui.button(super::settings::preset_name(p)).clicked() {
+                        if let Some(w) = app.watch.as_ref() {
+                            w.request_quality(p);
+                        }
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text("Pedir ao host outra qualidade (resolução e fps)");
             if !st.title.is_empty() {
                 ui.add(egui::Label::new(RichText::new(&st.title).strong()).truncate());
             }
@@ -221,10 +241,7 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
     }
     w.set_gain(app.prefs.gain());
     if let Some(f) = w.frame.lock().unwrap().take() {
-        let img = egui::ColorImage::from_rgba_unmultiplied(
-            [f.width as usize, f.height as usize],
-            &f.data,
-        );
+        let img = egui::ColorImage::new([f.width as usize, f.height as usize], f.pixels);
         match &mut app.watch_view.texture {
             Some(t) => t.set(img, egui::TextureOptions::LINEAR),
             None => {
@@ -266,6 +283,37 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
                 let uv =
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(vw / fw, vh / fh));
                 ui.painter().image(t.id(), r, uv, Color32::WHITE);
+                if app.prefs.show_stats {
+                    let path = match st.path.as_str() {
+                        "Direto" => "Direto",
+                        "Relay" => "Via servidor",
+                        _ => "?",
+                    };
+                    let text = format!(
+                        "Decodificação: {} · {:.0} fps · {:.1} ms/quadro\nRede: {} · {} ms · {:.0} fps recebidos · {}×{}",
+                        if st.decoder_hw { "placa de vídeo" } else { "processador" },
+                        st.decode_fps,
+                        st.decode_ms,
+                        path,
+                        st.rtt_ms,
+                        st.fps,
+                        st.width,
+                        st.height
+                    );
+                    let painter = ui.painter();
+                    let galley = painter.layout_no_wrap(
+                        text,
+                        egui::FontId::monospace(12.0),
+                        Color32::WHITE,
+                    );
+                    let pos = rect.min + vec2(8.0, 8.0);
+                    painter.rect_filled(
+                        egui::Rect::from_min_size(pos, galley.size()).expand(6.0),
+                        4.0,
+                        Color32::from_black_alpha(160),
+                    );
+                    painter.galley(pos, galley, Color32::WHITE);
+                }
             } else {
                 let connecting = st.phase == Phase::Connecting;
                 let secs = app.watch_view.started.elapsed().as_secs();

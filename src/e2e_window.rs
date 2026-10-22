@@ -78,8 +78,16 @@ fn e2e_window() {
     let kind = EncoderKind::Hardware {
         name: "NVIDIA H.264 Encoder MFT".into(),
     };
-    let share =
-        ShareSession::start(&h, info, Preset::P720p30, false, kind, Default::default(), 4).unwrap();
+    let share = ShareSession::start(
+        &h,
+        info,
+        Preset::P720p30,
+        false,
+        kind,
+        Default::default(),
+        4,
+    )
+    .unwrap();
     let ticket = loop {
         if let Some(t) = share.status.lock().unwrap().ticket.clone() {
             break t;
@@ -87,7 +95,7 @@ fn e2e_window() {
         std::thread::sleep(Duration::from_millis(100));
     };
     let ctx = egui::Context::default();
-    let w = WatchSession::start(&h, &ticket, "", 1.0, ctx).unwrap();
+    let w = WatchSession::start(&h, &ticket, "", 1.0, true, ctx).unwrap();
     std::thread::sleep(Duration::from_secs(4));
     let snap = |tag: &str| {
         let s = w.status.lock().unwrap().clone();
@@ -99,11 +107,28 @@ fn e2e_window() {
             .map(|f| (f.width, f.height));
         let hs = share.status.lock().unwrap().clone();
         println!(
-            "{tag}: phase={:?} fps={} frame={:?} welcome={}x{} audio={:?} ended={:?}",
-            s.phase, s.fps, f, s.width, s.height, hs.audio, hs.ended
+            "{tag}: phase={:?} fps={} frame={:?} welcome={}x{} audio={:?} ended={:?} decoder_hw={} decode={:.0}fps {:.2}ms",
+            s.phase, s.fps, f, s.width, s.height, hs.audio, hs.ended, s.decoder_hw, s.decode_fps, s.decode_ms
         );
     };
     snap("start");
+    w.request_quality(Preset::P480p30);
+    std::thread::sleep(Duration::from_secs(1));
+    let (_who, asked, res) = share
+        .apply_quality_request()
+        .expect("pedido de qualidade não chegou ao host");
+    assert_eq!(asked, Preset::P480p30);
+    res.unwrap();
+    std::thread::sleep(Duration::from_secs(2));
+    snap("após pedido do viewer (480p)");
+    // mais pesado que o atual (480p) é recusado; o intervalo mínimo entre pedidos é 5 s
+    std::thread::sleep(Duration::from_secs(5));
+    w.request_quality(Preset::P1080p60);
+    std::thread::sleep(Duration::from_secs(1));
+    let (_, heavier, res) = share.apply_quality_request().expect("pedido não chegou");
+    assert_eq!(heavier, Preset::P1080p60);
+    assert!(res.is_err(), "pedido mais pesado deveria ser recusado");
+    assert_eq!(share.current().0, Preset::P480p30);
     let hw = HWND(hwnd as *mut _);
     unsafe {
         let _ = MoveWindow(hw, 100, 100, 900, 300, true);
@@ -128,8 +153,22 @@ fn e2e_window() {
     share.set_preset(Preset::Native60).unwrap();
     std::thread::sleep(Duration::from_secs(3));
     snap("live Native60");
-    let f = w.frame.lock().unwrap().as_ref().map(|f| (f.width, f.height));
-    assert_eq!(f.map(|f| f.0), Some(1600));
+    // a janela é movida para 1600x900 px lógicos; com escala de DPI o tamanho físico é maior,
+    // então o esperado é a largura real da fonte (o decoder devolve múltiplo de 16). Espera o
+    // quadro novo chegar em vez de confiar num sleep fixo.
+    let (sw, _, _) = share.source_shape();
+    let width = || w.frame.lock().unwrap().as_ref().map(|f| f.width);
+    let t = std::time::Instant::now();
+    while t.elapsed() < Duration::from_secs(8) && !width().is_some_and(|x| x >= sw) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let fw = width().expect("sem quadro");
+    assert!(
+        fw >= sw && fw < sw + 16,
+        "largura do quadro {fw} fora de [{sw}, {})",
+        sw + 16
+    );
+    assert!(sw >= 1600, "janela menor que 1600 px: {sw}");
     share.set_preset(Preset::P720p30).unwrap();
     std::thread::sleep(Duration::from_secs(3));
     snap("live 720p");
@@ -139,11 +178,13 @@ fn e2e_window() {
     std::thread::sleep(Duration::from_secs(3));
     snap("minimized");
     // troca → troca sem nenhum quadro capturado no meio (a janela minimizada não entrega quadros)
-    within("troca 1 minimizada", || share.set_preset(Preset::Native60).unwrap());
+    within("troca 1 minimizada", || {
+        share.set_preset(Preset::Native60).unwrap()
+    });
     within("troca 2 minimizada", || {
         share.set_preset(Preset::P720p30).unwrap()
     });
-    let late = WatchSession::start(&h, &ticket, "", 1.0, egui::Context::default()).unwrap();
+    let late = WatchSession::start(&h, &ticket, "", 1.0, true, egui::Context::default()).unwrap();
     std::thread::sleep(Duration::from_secs(4));
     println!(
         "late viewer while minimized: {:?} frame={:?}",

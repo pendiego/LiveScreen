@@ -159,6 +159,8 @@ struct Shared {
     audio_tx: broadcast::Sender<Bytes>,
     force_key: Arc<AtomicBool>,
     last_key: Mutex<Instant>,
+    quality_req: Mutex<Option<(Preset, String)>>,
+    last_quality: Mutex<Instant>,
     params: watch::Sender<(u32, u32, u32, bool)>,
     title: String,
     shutdown: watch::Receiver<bool>,
@@ -170,6 +172,15 @@ impl Shared {
         if l.elapsed() >= Duration::from_secs(1) {
             *l = Instant::now();
             self.force_key.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Um pedido a cada 5 s no total: um espectador não pode ficar trocando o encoder da sala.
+    fn request_quality(&self, preset: Preset, who: &str) {
+        let mut l = self.last_quality.lock().unwrap();
+        if l.elapsed() >= Duration::from_secs(5) {
+            *l = Instant::now();
+            *self.quality_req.lock().unwrap() = Some((preset, who.to_string()));
         }
     }
 }
@@ -437,6 +448,8 @@ impl ShareSession {
             audio_tx,
             force_key,
             last_key: Mutex::new(Instant::now() - Duration::from_secs(2)),
+            quality_req: Mutex::new(None),
+            last_quality: Mutex::new(Instant::now() - Duration::from_secs(10)),
             params: watch::channel((params.width, params.height, params.fps, audio_h.is_some())).0,
             title: source.title.clone(),
             shutdown: sd_rx,
@@ -584,7 +597,11 @@ impl ShareSession {
     pub fn current(&self) -> (Preset, crate::preset::EncodeParams, (u32, u32)) {
         let g = self.res.lock().unwrap();
         g.as_ref().map_or(
-            (Preset::default(), encode_params(Preset::default(), 1920, 1080, 60), (1920, 1080)),
+            (
+                Preset::default(),
+                encode_params(Preset::default(), 1920, 1080, 60),
+                (1920, 1080),
+            ),
             |r| (r.preset, r.params, r.applied_src),
         )
     }
@@ -592,6 +609,21 @@ impl ShareSession {
     /// Muda o limite da sala na hora; quem já está assistindo continua.
     pub fn set_max_viewers(&self, n: usize) {
         self.shared.max_viewers.store(n.max(1), Ordering::SeqCst);
+    }
+
+    /// Aplica o pedido de qualidade pendente de um espectador, se houver. Só aceita opções mais
+    /// leves que a atual (um espectador não pode pesar a sala). Bloqueia como `set_preset`
+    /// (chamar da UI, nunca de dentro do runtime). Devolve quem pediu, o preset e o resultado.
+    pub fn apply_quality_request(&self) -> Option<(String, Preset, Result<()>)> {
+        let (preset, who) = self.shared.quality_req.lock().unwrap().take()?;
+        let (sw, sh, hz) = self.source_shape();
+        let wanted = encode_params(preset, sw, sh, hz);
+        let res = if crate::preset::is_reduction(self.current().1, wanted) {
+            self.set_preset(preset)
+        } else {
+            Err(anyhow!("só é aceita uma qualidade mais leve que a atual"))
+        };
+        Some((who, preset, res))
     }
 
     /// Tamanho atual da fonte (último quadro capturado) e Hz do monitor dela: base das opções
@@ -616,7 +648,13 @@ impl ShareSession {
         if r.preset == preset && r.params == params {
             return Ok(());
         }
-        let conv = Converter::new(&r.device, &r.context, params.width, params.height, params.fps)?;
+        let conv = Converter::new(
+            &r.device,
+            &r.context,
+            params.width,
+            params.height,
+            params.fps,
+        )?;
         // Corta a alimentação e espera o encoder antigo esvaziar: o novo só publica depois,
         // então nenhum quadro da resolução antiga aparece após o novo keyframe.
         cut_feed(&r.pending, &r.sink_tx);
@@ -836,12 +874,15 @@ async fn handle_viewer(
     let mut arx = sh.audio_tx.subscribe();
     let mut shutdown = sh.shutdown.clone();
 
-    // controle: pedidos de keyframe
+    // controle: pedidos de keyframe e de qualidade
     let sh2 = sh.clone();
+    let who = sanitize(&name, 32);
     let ctl = tokio::spawn(async move {
         while let Ok(m) = read_msg::<ViewerMsg>(&mut recv).await {
-            if matches!(m, ViewerMsg::RequestKeyframe) {
-                sh2.request_keyframe();
+            match m {
+                ViewerMsg::RequestKeyframe => sh2.request_keyframe(),
+                ViewerMsg::SetQuality { preset } => sh2.request_quality(preset, &who),
+                _ => {}
             }
         }
     });

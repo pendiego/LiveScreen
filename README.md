@@ -80,7 +80,7 @@ Para atualizar, o executável precisa estar numa pasta com permissão de escrita
 
 Ficam em `%APPDATA%\LiveScreen\`:
 
-- **`ui.json`:** preferências (qualidade, áudio, nome, volume, limite da sala, posição da janela).
+- **`ui.json`:** preferências (qualidade, áudio, nome, volume, limite da sala, posição da janela, decodificação/codificação por hardware, estatísticas, tema, atualização, backends de captura).
 - **`livescreen.log`:** registro para diagnóstico.
 - **`config.json`** (opcional): desliga partes da captura ou do encoder para contornar problemas de driver:
 
@@ -88,7 +88,10 @@ Ficam em `%APPDATA%\LiveScreen\`:
   { "capture_overrides": ["deny-hardware-encoder"] }
   ```
 
-  Os valores aceitos são `deny-graphics-capture`, `deny-dxgi` e `deny-hardware-encoder`. A variável de ambiente `LIVESCREEN_CAPTURE_OVERRIDES` (valores separados por vírgula) substitui o arquivo.
+  Os valores aceitos são `deny-graphics-capture`, `deny-dxgi`, `deny-hardware-encoder` e `deny-hardware-decoder`. A variável de ambiente `LIVESCREEN_CAPTURE_OVERRIDES` (valores separados por vírgula) substitui o arquivo. O que o arquivo ou a variável desligam não pode ser religado em Configurações.
+
+- **Configurações** (engrenagem em qualquer tela, ou `Ctrl+,`): decodificar e codificar pela placa de vídeo, estatísticas de vídeo ao assistir (overlay com fps e ms por quadro), qualidade e áudio padrão, limite da sala, nome, tema, verificação de atualização e backends de captura. Tudo fica em `ui.json`.
+- **Qualidade pelo espectador:** quem assiste pode pedir ao host uma qualidade mais leve (menu "Qualidade"). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda.
 
 Diagnóstico pela linha de comando (o `.exe` é um app de janela: para ver a saída, redirecione, ex.: `livescreen.exe --probe-encoder | Out-String` no PowerShell ou `| more` no cmd):
 

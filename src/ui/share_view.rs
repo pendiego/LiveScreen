@@ -9,14 +9,14 @@ use egui::{
 
 use super::theme::{
     self, I_BACK, I_CHECK, I_COPY, I_MONITOR, I_PEOPLE, I_PERSON, I_PLAY, I_REFRESH, I_REMOVE,
-    I_SEARCH, I_SETTINGS, I_STOP, I_VOLUME, I_WARN, I_WINDOW,
+    I_SEARCH, I_STOP, I_VOLUME, I_WARN, I_WINDOW,
 };
 use super::toast::ToastKind;
 use super::{App, Screen};
 use crate::capture::{self, SourceId, SourceInfo};
 use crate::preset::{self, EncodeParams, Preset, viewers_for};
-use crate::speedtest::Upload;
 use crate::share::{AudioState, ShareSession, ShareStatus};
+use crate::speedtest::Upload;
 
 type Thumb = Option<(u32, u32, Vec<u8>)>;
 struct Update {
@@ -220,7 +220,7 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
     // exclui a janela da captura antes de a thread de início criar a captura
     app.sync_capture_exclusion(true);
     let (tx, rx) = channel();
-    let (rt, overrides, ctx2) = (app.rt.clone(), app.overrides, ctx.clone());
+    let (rt, overrides, ctx2) = (app.rt.clone(), app.effective_overrides(), ctx.clone());
     let room = app.prefs.room_limit;
     let (title, source) = (info.title.clone(), info.id.clone());
     app.background.push(std::thread::spawn(move || {
@@ -262,7 +262,7 @@ fn poll_starting(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-fn preset_hint(pr: Preset) -> &'static str {
+pub(super) fn preset_hint(pr: Preset) -> &'static str {
     match pr {
         Preset::P480p30 => "Muito leve; internet fraca",
         Preset::P720p30 => "Leve; redes lentas",
@@ -380,7 +380,10 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
     }
     let busy = app.starting.is_some();
     let (ready, software) = match &*app.encoder.lock().unwrap() {
-        Some(k) => (true, matches!(k, crate::video::encoder::EncoderKind::Software)),
+        Some(k) => (
+            true,
+            matches!(k, crate::video::encoder::EncoderKind::Software),
+        ),
         None => (false, false),
     };
     let upload = *app.upload.lock().unwrap();
@@ -388,58 +391,62 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
     let Some(p) = app.picker.as_mut() else { return };
     p.poll(&ctx);
     let mut go_back = false;
+    let mut open_settings = false;
     let mut start = false;
     let mut remeasure = false;
 
-    egui::Panel::top("picker_top").frame(bar_frame(ui)).show(ui, |ui| {
-        ui.add_enabled_ui(!busy, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
-                if ui.button(format!("{I_BACK}  Voltar")).clicked() {
-                    go_back = true;
-                }
-                ui.vertical(|ui| {
-                    ui.label(RichText::new("Passo 1 de 2").small().weak());
-                    ui.heading("Clique no que você quer compartilhar");
-                });
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui
-                        .button(I_REFRESH)
-                        .on_hover_text("Atualizar lista")
-                        .clicked()
-                    {
-                        let _ = p.refresh.send(());
+    egui::Panel::top("picker_top")
+        .frame(bar_frame(ui))
+        .show(ui, |ui| {
+            ui.add_enabled_ui(!busy, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if ui.button(format!("{I_BACK}  Voltar")).clicked() {
+                        go_back = true;
                     }
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(&mut p.filter)
-                            .hint_text(format!("{I_SEARCH}  Filtrar janelas…"))
-                            .desired_width(220.0),
-                    );
-                    if !p.filter_focused {
-                        resp.request_focus();
-                        p.filter_focused = true;
-                    } else if !resp.has_focus() && !p.confirm {
-                        let mut typed = String::new();
-                        ctx.input(|i| {
-                            for ev in &i.events {
-                                if let egui::Event::Text(t) = ev {
-                                    for c in t.chars() {
-                                        if !c.is_control() {
-                                            typed.push(c);
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("Passo 1 de 2").small().weak());
+                        ui.heading("Clique no que você quer compartilhar");
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        open_settings |= super::settings::icon_button(ui);
+                        if ui
+                            .button(I_REFRESH)
+                            .on_hover_text("Atualizar lista")
+                            .clicked()
+                        {
+                            let _ = p.refresh.send(());
+                        }
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut p.filter)
+                                .hint_text(format!("{I_SEARCH}  Filtrar janelas…"))
+                                .desired_width(220.0),
+                        );
+                        if !p.filter_focused {
+                            resp.request_focus();
+                            p.filter_focused = true;
+                        } else if !resp.has_focus() && !p.confirm {
+                            let mut typed = String::new();
+                            ctx.input(|i| {
+                                for ev in &i.events {
+                                    if let egui::Event::Text(t) = ev {
+                                        for c in t.chars() {
+                                            if !c.is_control() {
+                                                typed.push(c);
+                                            }
                                         }
                                     }
                                 }
+                            });
+                            if !typed.is_empty() {
+                                p.filter.push_str(&typed);
+                                resp.request_focus();
                             }
-                        });
-                        if !typed.is_empty() {
-                            p.filter.push_str(&typed);
-                            resp.request_focus();
                         }
-                    }
+                    });
                 });
             });
         });
-    });
 
     if p.filter != p.applied {
         p.refresh_filter();
@@ -554,6 +561,9 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
             ctx.memory_mut(|m| m.stop_text_input());
         }
     }
+    if open_settings {
+        app.settings_open = true;
+    }
     if go_back {
         app.picker = None;
         app.error = None;
@@ -636,7 +646,7 @@ impl Choices {
 }
 
 /// Teto do seletor de limite da sala; o que manda de verdade é o upload.
-const MAX_ROOM: usize = 99;
+pub(super) const MAX_ROOM: usize = 99;
 
 /// Linha "Sua internet…" e o aviso quando a sala passa do que o upload aguenta.
 /// Devolve true se pediram para medir de novo (só oferecido fora da transmissão).
@@ -754,9 +764,10 @@ fn quality_options(
                 if Some(pr) == recommended {
                     label.push_str("  · recomendado");
                 }
-                let b = egui::Button::selectable(Some(pr) == current, RichText::new(label).strong())
-                    .right_text(RichText::new(preset_hint(pr)).small().weak())
-                    .min_size(vec2(w, 34.0));
+                let b =
+                    egui::Button::selectable(Some(pr) == current, RichText::new(label).strong())
+                        .right_text(RichText::new(preset_hint(pr)).small().weak())
+                        .min_size(vec2(w, 34.0));
                 let r = ui.add(b);
                 focus |= r.has_focus();
                 if r.clicked() {
@@ -1191,12 +1202,13 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                     }
                 }
                 if ui
-                    .button(format!("{I_SETTINGS}  Qualidade: {cur_label}"))
+                    .button(format!("{I_MONITOR}  Qualidade: {cur_label}"))
                     .on_hover_text("Trocar a qualidade sem parar a transmissão")
                     .clicked()
                 {
                     app.quality_open = true;
                 }
+                super::settings::button(app, ui);
             });
         });
     });
@@ -1230,12 +1242,28 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                     ui.columns(2, |cols| {
                         preview_card(&mut cols[0], &st, &app.share_source, &app.share_preview);
                         invite_card(&mut cols[1], &ctx, &st, &mut app.copied_at);
-                        viewers_card(&mut cols[1], &st, &mut kick, &mut app.kick_pending, &mut room, upload, people_now);
+                        viewers_card(
+                            &mut cols[1],
+                            &st,
+                            &mut kick,
+                            &mut app.kick_pending,
+                            &mut room,
+                            upload,
+                            people_now,
+                        );
                     });
                 } else {
                     preview_card(ui, &st, &app.share_source, &app.share_preview);
                     invite_card(ui, &ctx, &st, &mut app.copied_at);
-                    viewers_card(ui, &st, &mut kick, &mut app.kick_pending, &mut room, upload, people_now);
+                    viewers_card(
+                        ui,
+                        &st,
+                        &mut kick,
+                        &mut app.kick_pending,
+                        &mut room,
+                        upload,
+                        people_now,
+                    );
                 }
             });
     });
@@ -1316,6 +1344,22 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             ),
             Err(e) => app.toasts.push(
                 format!("Não foi possível trocar a qualidade: {e}"),
+                ToastKind::Warn,
+            ),
+        }
+    }
+    if let Some(share) = app.share.as_ref()
+        && let Some((who, preset, res)) = share.apply_quality_request()
+    {
+        let who = if who.is_empty() { "Alguém".to_string() } else { who };
+        let name = super::settings::preset_name(preset);
+        match res {
+            Ok(()) => app.toasts.push(
+                format!("{who} pediu {name}: qualidade alterada para todos"),
+                ToastKind::Info,
+            ),
+            Err(e) => app.toasts.push(
+                format!("{who} pediu {name}, mas não foi possível trocar: {e}"),
                 ToastKind::Warn,
             ),
         }

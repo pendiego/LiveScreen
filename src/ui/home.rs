@@ -78,12 +78,16 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                super::settings::button(app, ui);
                 if app.updating.is_some() {
                     ui.label(RichText::new("Baixando atualização…").small().color(weak));
                     ui.add(egui::Spinner::new().size(12.0));
                 } else if let Some(rel) = update
                     && ui
-                        .small_button(format!("{I_UPDATE}  Atualizar para a versão {}", rel.version))
+                        .small_button(format!(
+                            "{I_UPDATE}  Atualizar para a versão {}",
+                            rel.version
+                        ))
                         .on_hover_text("Baixa a versão nova e reinicia o LiveScreen")
                         .clicked()
                 {
@@ -160,6 +164,11 @@ pub fn ended(app: &mut App, ui: &mut egui::Ui) {
     let (message, kind, retry) = (message.clone(), *kind, *retry);
     let mut go_home = false;
     let mut again = false;
+    egui::Panel::bottom("ended_footer").show(ui, |ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            super::settings::button(app, ui);
+        });
+    });
     egui::CentralPanel::default().show(ui, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space((ui.available_height() / 2.0 - 130.0).max(20.0));

@@ -34,6 +34,9 @@ pub struct WatchStatus {
     pub height: u32,
     pub audio: bool,
     pub title: String,
+    pub decoder_hw: bool,
+    pub decode_fps: f32,
+    pub decode_ms: f32,
 }
 
 pub struct WatchSession {
@@ -43,6 +46,7 @@ pub struct WatchSession {
     ep: Endpoint,
     task: JoinHandle<()>,
     gain: Arc<AtomicU32>,
+    quality_tx: tokio::sync::mpsc::UnboundedSender<crate::preset::Preset>,
     stopped: AtomicBool,
 }
 
@@ -67,6 +71,7 @@ impl WatchSession {
         ticket: &str,
         name: &str,
         gain: f32,
+        hardware_decode: bool,
         ctx: egui::Context,
     ) -> Result<WatchSession> {
         let t: EndpointTicket = ticket
@@ -83,9 +88,13 @@ impl WatchSession {
             height: 0,
             audio: false,
             title: String::new(),
+            decoder_hw: false,
+            decode_fps: 0.0,
+            decode_ms: 0.0,
         }));
         let frame = Arc::new(Mutex::new(None));
         let gain = Arc::new(AtomicU32::new(gain.to_bits()));
+        let (quality_tx, quality_rx) = tokio::sync::mpsc::unbounded_channel();
         let task = {
             let (ep, status, frame) = (ep.clone(), status.clone(), frame.clone());
             let (name, gain2) = (name.to_string(), gain.clone());
@@ -98,7 +107,19 @@ impl WatchSession {
                     }
                     ctx.request_repaint();
                 };
-                match run(&ep, addr, &status, frame, ctx.clone(), name, gain2).await {
+                match run(
+                    &ep,
+                    addr,
+                    &status,
+                    frame,
+                    ctx.clone(),
+                    name,
+                    gain2,
+                    hardware_decode,
+                    quality_rx,
+                )
+                .await
+                {
                     Ok(m) => end(m),
                     Err(e) => {
                         warn!("watch: {e:#}");
@@ -114,8 +135,15 @@ impl WatchSession {
             ep,
             task,
             gain,
+            quality_tx,
             stopped: AtomicBool::new(false),
         })
+    }
+
+    /// Pede ao host a qualidade da transmissão; vale para a sala toda e o host pode demorar
+    /// ou ignorar (há um intervalo mínimo entre pedidos).
+    pub fn request_quality(&self, preset: crate::preset::Preset) {
+        let _ = self.quality_tx.send(preset);
     }
 
     pub fn set_gain(&self, g: f32) {
@@ -149,6 +177,8 @@ async fn run(
     ctx: egui::Context,
     name: String,
     gain: Arc<AtomicU32>,
+    hardware_decode: bool,
+    mut quality_rx: tokio::sync::mpsc::UnboundedReceiver<crate::preset::Preset>,
 ) -> Result<String> {
     let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr, ALPN))
         .await
@@ -202,7 +232,15 @@ async fn run(
     let mut vrecv = conn.accept_uni().await?;
     let need_key = Arc::new(AtomicBool::new(true));
     let (tx, rx) = std::sync::mpsc::sync_channel::<EncodedFrame>(8);
-    let dec = decoder::spawn(rx, frame, ctx.clone(), need_key.clone());
+    let dstats = Arc::new(decoder::DecodeStats::default());
+    let dec = decoder::spawn(
+        rx,
+        frame,
+        ctx.clone(),
+        need_key.clone(),
+        dstats.clone(),
+        hardware_decode,
+    );
     let count = Arc::new(AtomicU64::new(0));
 
     let read_loop = async {
@@ -228,14 +266,19 @@ async fn run(
         let mut tick = tokio::time::interval(Duration::from_millis(200));
         let mut last = tokio::time::Instant::now() - Duration::from_secs(2);
         loop {
-            tick.tick().await;
-            if need_key.load(Ordering::SeqCst) && last.elapsed() >= Duration::from_secs(1) {
-                last = tokio::time::Instant::now();
-                if write_msg(&mut send, &ViewerMsg::RequestKeyframe)
-                    .await
-                    .is_err()
-                {
-                    return;
+            tokio::select! {
+                _ = tick.tick() => {
+                    if need_key.load(Ordering::SeqCst) && last.elapsed() >= Duration::from_secs(1) {
+                        last = tokio::time::Instant::now();
+                        if write_msg(&mut send, &ViewerMsg::RequestKeyframe).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                Some(preset) = quality_rx.recv() => {
+                    if write_msg(&mut send, &ViewerMsg::SetQuality { preset }).await.is_err() {
+                        return;
+                    }
                 }
             }
         }
@@ -243,6 +286,9 @@ async fn run(
     let stats_loop = async {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         let mut prev = 0;
+        let (mut prev_frames, mut prev_busy) = (0u64, 0u64);
+        // acumulados desde o último log (a cada 10 s)
+        let (mut acc_frames, mut acc_busy, mut ticks) = (0u64, 0u64, 0u32);
         loop {
             tick.tick().await;
             if dec.is_finished() {
@@ -263,13 +309,37 @@ async fn run(
                     rtt = p.rtt().as_millis() as u32;
                 }
             }
+            let frames = dstats.frames.load(Ordering::Relaxed);
+            let busy = dstats.busy_us.load(Ordering::Relaxed);
+            let (df, db) = (frames - prev_frames, busy - prev_busy);
+            (prev_frames, prev_busy) = (frames, busy);
+            let hw = dstats.hardware.load(Ordering::Relaxed);
             {
                 let mut s = status.lock().unwrap();
                 s.path = path;
                 s.rtt_ms = rtt;
                 s.fps = (c - prev) as f32;
+                s.decoder_hw = hw;
+                s.decode_fps = df as f32;
+                s.decode_ms = if df == 0 {
+                    0.0
+                } else {
+                    db as f32 / df as f32 / 1000.0
+                };
             }
             prev = c;
+            (acc_frames, acc_busy, ticks) = (acc_frames + df, acc_busy + db, ticks + 1);
+            if ticks >= 10 {
+                if acc_frames > 0 {
+                    info!(
+                        "decoder {}: {:.0} quadros/s, {:.1} ms por quadro",
+                        if hw { "hardware" } else { "software" },
+                        acc_frames as f32 / ticks as f32,
+                        acc_busy as f32 / acc_frames as f32 / 1000.0
+                    );
+                }
+                (acc_frames, acc_busy, ticks) = (0, 0, 0);
+            }
             ctx.request_repaint();
         }
     };

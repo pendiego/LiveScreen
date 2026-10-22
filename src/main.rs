@@ -11,8 +11,8 @@ mod protocol;
 mod share;
 mod speedtest;
 mod ui;
-mod video;
 mod update;
+mod video;
 mod watch;
 
 fn init_logging() {

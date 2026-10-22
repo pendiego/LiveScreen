@@ -1,3 +1,4 @@
+//! D3D11 Video Processor: RGB→NV12 para o encoder e NV12→RGB para o viewer (decoder por hardware).
 use std::mem::ManuallyDrop;
 
 use anyhow::{Context as _, Result, bail};
@@ -6,22 +7,30 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_VIDEO_ENCODER, D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV,
     D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_VIDEO_COLOR, D3D11_VIDEO_COLOR_0,
     D3D11_VIDEO_COLOR_RGBA, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
-    D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
-    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC,
-    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_STREAM,
-    D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
-    D3D11_VPOV_DIMENSION_TEXTURE2D, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-    ID3D11VideoContext, ID3D11VideoContext1, ID3D11VideoDevice, ID3D11VideoProcessor,
-    ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorOutputView,
+    D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT,
+    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0,
+    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0,
+    D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
+    D3D11_VPIV_DIMENSION_TEXTURE2D, D3D11_VPOV_DIMENSION_TEXTURE2D, ID3D11Device,
+    ID3D11DeviceContext, ID3D11Texture2D, ID3D11VideoContext, ID3D11VideoContext1,
+    ID3D11VideoDevice, ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator,
+    ID3D11VideoProcessorOutputView,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709,
-    DXGI_FORMAT_NV12, DXGI_RATIONAL, DXGI_SAMPLE_DESC,
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_FORMAT_R8G8B8A8_UNORM,
+    DXGI_RATIONAL, DXGI_SAMPLE_DESC,
 };
 use windows::core::Interface;
 
 /// Cobre a fila do encoder somada à profundidade do MFT assíncrono.
 const POOL: usize = 8;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Target {
+    Nv12,
+    Rgb,
+}
 
 pub struct Converter {
     device: ID3D11Device,
@@ -36,6 +45,8 @@ pub struct Converter {
     processor: Option<ID3D11VideoProcessor>,
     pool: Vec<(ID3D11Texture2D, ID3D11VideoProcessorOutputView)>,
     next: usize,
+    target: Target,
+    out_format: DXGI_FORMAT,
 }
 
 impl Converter {
@@ -59,7 +70,21 @@ impl Converter {
             processor: None,
             pool: Vec::new(),
             next: 0,
+            target: Target::Nv12,
+            out_format: DXGI_FORMAT_NV12,
         })
+    }
+
+    /// Saída RGB no tamanho da fonte (viewer): NV12→RGB na GPU.
+    pub fn new_rgb(device: &ID3D11Device, context: &ID3D11DeviceContext) -> Result<Self> {
+        let mut c = Self::new(device, context, 0, 0, 60)?;
+        c.target = Target::Rgb;
+        Ok(c)
+    }
+
+    /// Formato da textura devolvida por `convert`/`convert_slice`.
+    pub fn out_format(&self) -> DXGI_FORMAT {
+        self.out_format
     }
 
     /// Devolve a próxima textura NV12 do pool (round-robin).
@@ -69,7 +94,17 @@ impl Converter {
         if desc.Width == 0 || desc.Height == 0 {
             bail!("quadro de origem vazio");
         }
-        self.ensure(desc.Width, desc.Height)?;
+        self.convert_slice(src, 0, (desc.Width, desc.Height))
+    }
+
+    /// `size` é o tamanho visível: na saída do decoder a textura (array) pode ser maior.
+    pub fn convert_slice(
+        &mut self,
+        src: &ID3D11Texture2D,
+        slice: u32,
+        size: (u32, u32),
+    ) -> Result<ID3D11Texture2D> {
+        self.ensure(size.0, size.1)?;
 
         let enumerator = self.enumerator.as_ref().context("enumerador de vídeo")?;
         let processor = self.processor.as_ref().context("processador de vídeo")?;
@@ -79,7 +114,7 @@ impl Converter {
             Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 {
                 Texture2D: D3D11_TEX2D_VPIV {
                     MipSlice: 0,
-                    ArraySlice: 0,
+                    ArraySlice: slice,
                 },
             },
         };
@@ -117,6 +152,10 @@ impl Converter {
         if self.processor.is_some() && self.src == (src_w, src_h) {
             return Ok(());
         }
+        if self.target == Target::Rgb {
+            self.out_w = src_w & !1;
+            self.out_h = src_h & !1;
+        }
         let rate = DXGI_RATIONAL {
             Numerator: self.fps,
             Denominator: 1,
@@ -142,9 +181,29 @@ impl Converter {
                 Texture2D: D3D11_TEX2D_VPOV { MipSlice: 0 },
             },
         };
-        let mut pool = Vec::with_capacity(POOL);
-        for _ in 0..POOL {
-            let texture = create_nv12(&self.device, self.out_w, self.out_h)?;
+        let (format, bind, count) = match self.target {
+            Target::Nv12 => (
+                DXGI_FORMAT_NV12,
+                (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_VIDEO_ENCODER.0) as u32,
+                POOL,
+            ),
+            Target::Rgb => {
+                let ok = |f: DXGI_FORMAT| {
+                    unsafe { enumerator.CheckVideoProcessorFormat(f) }.is_ok_and(|s| {
+                        s & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT.0 as u32 != 0
+                    })
+                };
+                let f = [DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM]
+                    .into_iter()
+                    .find(|&f| ok(f))
+                    .context("processador de vídeo sem saída RGB")?;
+                (f, D3D11_BIND_RENDER_TARGET.0 as u32, 1)
+            }
+        };
+        self.out_format = format;
+        let mut pool = Vec::with_capacity(count);
+        for _ in 0..count {
+            let texture = create_output(&self.device, self.out_w, self.out_h, format, bind)?;
             let mut view = None;
             unsafe {
                 self.video_device.CreateVideoProcessorOutputView(
@@ -198,15 +257,20 @@ impl Converter {
             );
             self.video_context
                 .VideoProcessorSetOutputBackgroundColor(&processor, false, &black);
-            self.video_context1.VideoProcessorSetStreamColorSpace1(
-                &processor,
-                0,
-                DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
-            );
-            self.video_context1.VideoProcessorSetOutputColorSpace1(
-                &processor,
-                DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709,
-            );
+            let (stream_cs, out_cs) = match self.target {
+                Target::Nv12 => (
+                    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
+                    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709,
+                ),
+                Target::Rgb => (
+                    DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709,
+                    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
+                ),
+            };
+            self.video_context1
+                .VideoProcessorSetStreamColorSpace1(&processor, 0, stream_cs);
+            self.video_context1
+                .VideoProcessorSetOutputColorSpace1(&processor, out_cs);
         }
 
         self.enumerator = Some(enumerator);
@@ -217,26 +281,32 @@ impl Converter {
     }
 }
 
-fn create_nv12(device: &ID3D11Device, w: u32, h: u32) -> Result<ID3D11Texture2D> {
+fn create_output(
+    device: &ID3D11Device,
+    w: u32,
+    h: u32,
+    format: DXGI_FORMAT,
+    bind: u32,
+) -> Result<ID3D11Texture2D> {
     let desc = D3D11_TEXTURE2D_DESC {
         Width: w,
         Height: h,
         MipLevels: 1,
         ArraySize: 1,
-        Format: DXGI_FORMAT_NV12,
+        Format: format,
         SampleDesc: DXGI_SAMPLE_DESC {
             Count: 1,
             Quality: 0,
         },
         Usage: D3D11_USAGE_DEFAULT,
-        BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_VIDEO_ENCODER.0) as u32,
+        BindFlags: bind,
         CPUAccessFlags: 0,
         MiscFlags: 0,
     };
     let mut texture = None;
     unsafe { device.CreateTexture2D(&desc, None, Some(&mut texture)) }
-        .context("criar textura NV12")?;
-    texture.context("textura NV12")
+        .context("criar textura de saída")?;
+    texture.context("textura de saída")
 }
 
 /// Retângulo centralizado, com proporção da fonte e coordenadas pares.

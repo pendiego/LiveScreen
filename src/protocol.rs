@@ -4,7 +4,7 @@ use iroh::endpoint::{RecvStream, SendStream};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub const ALPN: &[u8] = b"livescreen/1";
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 pub const MAX_MSG: usize = 64 * 1024;
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
@@ -24,6 +24,10 @@ pub enum ViewerMsg {
         name: String,
     },
     RequestKeyframe,
+    /// Pede ao host a qualidade da transmissão (vale para a sala toda; o host aplica).
+    SetQuality {
+        preset: crate::preset::Preset,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]

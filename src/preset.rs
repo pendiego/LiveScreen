@@ -36,6 +36,46 @@ pub struct EncodeParams {
     pub bitrate_bps: u32,
 }
 
+/// Redução real: nenhum de largura, altura, fps e bitrate sobe e ao menos um cai. Comparar
+/// parâmetros efetivos (não a posição do preset), pois uma fonte pequena não é ampliada e
+/// duas opções diferentes podem dar a mesma imagem com fps maior.
+pub fn is_reduction(cur: EncodeParams, new: EncodeParams) -> bool {
+    new.width <= cur.width
+        && new.height <= cur.height
+        && new.fps <= cur.fps
+        && new.bitrate_bps <= cur.bitrate_bps
+        && new != cur
+}
+
+#[cfg(test)]
+mod reduction_tests {
+    use super::*;
+
+    #[test]
+    fn small_source_fps_increase_is_not_a_reduction() {
+        let cur = encode_params(Preset::P1080p30, 1280, 720, 60);
+        let up = encode_params(Preset::P720p60, 1280, 720, 60);
+        assert_eq!((cur.width, cur.height), (up.width, up.height));
+        assert!(!is_reduction(cur, up));
+    }
+
+    #[test]
+    fn lighter_is_accepted_equal_and_heavier_are_not() {
+        let cur = encode_params(Preset::P1080p60, 1920, 1080, 60);
+        assert!(is_reduction(cur, encode_params(Preset::P480p30, 1920, 1080, 60)));
+        assert!(!is_reduction(cur, cur));
+        assert!(!is_reduction(cur, encode_params(Preset::P1440p60, 2560, 1440, 60)));
+    }
+
+    #[test]
+    fn source_grown_since_configuration_is_not_a_reduction() {
+        let cur = encode_params(Preset::P720p30, 1280, 720, 60);
+        assert!(!is_reduction(cur, encode_params(Preset::P720p30, 1920, 1080, 60)));
+        let big = encode_params(Preset::P1080p60, 1920, 1080, 60);
+        assert!(is_reduction(big, encode_params(Preset::P1080p60, 1280, 720, 60)));
+    }
+}
+
 /// Quantas pessoas o upload aguenta: cada uma recebe a própria cópia do vídeo (o bitrate é o
 /// teto, atingido com muito movimento) e do áudio (Opus a 128 kbps, em `audio::capture`).
 /// 20% do upload fica livre para o resto da casa.
@@ -201,18 +241,33 @@ mod tests {
         // ultrawide 32:9 em "1080p": antes virava 1920×540 (metade da área)
         let p = encode_params(Preset::P1080p60, 5120, 1440, 60);
         let area = p.width as u64 * p.height as u64;
-        assert!(area <= 1920 * 1080 && area > 1920 * 1080 * 98 / 100, "{p:?}");
-        assert!((p.width as f64 / p.height as f64 - 32.0 / 9.0).abs() < 0.02, "{p:?}");
+        assert!(
+            area <= 1920 * 1080 && area > 1920 * 1080 * 98 / 100,
+            "{p:?}"
+        );
+        assert!(
+            (p.width as f64 / p.height as f64 - 32.0 / 9.0).abs() < 0.02,
+            "{p:?}"
+        );
     }
 
     #[test]
     fn native_fits_h264_level_5_2() {
         // 4K60 cabe; ultrawide e 8K não cabem e são reduzidos sem distorcer
-        for (sw, sh) in [(3840, 2160), (5120, 1440), (7680, 2160), (7680, 4320), (2160, 3840)] {
+        for (sw, sh) in [
+            (3840, 2160),
+            (5120, 1440),
+            (7680, 2160),
+            (7680, 4320),
+            (2160, 3840),
+        ] {
             let p = encode_params(Preset::Native60, sw, sh, 60);
             let (w, h) = (p.width as u64, p.height as u64);
             assert!(w <= MAX_SIDE && h <= MAX_SIDE, "{sw}x{sh} -> {w}x{h}");
-            assert!(macroblocks(w, h) * 60 <= MAX_MBS_PER_SEC, "{sw}x{sh} -> {w}x{h}");
+            assert!(
+                macroblocks(w, h) * 60 <= MAX_MBS_PER_SEC,
+                "{sw}x{sh} -> {w}x{h}"
+            );
             let (src, out) = (sw as f64 / sh as f64, w as f64 / h as f64);
             assert!((src - out).abs() / src < 0.02, "{sw}x{sh} -> {w}x{h}");
         }
@@ -324,16 +379,26 @@ mod tests {
         // janela pequena: as faixas grandes viram a própria janela e não se repetem
         assert_eq!(
             names(800, 600, 60),
-            ["480p 30fps", "Nativa (800×600) 30fps", "Nativa (800×600) 60fps"]
+            [
+                "480p 30fps",
+                "Nativa (800×600) 30fps",
+                "Nativa (800×600) 60fps"
+            ]
         );
     }
 
     #[test]
     fn saved_choice_maps_to_the_same_image_on_another_monitor() {
         // "Nativa 60" salva num monitor 1440p vira a opção "1080p 60" que aparece num 1080p
-        assert_eq!(normalize(Preset::Native60, 1920, 1080, 60), Preset::P1080p60);
+        assert_eq!(
+            normalize(Preset::Native60, 1920, 1080, 60),
+            Preset::P1080p60
+        );
         // 144 Hz salva, monitor de 60 Hz: dá a mesma imagem que a nativa a 60
-        assert_eq!(normalize(Preset::NativeHigh, 1920, 1080, 60), Preset::P1080p60);
+        assert_eq!(
+            normalize(Preset::NativeHigh, 1920, 1080, 60),
+            Preset::P1080p60
+        );
         assert_eq!(normalize(Preset::P720p60, 1920, 1080, 60), Preset::P720p60);
     }
 }
