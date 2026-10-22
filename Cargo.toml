@@ -1,0 +1,36 @@
+[package]
+name = "livescreen"
+version = "0.1.0"
+edition = "2024"
+description = "Compartilhamento de tela P2P para Windows"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/pendiego/LiveScreen"
+
+[dependencies]
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bytes = "1"
+tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "sync", "time"] }
+iroh = "1.4.1"
+egui = "0.37"
+iroh-tickets = "1.0.0"
+eframe = "0.37"
+arboard = "3.7"
+yuv = "0.8.19"
+wasapi = "0.26"
+opus = "0.4"
+cpal = "0.18.2"
+windows = { version = "=0.62.2", features = [
+  "Foundation", "Foundation_Metadata", "Graphics", "Graphics_Capture", "Graphics_DirectX",
+  "Graphics_DirectX_Direct3D11", "Win32_Foundation", "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common",
+  "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_Media_MediaFoundation",
+  "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_System_Threading",
+  "Win32_System_WinRT", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture",
+  "Win32_UI_WindowsAndMessaging", "Win32_Storage_Xps", "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant", "Win32_UI_HiDpi", "Security_Authorization_AppCapabilityAccess",
+] }
