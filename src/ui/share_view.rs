@@ -9,13 +9,14 @@ use egui::{
 
 use super::theme::{
     self, I_BACK, I_CHECK, I_COPY, I_MONITOR, I_PEOPLE, I_PERSON, I_PLAY, I_REFRESH, I_REMOVE,
-    I_SEARCH, I_STOP, I_VOLUME, I_WARN, I_WINDOW,
+    I_SEARCH, I_SETTINGS, I_STOP, I_VOLUME, I_WARN, I_WINDOW,
 };
 use super::toast::ToastKind;
 use super::{App, Screen};
 use crate::capture::{self, SourceId, SourceInfo};
-use crate::preset::Preset;
-use crate::share::{AudioState, MAX_VIEWERS, ShareSession, ShareStatus};
+use crate::preset::{self, EncodeParams, Preset, viewers_for};
+use crate::speedtest::Upload;
+use crate::share::{AudioState, ShareSession, ShareStatus};
 
 type Thumb = Option<(u32, u32, Vec<u8>)>;
 struct Update {
@@ -41,6 +42,9 @@ pub struct Picker {
     windows: Vec<usize>,
     pub preset: Preset,
     pub audio: bool,
+    /// Popup de confirmação (passo 2) aberto.
+    pub confirm: bool,
+    opened: Instant,
 }
 
 impl Picker {
@@ -78,6 +82,8 @@ impl Picker {
             windows: vec![],
             preset,
             audio,
+            confirm: false,
+            opened: Instant::now(),
         }
     }
 
@@ -131,10 +137,6 @@ impl Picker {
             })
             .collect();
         self.applied.clone_from(&self.filter);
-    }
-
-    fn selected_is_window(&self) -> bool {
-        matches!(self.selected, Some(SourceId::Window { .. }))
     }
 }
 
@@ -219,9 +221,10 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
     app.sync_capture_exclusion(true);
     let (tx, rx) = channel();
     let (rt, overrides, ctx2) = (app.rt.clone(), app.overrides, ctx.clone());
+    let room = app.prefs.room_limit;
     let (title, source) = (info.title.clone(), info.id.clone());
     app.background.push(std::thread::spawn(move || {
-        let res = ShareSession::start(&rt, info, preset, audio, kind, overrides);
+        let res = ShareSession::start(&rt, info, preset, audio, kind, overrides, room);
         ctx2.request_repaint();
         if let Err(std::sync::mpsc::SendError(Ok(s))) = tx.send(res) {
             s.stop();
@@ -261,9 +264,15 @@ fn poll_starting(app: &mut App, ctx: &egui::Context) {
 
 fn preset_hint(pr: Preset) -> &'static str {
     match pr {
-        Preset::P1080p60 => "Melhor imagem; exige mais da rede e da GPU",
-        Preset::P720p30 => "Leve; boa para redes lentas",
-        Preset::Native60 => "Resolução original da fonte; mais pesado",
+        Preset::P480p30 => "Muito leve; internet fraca",
+        Preset::P720p30 => "Leve; redes lentas",
+        Preset::P720p60 => "Leve e fluida; jogos",
+        Preset::P1080p30 => "Nítida; textos e slides",
+        Preset::P1080p60 => "Nítida e fluida",
+        Preset::P1440p60 => "Muito nítida; telas QHD",
+        Preset::P2160p60 => "4K; rede e GPU fortes",
+        Preset::Native60 => "Resolução da fonte",
+        Preset::NativeHigh => "Taxa do seu monitor; a mais fluida",
     }
 }
 
@@ -370,11 +379,17 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     let busy = app.starting.is_some();
-    let ready = app.encoder.lock().unwrap().is_some();
+    let (ready, software) = match &*app.encoder.lock().unwrap() {
+        Some(k) => (true, matches!(k, crate::video::encoder::EncoderKind::Software)),
+        None => (false, false),
+    };
+    let upload = *app.upload.lock().unwrap();
+    let room = app.prefs.room_limit;
     let Some(p) = app.picker.as_mut() else { return };
     p.poll(&ctx);
     let mut go_back = false;
     let mut start = false;
+    let mut remeasure = false;
 
     egui::Panel::top("picker_top").frame(bar_frame(ui)).show(ui, |ui| {
         ui.add_enabled_ui(!busy, |ui| {
@@ -383,7 +398,10 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
                 if ui.button(format!("{I_BACK}  Voltar")).clicked() {
                     go_back = true;
                 }
-                ui.heading("Escolha o que compartilhar");
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Passo 1 de 2").small().weak());
+                    ui.heading("Clique no que você quer compartilhar");
+                });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui
                         .button(I_REFRESH)
@@ -400,7 +418,7 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
                     if !p.filter_focused {
                         resp.request_focus();
                         p.filter_focused = true;
-                    } else if !resp.has_focus() {
+                    } else if !resp.has_focus() && !p.confirm {
                         let mut typed = String::new();
                         ctx.input(|i| {
                             for ev in &i.events {
@@ -427,67 +445,7 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
         p.refresh_filter();
     }
 
-    egui::Panel::bottom("picker_bottom").frame(bar_frame(ui)).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 12.0;
-            ui.add_enabled_ui(!busy, |ui| {
-                ui.label("Qualidade");
-                egui::ComboBox::from_id_salt("preset")
-                    .selected_text(p.preset.label())
-                    .show_ui(ui, |ui| {
-                        for pr in Preset::ALL {
-                            ui.selectable_value(&mut p.preset, pr, pr.label())
-                                .on_hover_text(preset_hint(pr));
-                        }
-                    })
-                    .response
-                    .on_hover_text(preset_hint(p.preset));
-                let (icon, target) = if p.selected_is_window() {
-                    (I_WINDOW, "áudio do app")
-                } else {
-                    (I_MONITOR, "áudio do sistema")
-                };
-                let label = format!("{icon}  Compartilhar {target}");
-                ui.checkbox(&mut p.audio, label).on_hover_text(
-                    "Janela: só o som desse aplicativo. Tela: todo o som do computador.",
-                );
-            });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if busy {
-                    ui.label("Iniciando…");
-                    ui.add(egui::Spinner::new());
-                } else {
-                    let can = p.selected.is_some() && ready;
-                    let r = ui
-                        .add_enabled_ui(can, |ui| {
-                            theme::primary_button(
-                                ui,
-                                &format!("{I_PLAY}  Iniciar compartilhamento"),
-                            )
-                        })
-                        .inner;
-                    if r.clicked() {
-                        start = true;
-                    }
-                    if !can {
-                        let hint = if ready {
-                            "Selecione uma tela ou janela"
-                        } else {
-                            "Detectando encoder…"
-                        };
-                        r.on_hover_text(hint);
-                    }
-                    if !ready {
-                        ui.label(RichText::new("Detectando encoder…").weak());
-                        ui.add(egui::Spinner::new().size(14.0));
-                    }
-                }
-                if let Some(e) = &app.error {
-                    ui.label(RichText::new(e).color(ui.visuals().error_fg_color));
-                }
-            });
-        });
-    });
+    let modal_open = p.confirm;
 
     let mut new_sel: Option<usize> = None;
     egui::CentralPanel::default().show(ui, |ui| {
@@ -521,7 +479,6 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
                                     if click || double {
                                         new_sel = Some(i);
                                     }
-                                    start |= double;
                                 }
                             });
                             ui.add_space(8.0);
@@ -547,20 +504,43 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
                                     if click || double {
                                         new_sel = Some(i);
                                     }
-                                    start |= double;
                                 }
                             });
                         });
                 });
         });
     });
-    if let Some(i) = new_sel {
+    // o 2º clique de um duplo clique no "Compartilhar" da home cairia num cartão e já abriria
+    // a confirmação de uma fonte que a pessoa nem viu
+    if let Some(i) = new_sel
+        && p.opened.elapsed() >= Duration::from_millis(400)
+    {
         p.selected = Some(p.sources[i].id.clone());
+        p.confirm = true;
+        // o filtro de janelas, atrás do popup, não pode continuar recebendo as teclas
+        ctx.memory_mut(|m| m.stop_text_input());
+        app.error = None;
     }
     ctx.request_repaint_after(Duration::from_millis(500));
 
-    if !busy {
-        let can = p.selected.is_some() && ready;
+    if modal_open {
+        let (s, close, again) = confirm_modal(
+            p,
+            &ctx,
+            busy,
+            ready,
+            app.error.as_deref(),
+            software,
+            upload,
+            room,
+        );
+        remeasure = again;
+        start |= s;
+        if close && !busy {
+            p.confirm = false;
+            app.error = None;
+        }
+    } else if !busy {
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             if !p.filter.is_empty() {
                 p.filter.clear();
@@ -569,16 +549,348 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
                 go_back = true;
             }
         }
-        if can && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-            start = true;
+        if p.selected.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+            p.confirm = true;
+            ctx.memory_mut(|m| m.stop_text_input());
         }
     }
     if go_back {
         app.picker = None;
+        app.error = None;
         app.screen = Screen::Home;
     } else if start && !busy && ready {
         begin_start(app, &ctx);
     }
+    if remeasure {
+        app.measure_upload(&ctx);
+    }
+}
+
+/// Opções de qualidade desta fonte (tamanho e Hz do monitor) e o que cada uma custa.
+struct Choices {
+    list: Vec<(Preset, EncodeParams)>,
+    src: (u32, u32),
+    upload: Upload,
+}
+
+/// Pixels por segundo: mede o peso de uma opção para o encoder.
+fn pixel_rate(p: &EncodeParams) -> u64 {
+    p.width as u64 * p.height as u64 * p.fps as u64
+}
+
+impl Choices {
+    fn new(sw: u32, sh: u32, hz: u32, upload: Upload) -> Self {
+        Choices {
+            list: preset::options(sw, sh, hz),
+            src: (sw, sh),
+            upload,
+        }
+    }
+
+    fn params(&self, pr: Preset) -> Option<&EncodeParams> {
+        self.list.iter().find(|(p, _)| *p == pr).map(|(_, e)| e)
+    }
+
+    fn label(&self, pr: Preset) -> String {
+        match self.params(pr) {
+            Some(e) => preset::label(pr, e, self.src.0, self.src.1),
+            None => format!("{pr:?}"),
+        }
+    }
+
+    /// Pessoas que o upload medido aguenta nesta opção; `None` sem medição.
+    fn people(&self, pr: Preset) -> Option<usize> {
+        let Upload::Done(bps) = self.upload else {
+            return None;
+        };
+        self.params(pr).map(|e| viewers_for(bps, e.bitrate_bps))
+    }
+
+    /// A mais pesada que este PC e esta internet sustentam, até o peso de 1080p60: sem
+    /// encoder na placa o processador só aguenta até 720p30, e a internet precisa dar conta
+    /// da sala inteira.
+    fn recommended(&self, software: bool, room: usize) -> Preset {
+        let cap = if software {
+            1280 * 720 * 30
+        } else {
+            1920 * 1080 * 60
+        };
+        self.list
+            .iter()
+            .filter(|(pr, e)| pixel_rate(e) <= cap && self.people(*pr).is_none_or(|n| n >= room))
+            .max_by_key(|(_, e)| pixel_rate(e))
+            .or(self.list.first())
+            .map_or(Preset::P720p30, |(pr, _)| *pr)
+    }
+
+    /// Próxima opção mais leve para o encoder que a configuração em uso, para quem está
+    /// perdendo quadros.
+    fn lighter_than(&self, applied: &EncodeParams) -> Option<Preset> {
+        let cur = pixel_rate(applied);
+        self.list
+            .iter()
+            .filter(|(_, e)| pixel_rate(e) < cur)
+            .max_by_key(|(_, e)| pixel_rate(e))
+            .map(|(pr, _)| *pr)
+    }
+}
+
+/// Teto do seletor de limite da sala; o que manda de verdade é o upload.
+const MAX_ROOM: usize = 99;
+
+/// Linha "Sua internet…" e o aviso quando a sala passa do que o upload aguenta.
+/// Devolve true se pediram para medir de novo (só oferecido fora da transmissão).
+fn upload_line(
+    ui: &mut egui::Ui,
+    upload: Upload,
+    people_now: Option<usize>,
+    room: usize,
+    allow_remeasure: bool,
+) -> bool {
+    let warn = ui.visuals().warn_fg_color;
+    let mut again = false;
+    match (upload, people_now) {
+        (Upload::Measuring, _) => {
+            ui.horizontal(|ui| {
+                ui.add(egui::Spinner::new().size(12.0));
+                ui.label(RichText::new("Medindo sua internet…").small().weak());
+            });
+        }
+        (Upload::Done(bps), Some(n)) => {
+            let mbps = bps as f64 / 1e6;
+            ui.horizontal_wrapped(|ui| {
+                let text = match n {
+                    0 => format!(
+                        "{I_WARN}  Sua internet envia ~{mbps:.0} Mbps: não aguenta nem 1 pessoa nesta qualidade."
+                    ),
+                    1 => format!("Sua internet envia ~{mbps:.0} Mbps: aguenta 1 pessoa nesta qualidade."),
+                    _ => format!(
+                        "Sua internet envia ~{mbps:.0} Mbps: aguenta até {n} pessoas nesta qualidade."
+                    ),
+                };
+                let rt = RichText::new(text).small();
+                ui.label(if n == 0 { rt.color(warn) } else { rt.weak() });
+                if allow_remeasure && ui.small_button("Medir de novo").clicked() {
+                    again = true;
+                }
+            });
+            if n > 0 && room > n {
+                ui.label(
+                    RichText::new(format!(
+                        "{I_WARN}  A sala aceita {room}: com mais de {n} pessoas assistindo, a imagem pode travar para todos. Reduza a qualidade ou o limite."
+                    ))
+                    .small()
+                    .color(warn),
+                );
+            }
+        }
+        (Upload::Failed, _) => {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new("Não foi possível medir sua internet.")
+                        .small()
+                        .weak(),
+                );
+                if allow_remeasure && ui.small_button("Tentar de novo").clicked() {
+                    again = true;
+                }
+            });
+        }
+        _ => {}
+    }
+    again
+}
+
+/// Aviso de PC sem fôlego, com atalho para o popup de qualidade.
+fn overload_banner(ui: &mut egui::Ui, has_lighter: bool, quality_open: &mut bool) {
+    let p = theme::palette(ui);
+    egui::Frame::new()
+        .fill(p.warn.linear_multiply(0.15))
+        .stroke(Stroke::new(1.0, p.warn))
+        .corner_radius(8)
+        .inner_margin(egui::Margin::same(12))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                let msg = if has_lighter {
+                    "O computador não está dando conta desta qualidade e quem assiste vê travadas."
+                } else {
+                    "O computador não está dando conta nem da qualidade mais leve. Feche programas pesados."
+                };
+                ui.label(RichText::new(format!("{I_WARN}  {msg}")).color(p.warn));
+                if has_lighter {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("Reduzir qualidade").clicked() {
+                            *quality_open = true;
+                        }
+                    });
+                }
+            });
+        });
+    ui.add_space(8.0);
+}
+
+/// Opções de qualidade como botões; devolve (escolhida no clique, alguma tem foco).
+fn quality_options(
+    ui: &mut egui::Ui,
+    current: Option<Preset>,
+    recommended: Option<Preset>,
+    choices: &Choices,
+) -> (Option<Preset>, bool) {
+    let (mut picked, mut focus) = (None, false);
+    egui::ScrollArea::vertical()
+        .max_height(300.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            let w = ui.available_width();
+            for &(pr, _) in &choices.list {
+                let mut label = choices.label(pr);
+                match choices.people(pr) {
+                    Some(0) => label.push_str("  · ninguém"),
+                    Some(1) => label.push_str("  · até 1 pessoa"),
+                    Some(n) => label.push_str(&format!("  · até {n} pessoas")),
+                    None => {}
+                }
+                if Some(pr) == recommended {
+                    label.push_str("  · recomendado");
+                }
+                let b = egui::Button::selectable(Some(pr) == current, RichText::new(label).strong())
+                    .right_text(RichText::new(preset_hint(pr)).small().weak())
+                    .min_size(vec2(w, 34.0));
+                let r = ui.add(b);
+                focus |= r.has_focus();
+                if r.clicked() {
+                    picked = Some(pr);
+                }
+            }
+        });
+    (picked, focus)
+}
+
+/// Passo 2: confirma fonte, qualidade e áudio. Devolve (iniciar, fechar, medir de novo).
+fn confirm_modal(
+    p: &mut Picker,
+    ctx: &egui::Context,
+    busy: bool,
+    ready: bool,
+    error: Option<&str>,
+    software: bool,
+    upload: Upload,
+    room: usize,
+) -> (bool, bool, bool) {
+    let Some(info) = p
+        .selected
+        .as_ref()
+        .and_then(|id| p.sources.iter().find(|s| &s.id == id))
+        .cloned()
+    else {
+        return (false, true, false);
+    };
+    let is_window = matches!(info.id, SourceId::Window { .. });
+    let (mut start, mut close, mut focus_in, mut remeasure) = (false, false, false, false);
+    let (sw, sh) = capture::source_size(&info.id).unwrap_or((1920, 1080));
+    let hz = capture::refresh_rate(&info.id);
+    let choices = Choices::new(sw, sh, hz, upload);
+    // preferência salva em outro monitor: a opção daqui com a mesma imagem
+    p.preset = preset::normalize(p.preset, sw, sh, hz);
+    let rec = ready.then(|| choices.recommended(software, room));
+    let modal = egui::Modal::new(egui::Id::unique("confirm_share")).show(ctx, |ui| {
+        ui.set_width(640.0);
+        ui.label(RichText::new("Passo 2 de 2").small().weak());
+        ui.heading("Confirmar transmissão");
+        ui.add_space(8.0);
+        ui.add_enabled_ui(!busy, |ui| {
+            ui.horizontal(|ui| {
+                let (icon, kind) = if is_window {
+                    (I_WINDOW, "Janela")
+                } else {
+                    (I_MONITOR, "Tela")
+                };
+                match p.textures.get(&info.id).filter(|_| !info.minimized) {
+                    Some(t) => {
+                        let sz = t.size_vec2();
+                        let h = 72.0;
+                        ui.add(
+                            egui::Image::new((t.id(), vec2(h * sz.x / sz.y.max(1.0), h)))
+                                .corner_radius(4),
+                        );
+                    }
+                    None => {
+                        ui.label(RichText::new(icon).size(40.0).weak());
+                    }
+                }
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(format!("{icon}  {kind}")).small().weak());
+                    ui.add(egui::Label::new(RichText::new(&info.title).strong()).truncate());
+                    ui.add(egui::Label::new(RichText::new(&info.subtitle).weak()).truncate());
+                });
+            });
+            ui.add_space(12.0);
+            ui.label(RichText::new("Qualidade").strong());
+            if software {
+                ui.label(
+                    RichText::new(format!(
+                        "{I_WARN}  Sem encoder de vídeo na placa: o processador faz o trabalho, prefira a qualidade leve."
+                    ))
+                    .small()
+                    .color(ui.visuals().warn_fg_color),
+                );
+            }
+            let (picked, f) = quality_options(ui, Some(p.preset), rec, &choices);
+            focus_in |= f;
+            if let Some(pr) = picked {
+                p.preset = pr;
+            }
+            let people_now = choices.people(p.preset);
+            remeasure = upload_line(ui, upload, people_now, room, true);
+            ui.add_space(8.0);
+            let target = if is_window {
+                "o áudio deste app"
+            } else {
+                "todo o áudio do computador"
+            };
+            focus_in |= ui
+                .checkbox(&mut p.audio, format!("{I_VOLUME}  Transmitir {target}"))
+                .has_focus();
+        });
+        ui.add_space(12.0);
+        if let Some(e) = error {
+            ui.label(RichText::new(e).color(ui.visuals().error_fg_color));
+            ui.add_space(4.0);
+        }
+        ui.horizontal(|ui| {
+            if busy {
+                ui.add(egui::Spinner::new());
+                ui.label("Iniciando…");
+                return;
+            }
+            let back = ui.button(format!("{I_BACK}  Trocar"));
+            focus_in |= back.has_focus();
+            if back.clicked() {
+                close = true;
+            }
+            let r = ui
+                .add_enabled_ui(ready, |ui| {
+                    theme::primary_button(ui, &format!("{I_PLAY}  Iniciar transmissão"))
+                })
+                .inner;
+            focus_in |= r.has_focus();
+            if r.clicked() {
+                start = true;
+            }
+            if !ready {
+                ui.add(egui::Spinner::new().size(14.0));
+                ui.label(RichText::new("Detectando encoder…").weak());
+            }
+        });
+    });
+    // Enter é atalho de "Iniciar" só sem foco em um controle do popup; com foco, o Enter
+    // ativa o próprio controle (opção, áudio, Trocar) e não pode iniciar por tabela.
+    if !busy && ready && !focus_in && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        start = true;
+    }
+    let close = close || modal.should_close();
+    (start && !close, close, remeasure)
 }
 
 fn format_elapsed(secs: u64) -> String {
@@ -596,7 +908,7 @@ fn invite_card(
         ui.heading("Convide quem vai assistir");
         ui.label(
             RichText::new(
-                "Envie este código. Ele só funciona enquanto este compartilhamento estiver ativo.",
+                "Cole (Ctrl+V) para quem vai assistir. O código só funciona enquanto esta transmissão estiver ativa.",
             )
             .weak(),
         );
@@ -608,7 +920,7 @@ fn invite_card(
                 });
             }
             Some(t) => {
-                ui.label(RichText::new("Código pronto").strong());
+                ui.label(RichText::new("Código pronto e já copiado").strong());
                 let copied = copied_at
                     .as_ref()
                     .map_or(false, |t| t.elapsed() < Duration::from_secs(2));
@@ -650,6 +962,9 @@ fn viewers_card(
     st: &ShareStatus,
     kick: &mut Option<String>,
     kick_pending: &mut Option<(String, Instant)>,
+    room: &mut usize,
+    upload: Upload,
+    people_now: Option<usize>,
 ) {
     if let Some((_, t)) = kick_pending {
         if t.elapsed() >= Duration::from_secs(3) {
@@ -662,15 +977,38 @@ fn viewers_card(
     theme::card(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.heading(format!(
-            "{I_PEOPLE}  Espectadores ({}/{})",
+            "{I_PEOPLE}  Espectadores ({} de {})",
             st.viewers.len(),
-            MAX_VIEWERS
+            room
         ));
+        ui.horizontal(|ui| {
+            ui.label("Limite da sala");
+            if ui
+                .add_enabled(*room > 1, egui::Button::new("−"))
+                .on_hover_text("Quem já está assistindo continua")
+                .clicked()
+            {
+                *room -= 1;
+            }
+            ui.label(RichText::new(room.to_string()).strong());
+            if ui
+                .add_enabled(*room < MAX_ROOM, egui::Button::new("+"))
+                .clicked()
+            {
+                *room += 1;
+            }
+        });
+        upload_line(ui, upload, people_now, *room, false);
         if st.viewers.is_empty() {
+            let who = if *room == 1 {
+                "1 pessoa".to_string()
+            } else {
+                format!("até {room} pessoas")
+            };
             ui.label(
-                RichText::new(
-                    "Ninguém assistindo ainda. Envie o código de convite para até 4 pessoas.",
-                )
+                RichText::new(format!(
+                    "Ninguém assistindo ainda. Envie o código de convite para {who}."
+                ))
                 .weak(),
             );
         }
@@ -797,6 +1135,39 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         app.known_viewers = current;
     }
 
+    // código copiado sozinho assim que fica pronto: falta só colar para quem vai assistir
+    if let Some(t) = &st.ticket
+        && !app.code_auto_copied
+    {
+        ctx.copy_text(t.clone());
+        app.copied_at = Some(Instant::now());
+        app.code_auto_copied = true;
+        app.toasts.push(
+            "Código de convite copiado: é só colar para quem vai assistir",
+            ToastKind::Info,
+        );
+    }
+
+    let (sw, sh, hz) = share.source_shape();
+    let upload = *app.upload.lock().unwrap();
+    // opções para o tamanho atual da fonte (o que a pessoa pode escolher agora)
+    let choices = Choices::new(sw, sh, hz, upload);
+    // transmissão atual: o que o encoder usa de fato; a janela pode ter mudado de tamanho e
+    // a mesma imagem pode ter outro bitrate ("Nativa" pequena tem piso de 6 Mbps)
+    let (applied_preset, applied, applied_src) = share.current();
+    let cur_label = preset::label(applied_preset, &applied, applied_src.0, applied_src.1);
+    let people_now = match upload {
+        Upload::Done(bps) => Some(viewers_for(bps, applied.bitrate_bps)),
+        _ => None,
+    };
+    // marcada na lista só se for exatamente a configuração em uso
+    let cur_choice = choices
+        .list
+        .iter()
+        .find(|(_, e)| *e == applied)
+        .map(|(pr, _)| *pr);
+    let mut room = app.prefs.room_limit;
+    let mut picked: Option<Preset> = None;
     let mut stop = false;
     let mut kick: Option<String> = None;
     egui::Panel::top("share_top").show(ui, |ui| {
@@ -812,7 +1183,19 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if theme::danger_button(ui, &format!("{I_STOP}  Parar")).clicked() {
-                    stop = true;
+                    // sem ninguém assistindo não há o que perder: para direto
+                    if st.viewers.is_empty() {
+                        stop = true;
+                    } else {
+                        app.confirm_stop = true;
+                    }
+                }
+                if ui
+                    .button(format!("{I_SETTINGS}  Qualidade: {cur_label}"))
+                    .on_hover_text("Trocar a qualidade sem parar a transmissão")
+                    .clicked()
+                {
+                    app.quality_open = true;
                 }
             });
         });
@@ -836,19 +1219,107 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                if st.overloaded {
+                    overload_banner(
+                        ui,
+                        choices.lighter_than(&applied).is_some(),
+                        &mut app.quality_open,
+                    );
+                }
                 if ui.available_width() >= 900.0 {
                     ui.columns(2, |cols| {
                         preview_card(&mut cols[0], &st, &app.share_source, &app.share_preview);
                         invite_card(&mut cols[1], &ctx, &st, &mut app.copied_at);
-                        viewers_card(&mut cols[1], &st, &mut kick, &mut app.kick_pending);
+                        viewers_card(&mut cols[1], &st, &mut kick, &mut app.kick_pending, &mut room, upload, people_now);
                     });
                 } else {
                     preview_card(ui, &st, &app.share_source, &app.share_preview);
                     invite_card(ui, &ctx, &st, &mut app.copied_at);
-                    viewers_card(ui, &st, &mut kick, &mut app.kick_pending);
+                    viewers_card(ui, &st, &mut kick, &mut app.kick_pending, &mut room, upload, people_now);
                 }
             });
     });
+
+    // popup de qualidade: a escolha aplica na hora e fecha (abrir + escolher = 2 cliques)
+    if app.quality_open {
+        let mut close = false;
+        let modal = egui::Modal::new(egui::Id::unique("live_quality")).show(&ctx, |ui| {
+            ui.set_width(640.0);
+            ui.heading("Qualidade da transmissão");
+            ui.label(
+                RichText::new("Vale na hora; quem está assistindo vê uma pausa curta.").weak(),
+            );
+            ui.add_space(8.0);
+            let rec = if st.overloaded {
+                choices.lighter_than(&applied)
+            } else {
+                Some(choices.recommended(st.encoder.starts_with("software"), room))
+            };
+            if let (Some(pr), _) = quality_options(ui, cur_choice, rec, &choices) {
+                picked = Some(pr);
+                close = true;
+            }
+            ui.add_space(8.0);
+            if ui.button("Cancelar").clicked() {
+                close = true;
+            }
+        });
+        if close || modal.should_close() {
+            app.quality_open = false;
+        }
+    }
+    if room != app.prefs.room_limit {
+        app.prefs.room_limit = room;
+        if let Some(s) = app.share.as_ref() {
+            s.set_max_viewers(room);
+        }
+        app.save_prefs();
+    }
+    if app.confirm_stop {
+        let (mut cancel, mut confirm) = (false, false);
+        let n = st.viewers.len();
+        let modal = egui::Modal::new(egui::Id::unique("confirm_stop")).show(&ctx, |ui| {
+            ui.set_width(360.0);
+            ui.heading("Encerrar a transmissão?");
+            let who = if n == 1 {
+                "A pessoa que está assistindo será desconectada.".to_string()
+            } else {
+                format!("As {n} pessoas que estão assistindo serão desconectadas.")
+            };
+            ui.label(who);
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Continuar transmitindo").clicked() {
+                    cancel = true;
+                }
+                if theme::danger_button(ui, &format!("{I_STOP}  Encerrar")).clicked() {
+                    confirm = true;
+                }
+            });
+        });
+        if confirm {
+            stop = true;
+        } else if cancel || modal.should_close() {
+            app.confirm_stop = false;
+        }
+    }
+
+    if let Some(new_preset) = picked
+        && picked != cur_choice
+        && let Some(share) = app.share.as_ref()
+    {
+        let new_label = choices.label(new_preset);
+        match share.set_preset(new_preset) {
+            Ok(()) => app.toasts.push(
+                format!("Qualidade alterada para {new_label}"),
+                ToastKind::Info,
+            ),
+            Err(e) => app.toasts.push(
+                format!("Não foi possível trocar a qualidade: {e}"),
+                ToastKind::Warn,
+            ),
+        }
+    }
     if let Some(id) = kick {
         if let Some(share) = app.share.as_ref() {
             share.kick(&id);

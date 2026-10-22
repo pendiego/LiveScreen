@@ -74,6 +74,10 @@ pub fn start(source: &SourceId, device: &ID3D11Device, sink: SinkHandle) -> Resu
     if property_present("IsCursorCaptureEnabled") {
         let _ = session.SetIsCursorCaptureEnabled(true);
     }
+    // sem isto o WGC limita a entrega de quadros e a "Nativa (monitor)" não passa disso
+    if property_present("MinUpdateInterval") {
+        let _ = session.SetMinUpdateInterval(windows::Foundation::TimeSpan { Duration: 10_000 });
+    }
 
     let frame_sink = sink.clone();
     let sendable_device = crate::gpu::Sendable(winrt);

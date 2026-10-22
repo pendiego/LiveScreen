@@ -15,6 +15,8 @@ pub struct Prefs {
     pub muted: bool,
     /// Última janela em estado normal: x e y externos, largura e altura internas (pontos).
     pub window: Option<[f32; 4]>,
+    /// Limite de pessoas na sala; quem transmite aumenta quando quiser.
+    pub room_limit: usize,
 }
 
 impl Default for Prefs {
@@ -26,6 +28,7 @@ impl Default for Prefs {
             volume: 1.0,
             muted: false,
             window: None,
+            room_limit: 4,
         }
     }
 }

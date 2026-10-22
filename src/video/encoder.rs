@@ -248,7 +248,7 @@ impl Encoder {
                 match unsafe { events.GetEvent(MF_EVENT_FLAG_NO_WAIT) } {
                     Ok(ev) => match unsafe { ev.GetType() }.unwrap_or(0) {
                         t if t == METransformNeedInput.0 as u32 => need_input = true,
-                        t if t == METransformHaveOutput.0 as u32 => self.drain(),
+                        t if t == METransformHaveOutput.0 as u32 => self.drain(true),
                         _ => {}
                     },
                     Err(_) => break,
@@ -272,7 +272,7 @@ impl Encoder {
             match unsafe { events.GetEvent(MF_EVENT_FLAG_NONE) } {
                 Ok(ev) => match unsafe { ev.GetType() }.unwrap_or(0) {
                     t if t == METransformNeedInput.0 as u32 => need_input = true,
-                    t if t == METransformHaveOutput.0 as u32 => self.drain(),
+                    t if t == METransformHaveOutput.0 as u32 => self.drain(true),
                     _ => {}
                 },
                 Err(e) => {
@@ -291,7 +291,7 @@ impl Encoder {
                         warn!("encoder: {e:#}");
                         break;
                     }
-                    self.drain();
+                    self.drain(false);
                 }
                 Feed::Stop => break,
                 Feed::Idle => continue,
@@ -362,20 +362,25 @@ impl Encoder {
         match unsafe { self.t.ProcessInput(self.input_id, &sample, 0) } {
             Ok(()) => Ok(()),
             Err(e) if e.code() == MF_E_NOTACCEPTING => {
-                self.drain();
+                self.drain(false);
                 unsafe { self.t.ProcessInput(self.input_id, &sample, 0) }.map_err(Into::into)
             }
             Err(e) => Err(e.into()),
         }
     }
 
-    fn drain(&mut self) {
+    /// `one`: MFT assíncrono (todo encoder de GPU) aceita exatamente um `ProcessOutput` por
+    /// `METransformHaveOutput`; chamar de novo devolve E_UNEXPECTED (0x8000FFFF) a cada quadro.
+    fn drain(&mut self, one: bool) {
         loop {
             let out = mf::process_output(&self.t, &mut self.spare);
             match out {
                 Ok(mf::OutputResult::Sample(s)) => {
                     if let Err(e) = self.emit(&s) {
                         warn!("encoder: {e:#}");
+                    }
+                    if one {
+                        break;
                     }
                 }
                 Ok(mf::OutputResult::NeedMoreInput) => break,

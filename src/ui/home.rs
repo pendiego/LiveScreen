@@ -1,6 +1,6 @@
 use egui::{Align2, CursorIcon, FontId, RichText, Sense, Stroke, vec2};
 
-use super::theme::{self, I_CHECK, I_ERROR, I_INFO, I_SHARE, I_WARN, I_WATCH};
+use super::theme::{self, I_CHECK, I_ERROR, I_INFO, I_SHARE, I_UPDATE, I_WARN, I_WATCH};
 use super::{App, EndKind, Screen};
 use crate::video::encoder::EncoderKind;
 
@@ -45,6 +45,7 @@ fn tile(ui: &mut egui::Ui, icon: &str, title: &str, desc: &str) -> bool {
 
 pub fn home(app: &mut App, ui: &mut egui::Ui) {
     let enc = app.encoder.lock().unwrap().clone();
+    let update = app.update.lock().unwrap().clone();
     egui::Panel::bottom("home_footer").show(ui, |ui| {
         ui.horizontal(|ui| {
             let weak = ui.visuals().weak_text_color();
@@ -76,6 +77,19 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                     );
                 }
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if app.updating.is_some() {
+                    ui.label(RichText::new("Baixando atualização…").small().color(weak));
+                    ui.add(egui::Spinner::new().size(12.0));
+                } else if let Some(rel) = update
+                    && ui
+                        .small_button(format!("{I_UPDATE}  Atualizar para a versão {}", rel.version))
+                        .on_hover_text("Baixa a versão nova e reinicia o LiveScreen")
+                        .clicked()
+                {
+                    app.start_update(rel, ui.ctx());
+                }
+            });
         });
     });
     egui::CentralPanel::default().show(ui, |ui| {
@@ -83,21 +97,24 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
             ui.add_space((ui.available_height() / 2.0 - 150.0).max(20.0));
             ui.label(RichText::new("LiveScreen").text_style(egui::TextStyle::Name("title".into())));
             ui.label(
-                RichText::new("Compartilhe sua tela com até 4 pessoas — direto, sem cadastro.")
+                RichText::new("Compartilhe sua tela com seus amigos — direto, sem cadastro.")
                     .weak(),
             );
             ui.add_space(24.0);
             let (mut share, mut watch) = (false, false);
             let total = 280.0 * 2.0 + ui.spacing().item_spacing.x;
-            ui.horizontal(|ui| {
-                ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
-                share = tile(
-                    ui,
-                    I_SHARE,
-                    "Compartilhar tela",
-                    "Transmita uma tela ou janela",
-                );
-                watch = tile(ui, I_WATCH, "Assistir", "Entre com um código de convite");
+            let busy = app.updating.is_some();
+            ui.add_enabled_ui(!busy, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(((ui.available_width() - total) / 2.0).max(0.0));
+                    share = tile(
+                        ui,
+                        I_SHARE,
+                        "Compartilhar tela",
+                        "Transmita uma tela ou janela",
+                    );
+                    watch = tile(ui, I_WATCH, "Assistir", "Entre com um código de convite");
+                });
             });
             if share {
                 app.error = None;
@@ -107,9 +124,24 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                     app.prefs.share_audio,
                 ));
                 app.screen = Screen::SharePicker;
+                // mede antes de transmitir, quando o upload ainda está livre
+                if *app.upload.lock().unwrap() == crate::speedtest::Upload::Unknown {
+                    app.measure_upload(ui.ctx());
+                }
             }
             if watch {
                 app.error = None;
+                // convite já copiado? entra preenchido: falta só "Conectar"
+                if let Ok(t) = arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
+                    let t: String = t.chars().filter(|c| !c.is_whitespace()).collect();
+                    if crate::watch::is_valid_ticket(&t) {
+                        app.ticket_input = t;
+                        app.toasts.push(
+                            "Código de convite colado da área de transferência",
+                            super::toast::ToastKind::Info,
+                        );
+                    }
+                }
                 app.screen = Screen::WatchInput;
             }
         });

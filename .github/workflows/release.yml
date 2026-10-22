@@ -15,5 +15,8 @@ jobs:
       - run: Compress-Archive -Path target/release/livescreen.exe,LICENSE-MIT,LICENSE-APACHE,README.md -DestinationPath livescreen-windows-x64.zip
       - uses: softprops/action-gh-release@v2
         with:
-          files: livescreen-windows-x64.zip
+          # o exe solto é o que o updater do app baixa (confere pelo sha256 do GitHub)
+          files: |
+            livescreen-windows-x64.zip
+            target/release/livescreen.exe
           generate_release_notes: true

@@ -6,10 +6,11 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS,
-    DeleteDC, DeleteObject, EnumDisplayMonitors, GetDC, GetMonitorInfoW, HALFTONE, HBITMAP, HDC,
-    HGDIOBJ, HMONITOR, MONITORINFO, MONITORINFOEXW, ReleaseDC, SRCCOPY, SelectObject,
-    SetStretchBltMode, StretchBlt,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DEVMODEW,
+    DIB_RGB_COLORS, DeleteDC, DeleteObject, ENUM_CURRENT_SETTINGS, EnumDisplayMonitors,
+    EnumDisplaySettingsW, GetDC, GetMonitorInfoW, HALFTONE, HBITMAP, HDC, HGDIOBJ, HMONITOR,
+    MONITOR_DEFAULTTONEAREST, MONITORINFO, MONITORINFOEXW, MonitorFromWindow, ReleaseDC, SRCCOPY,
+    SelectObject, SetStretchBltMode, StretchBlt,
 };
 use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
 use windows::Win32::System::Threading::{
@@ -20,7 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GW_OWNER, GWL_EXSTYLE, GetWindow, GetWindowLongW, GetWindowRect, GetWindowTextW,
     GetWindowThreadProcessId, IsIconic, IsWindowVisible, MONITORINFOF_PRIMARY, WS_EX_TOOLWINDOW,
 };
-use windows::core::{BOOL, PWSTR};
+use windows::core::{BOOL, PCWSTR, PWSTR};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SourceId {
@@ -243,6 +244,33 @@ pub fn source_size(id: &SourceId) -> Result<(u32, u32)> {
                 (rect.bottom as i64 - rect.top as i64).clamp(1, u32::MAX as i64) as u32,
             ))
         }
+    }
+}
+
+/// Taxa de atualização (Hz) do monitor da fonte; janela usa o monitor onde está a maior
+/// parte dela. 60 quando o sistema não informa.
+pub fn refresh_rate(id: &SourceId) -> u32 {
+    let hmon = match id {
+        SourceId::Monitor { hmonitor, .. } => HMONITOR(*hmonitor as *mut _),
+        SourceId::Window { hwnd, .. } => unsafe {
+            MonitorFromWindow(HWND(*hwnd as *mut _), MONITOR_DEFAULTTONEAREST)
+        },
+    };
+    let Some(mi) = monitor_info(hmon) else {
+        return 60;
+    };
+    let mut dm = DEVMODEW {
+        dmSize: size_of::<DEVMODEW>() as u16,
+        ..Default::default()
+    };
+    let ok = unsafe {
+        EnumDisplaySettingsW(PCWSTR(mi.szDevice.as_ptr()), ENUM_CURRENT_SETTINGS, &mut dm)
+    };
+    // 0 e 1 significam "padrão do hardware"
+    if ok.as_bool() && dm.dmDisplayFrequency > 1 {
+        dm.dmDisplayFrequency
+    } else {
+        60
     }
 }
 

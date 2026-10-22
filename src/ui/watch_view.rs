@@ -70,7 +70,10 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
                     ui.with_layout(Layout::top_down(Align::Min), |ui| {
                         ui.heading("Assistir a uma transmissão");
                         ui.label(
-                            RichText::new("Cole o código de convite que você recebeu.").weak(),
+                            RichText::new(
+                                "Cole o código de convite que você recebeu e clique em Conectar.",
+                            )
+                            .weak(),
                         );
                         ui.add(
                             egui::TextEdit::multiline(&mut app.ticket_input)
@@ -104,16 +107,13 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
                             );
                         }
                         ui.label("Seu nome (opcional)");
-                        let r = ui.add(
+                        ui.add(
                             egui::TextEdit::singleline(&mut app.prefs.name)
                                 .char_limit(32)
                                 .hint_text("Como você aparece para quem compartilha")
                                 .desired_width(f32::INFINITY),
                         );
-                        if (r.has_focus() || r.lost_focus())
-                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                            && valid
-                        {
+                        if valid && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             go = true;
                         }
                         ui.horizontal(|ui| {

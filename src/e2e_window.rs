@@ -19,6 +19,7 @@ r = tk.Tk(); r.title('LSTest'); r.geometry('640x400')
 c = tk.Canvas(r, bg='red'); c.pack(fill='both', expand=True)
 def tick(n=[0]):
     c.configure(bg='#%02x80%02x' % (n[0] % 256, (n[0]*3) % 256)); n[0] += 7; r.after(50, tick)
+r.after(1500, lambda: r.geometry('1600x900'))
 tick(); r.mainloop()
 "#;
 
@@ -36,6 +37,22 @@ fn find() -> Option<(isize, u32)> {
         SourceId::Window { hwnd, pid } if s.title == "LSTest" => Some((hwnd, pid)),
         _ => None,
     })
+}
+
+/// Trava vira falha: sem isso um `join` preso deixaria o teste parado para sempre.
+fn within(tag: &str, f: impl FnOnce()) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tag2 = tag.to_string();
+    std::thread::spawn(move || {
+        if rx.recv_timeout(Duration::from_secs(10)).is_err() {
+            eprintln!("TRAVOU: {tag2}");
+            std::process::exit(101);
+        }
+    });
+    let t = std::time::Instant::now();
+    f();
+    let _ = tx.send(());
+    println!("{tag}: {:?}", t.elapsed());
 }
 
 #[test]
@@ -62,7 +79,7 @@ fn e2e_window() {
         name: "NVIDIA H.264 Encoder MFT".into(),
     };
     let share =
-        ShareSession::start(&h, info, Preset::P720p30, false, kind, Default::default()).unwrap();
+        ShareSession::start(&h, info, Preset::P720p30, false, kind, Default::default(), 4).unwrap();
     let ticket = loop {
         if let Some(t) = share.status.lock().unwrap().ticket.clone() {
             break t;
@@ -94,10 +111,38 @@ fn e2e_window() {
     std::thread::sleep(Duration::from_secs(3));
     snap("resized");
     unsafe {
+        let _ = MoveWindow(hw, 100, 100, 1600, 900, true);
+    }
+    std::thread::sleep(Duration::from_secs(2));
+    snap("big (720p)");
+    // redimensionar não reconfigura sozinho: o encoder segue no tamanho antigo, e é ele que a
+    // UI usa para capacidade; escolher a mesma opção de novo aplica o tamanho novo
+    let (_, before, _) = share.current();
+    let (sw, sh, hz) = share.source_shape();
+    let wanted = crate::preset::encode_params(Preset::P720p30, sw, sh, hz);
+    assert_ne!(before, wanted, "o encoder não deveria ter mudado sozinho");
+    share.set_preset(Preset::P720p30).unwrap();
+    assert_eq!(share.current().1, wanted);
+    std::thread::sleep(Duration::from_secs(2));
+    snap("mesma opção, tamanho novo");
+    share.set_preset(Preset::Native60).unwrap();
+    std::thread::sleep(Duration::from_secs(3));
+    snap("live Native60");
+    let f = w.frame.lock().unwrap().as_ref().map(|f| (f.width, f.height));
+    assert_eq!(f.map(|f| f.0), Some(1600));
+    share.set_preset(Preset::P720p30).unwrap();
+    std::thread::sleep(Duration::from_secs(3));
+    snap("live 720p");
+    unsafe {
         let _ = ShowWindow(hw, SW_MINIMIZE);
     }
     std::thread::sleep(Duration::from_secs(3));
     snap("minimized");
+    // troca → troca sem nenhum quadro capturado no meio (a janela minimizada não entrega quadros)
+    within("troca 1 minimizada", || share.set_preset(Preset::Native60).unwrap());
+    within("troca 2 minimizada", || {
+        share.set_preset(Preset::P720p30).unwrap()
+    });
     let late = WatchSession::start(&h, &ticket, "", 1.0, egui::Context::default()).unwrap();
     std::thread::sleep(Duration::from_secs(4));
     println!(
@@ -114,6 +159,14 @@ fn e2e_window() {
     }
     std::thread::sleep(Duration::from_secs(2));
     snap("restored");
+    // troca → parar sem nenhum quadro capturado no meio
+    unsafe {
+        let _ = ShowWindow(hw, SW_MINIMIZE);
+    }
+    std::thread::sleep(Duration::from_secs(2));
+    within("troca antes de parar", || {
+        share.set_preset(Preset::P1080p60).unwrap()
+    });
     unsafe {
         let _ = PostMessageW(Some(hw), WM_CLOSE, WPARAM(0), LPARAM(0));
     }
@@ -122,7 +175,7 @@ fn e2e_window() {
     snap("closed");
     let ended = share.status.lock().unwrap().ended.clone();
     assert_eq!(ended.as_deref(), Some("A janela foi fechada"));
-    share.stop(); // a UI faz isso ao ver `ended`
+    within("stop com troca pendente", || share.stop()); // a UI faz isso ao ver `ended`
     std::thread::sleep(Duration::from_secs(2));
     let ph = w.status.lock().unwrap().phase.clone();
     println!("viewer phase after close: {ph:?}");
