@@ -15,8 +15,8 @@ use tracing::{info, warn};
 use crate::audio::capture::{AudioHandle, AudioRequest, AudioTarget, Mic};
 use crate::capture::{self, Backend, CaptureHandle, FrameSink, SourceId, SourceInfo};
 use crate::config::Overrides;
-use crate::preset::{Preset, encode_params};
-use crate::protocol::*;
+use livescreen_core::preset::{EncodeParams, Preset, encode_params, is_reduction};
+use livescreen_core::protocol::*;
 use crate::video::convert::Converter;
 use crate::video::encoder::{self, EncoderHandle, EncoderKind, EncoderStats, Nv12Frame};
 
@@ -76,15 +76,6 @@ impl ViewerInfo {
     }
 }
 
-/// Remove caracteres de controle e limita o texto a `max_chars` caracteres.
-pub fn sanitize(raw: &str, max_chars: usize) -> String {
-    raw.chars()
-        .filter(|c| !c.is_control())
-        .take(max_chars)
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
 
 /// Convite curto: só o ID e os relays; o iroh tenta a conexão direta depois.
 /// Sem relay (offline), mantém os IPs para a conexão direta funcionar.
@@ -150,6 +141,11 @@ impl Overload {
 }
 
 type SinkTx = Arc<Mutex<Option<std::sync::mpsc::SyncSender<Nv12Frame>>>>;
+struct Peer {
+    conn: Connection,
+    name: String,
+    decoders: Vec<Codec>,
+}
 
 struct Resources {
     capture: CaptureHandle,
@@ -159,13 +155,14 @@ struct Resources {
     pending: PendingReconf,
     device: windows::Win32::Graphics::Direct3D11::ID3D11Device,
     context: windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
+    kinds: Vec<EncoderKind>,
     kind: EncoderKind,
     src_size: Arc<AtomicU64>,
     /// Hz do monitor da fonte, lido no início (a "Nativa (monitor)" segue ele).
     hz: u32,
     stats: Arc<EncoderStats>,
     preset: Preset,
-    params: crate::preset::EncodeParams,
+    params: EncodeParams,
     /// Tamanho da fonte quando `params` foi calculado.
     applied_src: (u32, u32),
     ep: Endpoint,
@@ -183,7 +180,8 @@ pub struct ShareSession {
 struct Shared {
     status: Arc<Mutex<ShareStatus>>,
     viewers: AtomicUsize,
-    conns: Mutex<HashMap<String, (Connection, String)>>,
+    conns: Mutex<HashMap<String, Peer>>,
+    codec_dirty: AtomicBool,
     /// Teto de handshakes simultâneos; sem ele, uma enxurrada de conexões vira enxurrada de tasks.
     pending: Arc<Semaphore>,
     /// Desempata ids de espectadores que compartilham o mesmo prefixo.
@@ -201,6 +199,9 @@ struct Shared {
     shutdown: watch::Receiver<bool>,
     /// Algum espectador ficou para trás desde o último tick.
     congested: AtomicBool,
+    room_key: Mutex<[u8; ROOM_KEY_LEN]>,
+    ticket: Mutex<Option<EndpointTicket>>,
+    host_id: iroh::EndpointId,
 }
 
 impl Shared {
@@ -220,6 +221,30 @@ impl Shared {
             *self.quality_req.lock().unwrap() = Some((preset, who.to_string()));
         }
     }
+
+    fn new_invite(&self) {
+        let key = new_room_key();
+        *self.room_key.lock().unwrap() = key;
+        if let Some(t) = self.ticket.lock().unwrap().as_ref() {
+            let invite = format_invite(t, &key);
+            self.status.lock().unwrap().ticket = Some(invite);
+        }
+    }
+}
+fn pick_encoder(kinds: &[EncoderKind], viewers: &[Vec<Codec>]) -> Option<EncoderKind> {
+    if viewers.is_empty() {
+        return None;
+    }
+    for k in kinds {
+        let codec = k.codec();
+        let accepted_by_all = viewers
+            .iter()
+            .all(|v| codec == Codec::H264 || v.contains(&codec));
+        if accepted_by_all {
+            return Some(k.clone());
+        }
+    }
+    None
 }
 
 struct Reconf {
@@ -328,14 +353,14 @@ impl FrameSink for Sink {
 fn start_encoder(
     kind: EncoderKind,
     device: &windows::Win32::Graphics::Direct3D11::ID3D11Device,
-    params: crate::preset::EncodeParams,
+    params: EncodeParams,
     out: broadcast::Sender<Arc<EncodedFrame>>,
     force_key: Arc<AtomicBool>,
     stats: Arc<EncoderStats>,
 ) -> Result<(
     EncoderHandle,
     std::sync::mpsc::SyncSender<Nv12Frame>,
-    String,
+    EncoderKind,
 )> {
     let (tx, rx) = std::sync::mpsc::sync_channel::<Nv12Frame>(2);
     match encoder::spawn(
@@ -347,13 +372,7 @@ fn start_encoder(
         force_key.clone(),
         stats.clone(),
     ) {
-        Ok(h) => {
-            let name = match &kind {
-                EncoderKind::Hardware { name } => name.clone(),
-                EncoderKind::Software => "software (Microsoft H.264)".into(),
-            };
-            Ok((h, tx, name))
-        }
+        Ok(h) => Ok((h, tx, kind)),
         Err(e) if matches!(kind, EncoderKind::Hardware { .. }) => {
             warn!("encoder de hardware falhou: {e:#}; fallback para software");
             let (tx, rx) = std::sync::mpsc::sync_channel::<Nv12Frame>(2);
@@ -366,7 +385,7 @@ fn start_encoder(
                 force_key,
                 stats,
             )?;
-            Ok((h, tx, "software (fallback para encoder software)".into()))
+            Ok((h, tx, EncoderKind::Software))
         }
         Err(e) => Err(e),
     }
@@ -379,11 +398,11 @@ impl ShareSession {
         preset: Preset,
         audio: bool,
         mic: Option<Mic>,
-        encoder_kind: EncoderKind,
+        encoders: Vec<EncoderKind>,
         overrides: Overrides,
         max_viewers: usize,
     ) -> Result<ShareSession> {
-        let (device, context) = crate::gpu::create_device()?;
+        let (device, context) = crate::gpu::create_device(None)?;
         let (sw, sh) = capture::source_size(&source.id)?;
         let hz = capture::refresh_rate(&source.id);
         let params = encode_params(preset, sw, sh, hz);
@@ -394,8 +413,13 @@ impl ShareSession {
         let force_key = Arc::new(AtomicBool::new(true));
         let stats = Arc::new(EncoderStats::default());
 
-        let (enc, tx, enc_name) = start_encoder(
-            encoder_kind.clone(),
+        let initial_kind = encoders
+            .iter()
+            .find(|k| k.codec() == Codec::H264)
+            .cloned()
+            .unwrap_or(EncoderKind::Software);
+        let (enc, tx, used_kind) = start_encoder(
+            initial_kind,
             &device,
             params,
             video_tx.clone(),
@@ -408,7 +432,7 @@ impl ShareSession {
             ticket: None,
             online_warning: false,
             backend: Backend::GraphicsCapture,
-            encoder: enc_name,
+            encoder: used_kind.label(),
             viewers: vec![],
             fps: 0.0,
             kbps: 0,
@@ -497,6 +521,9 @@ impl ShareSession {
             // BBR: fila curta e tolerância a perda aleatória (Wi-Fi); o CUBIC padrão enche o buffer e aumenta a latência
             let transport = iroh::endpoint::QuicTransportConfig::builder()
                 .congestion_controller_factory(Arc::new(noq_proto::congestion::Bbr3Config::default()))
+                .max_concurrent_uni_streams(noq_proto::VarInt::from_u32(0))
+                .max_concurrent_bidi_streams(noq_proto::VarInt::from_u32(1))
+                .datagram_receive_buffer_size(None)
                 .build();
             Endpoint::builder(presets::N0)
                 .alpns(vec![ALPN.to_vec()])
@@ -509,6 +536,7 @@ impl ShareSession {
             status: status.clone(),
             viewers: AtomicUsize::new(0),
             conns: Mutex::new(HashMap::new()),
+            codec_dirty: AtomicBool::new(false),
             pending: Arc::new(Semaphore::new(MAX_HANDSHAKES)),
             next_id: AtomicUsize::new(0),
             max_viewers: AtomicUsize::new(max_viewers.max(1)),
@@ -522,8 +550,10 @@ impl ShareSession {
             title: source.title.clone(),
             shutdown: sd_rx,
             congested: AtomicBool::new(false),
+            room_key: Mutex::new(new_room_key()),
+            ticket: Mutex::new(None),
+            host_id: ep.id(),
         });
-
         {
             let (ep, shared, status) = (ep.clone(), shared.clone(), status.clone());
             rt.spawn(async move {
@@ -533,8 +563,10 @@ impl ShareSession {
                 {
                     status.lock().unwrap().online_warning = true;
                 }
-                let ticket = EndpointTicket::new(invite_addr(ep.addr())).to_string();
-                status.lock().unwrap().ticket = Some(ticket);
+                let ticket = EndpointTicket::new(invite_addr(ep.addr()));
+                let key = *shared.room_key.lock().unwrap();
+                *shared.ticket.lock().unwrap() = Some(ticket.clone());
+                status.lock().unwrap().ticket = Some(format_invite(&ticket, &key));
                 while let Some(incoming) = ep.accept().await {
                     // Sem vaga de handshake, recusa na hora: sem task por conexão pendurada.
                     let Ok(permit) = shared.pending.clone().try_acquire_owned() else {
@@ -576,7 +608,8 @@ impl ShareSession {
                         .lock()
                         .unwrap()
                         .iter()
-                        .map(|(id, (c, name))| {
+                        .map(|(id, peer)| {
+                            let (c, name) = (&peer.conn, &peer.name);
                             let (mut path, mut rtt) = ("?".to_string(), 0u32);
                             for p in c.paths().iter() {
                                 if p.is_selected() {
@@ -682,7 +715,8 @@ impl ShareSession {
                 pending,
                 device,
                 context,
-                kind: encoder_kind,
+                kinds: encoders,
+                kind: used_kind,
                 src_size,
                 hz,
                 stats,
@@ -698,7 +732,7 @@ impl ShareSession {
     /// O que o encoder está usando agora (opção, parâmetros e tamanho da fonte quando foi
     /// configurado). A janela pode ter mudado de tamanho depois: capacidade e rótulo da
     /// transmissão atual vêm daqui, não das opções calculadas para o tamanho novo.
-    pub fn current(&self) -> (Preset, crate::preset::EncodeParams, (u32, u32)) {
+    pub fn current(&self) -> (Preset, EncodeParams, (u32, u32)) {
         let g = self.res.lock().unwrap();
         g.as_ref().map_or(
             (
@@ -727,7 +761,7 @@ impl ShareSession {
         let (preset, who) = self.shared.quality_req.lock().unwrap().take()?;
         let (sw, sh, hz) = self.source_shape();
         let wanted = encode_params(preset, sw, sh, hz);
-        let res = if crate::preset::is_reduction(self.current().1, wanted) {
+        let res = if is_reduction(self.current().1, wanted) {
             self.set_preset(preset)
         } else {
             Err(anyhow!("só é aceita uma qualidade mais leve que a atual"))
@@ -747,16 +781,9 @@ impl ShareSession {
 
     /// Troca a qualidade com a transmissão no ar. Bloqueia a thread chamadora (nunca chamar de
     /// dentro do runtime). Se o encoder novo falhar, volta ao anterior e devolve o erro.
-    pub fn set_preset(&self, preset: Preset) -> Result<()> {
-        let mut g = self.res.lock().unwrap();
-        let r = g.as_mut().ok_or_else(|| anyhow!("transmissão encerrada"))?;
-        // O retângulo da janela minimizada é minúsculo; o último quadro capturado não.
+    fn reconfigure(&self, r: &mut Resources, preset: Preset, kind: EncoderKind) -> Result<()> {
         let (sw, sh) = unpack_size(r.src_size.load(Ordering::Relaxed));
         let params = encode_params(preset, sw, sh, r.hz);
-        // mesma opção vale de novo se a fonte mudou de tamanho desde a última configuração
-        if r.preset == preset && r.params == params {
-            return Ok(());
-        }
         let conv = Converter::new(
             &r.device,
             &r.context,
@@ -764,15 +791,13 @@ impl ShareSession {
             params.height,
             params.fps,
         )?;
-        // Corta a alimentação e espera o encoder antigo esvaziar: o novo só publica depois,
-        // então nenhum quadro da resolução antiga aparece após o novo keyframe.
         cut_feed(&r.pending, &r.sink_tx);
         if let Some(e) = r.encoder.take() {
             e.stop();
         }
-        let start = |p| {
+        let start = |k: &EncoderKind, p: livescreen_core::preset::EncodeParams| {
             start_encoder(
-                r.kind.clone(),
+                k.clone(),
                 &r.device,
                 p,
                 self.shared.video_tx.clone(),
@@ -780,10 +805,10 @@ impl ShareSession {
                 r.stats.clone(),
             )
         };
-        let (enc, tx, name, applied, applied_preset, failed) = match start(params) {
-            Ok((h, tx, n)) => (h, tx, n, params, preset, None),
-            Err(e) => match start(r.params) {
-                Ok((h, tx, n)) => (h, tx, n, r.params, r.preset, Some(e)),
+        let (enc, tx, used_kind, applied, applied_preset, failed) = match start(&kind, params) {
+            Ok((h, tx, uk)) => (h, tx, uk, params, preset, None),
+            Err(e) => match start(&r.kind, r.params) {
+                Ok((h, tx, uk)) => (h, tx, uk, r.params, r.preset, Some(e)),
                 Err(e2) => {
                     self.status
                         .lock()
@@ -794,12 +819,12 @@ impl ShareSession {
                 }
             },
         };
-        // conversor e fila de entrada trocam juntos, na thread de captura
         let new_conv = failed
             .is_none()
             .then(|| (conv, Duration::from_secs_f64(1.0 / applied.fps as f64)));
         *r.pending.lock().unwrap() = Some(Reconf { conv: new_conv, tx });
         r.encoder = Some(enc);
+        r.kind = used_kind.clone();
         r.params = applied;
         r.preset = applied_preset;
         if failed.is_none() {
@@ -808,7 +833,7 @@ impl ShareSession {
         self.shared.force_key.store(true, Ordering::SeqCst);
         {
             let mut s = self.status.lock().unwrap();
-            s.encoder = name;
+            s.encoder = used_kind.label();
             s.width = applied.width;
             s.height = applied.height;
             s.target_fps = applied.fps;
@@ -822,6 +847,40 @@ impl ShareSession {
         failed.map_or(Ok(()), Err)
     }
 
+    pub fn set_preset(&self, preset: Preset) -> Result<()> {
+        let mut g = self.res.lock().unwrap();
+        let r = g.as_mut().ok_or_else(|| anyhow!("transmissão encerrada"))?;
+        let (sw, sh) = unpack_size(r.src_size.load(Ordering::Relaxed));
+        let params = encode_params(preset, sw, sh, r.hz);
+        if r.preset == preset && r.params == params {
+            return Ok(());
+        }
+        self.reconfigure(r, preset, r.kind.clone())
+    }
+
+    pub fn apply_codec(&self) -> Option<Result<Codec>> {
+        if !self.shared.codec_dirty.swap(false, Ordering::AcqRel) {
+            return None;
+        }
+        let mut g = self.res.lock().unwrap();
+        let r = g.as_mut()?;
+        let viewers_decoders: Vec<Vec<Codec>> = {
+            let conns = self.shared.conns.lock().unwrap();
+            conns.values().map(|p| p.decoders.clone()).collect()
+        };
+        let want = pick_encoder(&r.kinds, &viewers_decoders)?;
+        if want == r.kind {
+            return None;
+        }
+        let res = self.reconfigure(r, r.preset, want.clone());
+        if res.is_err() || r.kind != want {
+            r.kinds.retain(|k| k != &want);
+            let err = res.err().unwrap_or_else(|| anyhow!("encoder {} indisponível", want.label()));
+            return Some(Err(err));
+        }
+        Some(Ok(want.codec()))
+    }
+
     pub fn kick(&self, id_short: &str) {
         // Tira da lista de status na hora: sem isso o tick ainda listaria o espectador
         // por até 1 s e a UI repetiria o aviso "entrou". A entrada do mapa fica até a
@@ -832,7 +891,7 @@ impl ShareSession {
             .lock()
             .unwrap()
             .get(id_short)
-            .map(|(c, _)| c.clone());
+            .map(|p| p.conn.clone());
         let Some(c) = conn else { return };
         self.shared
             .status
@@ -843,6 +902,9 @@ impl ShareSession {
         c.close(CLOSE_KICKED.into(), b"kicked");
     }
 
+    pub fn new_invite(&self) {
+        self.shared.new_invite();
+    }
     /// Idempotente. Bloqueia a thread chamadora (nunca chamar de dentro do runtime).
     pub fn stop(&self) {
         let Some(r) = self.res.lock().unwrap().take() else {
@@ -880,6 +942,7 @@ impl Drop for CountGuard<'_> {
         self.0.viewers.fetch_sub(1, Ordering::SeqCst);
         if let Some(id) = &self.1 {
             self.0.conns.lock().unwrap().remove(id);
+            self.0.codec_dirty.store(true, Ordering::Release);
             self.0
                 .status
                 .lock()
@@ -901,7 +964,13 @@ async fn handle_viewer(
     let hello: ViewerMsg = tokio::time::timeout(Duration::from_secs(10), read_msg(&mut recv))
         .await
         .map_err(|_| anyhow!("timeout hello"))??;
-    let ViewerMsg::Hello { protocol, name, .. } = hello else {
+    let ViewerMsg::Hello {
+        protocol,
+        name,
+        room_proof,
+        decoders,
+        ..
+    } = hello else {
         conn.close(CLOSE_PROTOCOL.into(), b"protocol");
         return Ok(());
     };
@@ -916,6 +985,20 @@ async fn handle_viewer(
         let _ = send.finish();
         let _ = tokio::time::timeout(Duration::from_millis(500), conn.closed()).await;
         conn.close(CLOSE_PROTOCOL.into(), b"protocol");
+        return Ok(());
+    }
+    let key = *sh.room_key.lock().unwrap();
+    if !verify_room_proof(&key, &sh.host_id, &conn.remote_id(), &room_proof) {
+        let _ = write_msg(
+            &mut send,
+            &HostMsg::Rejected {
+                reason: "convite inválido ou substituído".into(),
+            },
+        )
+        .await;
+        let _ = send.finish();
+        let _ = tokio::time::timeout(Duration::from_millis(500), conn.closed()).await;
+        conn.close(CLOSE_DENIED.into(), b"denied");
         return Ok(());
     }
     // limite da sala definido por quem transmite; baixar o limite não derruba quem já está
@@ -952,10 +1035,15 @@ async fn handle_viewer(
         }
     };
     let _guard = CountGuard(&sh, Some(id.clone()));
-    sh.conns
-        .lock()
-        .unwrap()
-        .insert(id.clone(), (conn.clone(), sanitize(&name, 32)));
+    sh.conns.lock().unwrap().insert(
+        id.clone(),
+        Peer {
+            conn: conn.clone(),
+            name: sanitize(&name, 32),
+            decoders,
+        },
+    );
+    sh.codec_dirty.store(true, Ordering::Release);
 
     let mut prx = sh.params.subscribe();
     let (w, h, fps, audio) = *prx.borrow_and_update();
@@ -983,11 +1071,14 @@ async fn handle_viewer(
     // controle: pedidos de keyframe e de qualidade
     let sh2 = sh.clone();
     let who = sanitize(&name, 32);
+    let visible = Arc::new(AtomicBool::new(true));
+    let visible2 = visible.clone();
     let ctl = tokio::spawn(async move {
         while let Ok(m) = read_msg::<ViewerMsg>(&mut recv).await {
             match m {
                 ViewerMsg::RequestKeyframe => sh2.request_keyframe(),
                 ViewerMsg::SetQuality { preset } => sh2.request_quality(preset, &who),
+                ViewerMsg::SetVisible { visible: v } => visible2.store(v, Ordering::Relaxed),
                 _ => {}
             }
         }
@@ -1004,6 +1095,11 @@ async fn handle_viewer(
         tokio::select! {
             r = vrx.recv() => match r {
                 Ok(f) => {
+                    // espectador escondido: sem vídeo; o keyframe é pedido quando voltar
+                    if !visible.load(Ordering::Relaxed) {
+                        waiting_key = true;
+                        continue;
+                    }
                     if waiting_key && !f.keyframe {
                         if last_kf.elapsed() >= Duration::from_secs(1) {
                             last_kf = Instant::now();
@@ -1025,7 +1121,8 @@ async fn handle_viewer(
                     }
                     waiting_key = false;
                     let Some(s) = vsend.as_mut() else { continue };
-                    match tokio::time::timeout(STALE_VIDEO, s.write_all(&encode_video_frame(&f))).await {
+                    let mut chunks = [Bytes::copy_from_slice(&video_frame_header(&f)), f.data.clone()];
+                    match tokio::time::timeout(STALE_VIDEO, s.write_all_chunks(&mut chunks)).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.into()),
                         Err(_) => {
@@ -1061,7 +1158,9 @@ async fn handle_viewer(
 
 #[cfg(test)]
 mod tests {
-    use super::{Abr, Overload, invite_addr, sanitize};
+    use super::*;
+    use crate::video::encoder::EncoderKind;
+    use livescreen_core::protocol::Codec;
 
     #[test]
     fn abr_backs_off_and_recovers_slowly() {
@@ -1098,15 +1197,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn sanitize_strips_controls_and_trims() {
-        assert_eq!(sanitize("  Ana\u{7}Maria\n ", 32), "AnaMaria");
-    }
-
-    #[test]
-    fn sanitize_limits_length() {
-        assert_eq!(sanitize(&"x".repeat(40), 32).chars().count(), 32);
-    }
 
     fn ids() -> (iroh::EndpointId, iroh::RelayUrl) {
         (
@@ -1132,5 +1222,38 @@ mod tests {
         let (id, _) = ids();
         let a = iroh::EndpointAddr::new(id).with_ip_addr("1.2.3.4:5".parse().unwrap());
         assert_eq!(invite_addr(a.clone()), a);
+    }
+    #[test]
+    fn pick_encoder_common_denominator() {
+        let hevc_hw = EncoderKind::Hardware {
+            name: "HEVC HW".into(),
+            codec: Codec::Hevc,
+        };
+        let h264_hw = EncoderKind::Hardware {
+            name: "H264 HW".into(),
+            codec: Codec::H264,
+        };
+        let av1 = EncoderKind::Hardware {
+            name: "AV1 HW".into(),
+            codec: Codec::Av1,
+        };
+        let sw = EncoderKind::Software;
+
+        let kinds1 = [hevc_hw.clone(), h264_hw.clone(), sw.clone()];
+        assert_eq!(
+            pick_encoder(&kinds1, &[vec![Codec::H264, Codec::Hevc], vec![Codec::H264]]),
+            Some(h264_hw)
+        );
+        assert_eq!(
+            pick_encoder(&kinds1, &[vec![Codec::Hevc]]),
+            Some(hevc_hw.clone())
+        );
+        assert_eq!(pick_encoder(&kinds1, &[]), None);
+
+        let kinds2 = [av1.clone(), hevc_hw, sw];
+        assert_eq!(
+            pick_encoder(&kinds2, &[vec![Codec::H264, Codec::Av1, Codec::Hevc]]),
+            Some(av1)
+        );
     }
 }

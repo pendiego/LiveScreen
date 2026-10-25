@@ -17,7 +17,9 @@ use crate::capture::SourceId;
 use crate::config::Overrides;
 use crate::share::ShareSession;
 use crate::video::encoder::EncoderKind;
+use crate::video::present;
 use crate::watch::WatchSession;
+use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew, wgpu};
 use windows::Win32::Foundation::{HWND, LPARAM, POINT};
 use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromPoint};
 use windows::Win32::System::Threading::GetCurrentThreadId;
@@ -69,12 +71,13 @@ pub struct App {
     pub rt: Handle,
     pub screen: Screen,
     pub overrides: Overrides,
-    pub encoder: Arc<Mutex<Option<EncoderKind>>>,
+    pub encoder: Arc<Mutex<Option<Vec<EncoderKind>>>>,
     pub picker: Option<share_view::Picker>,
     pub share: Option<ShareSession>,
     pub share_title: String,
     pub watch: Option<WatchSession>,
     pub watch_view: watch_view::WatchView,
+    pub display: Option<present::Display>,
     pub ticket_input: String,
     pub error: Option<String>,
     pub prefs: prefs::Prefs,
@@ -111,7 +114,7 @@ pub struct App {
 }
 
 impl App {
-    fn new(rt: Handle, prefs: prefs::Prefs, ctx: egui::Context) -> Self {
+    fn new(rt: Handle, prefs: prefs::Prefs, ctx: egui::Context, display: Option<present::Display>) -> Self {
         crate::video::mf::startup();
         let overrides = crate::config::overrides();
         let encoder = Arc::new(Mutex::new(None));
@@ -126,6 +129,7 @@ impl App {
             share_title: String::new(),
             watch: None,
             watch_view: Default::default(),
+            display,
             ticket_input: String::new(),
             error: None,
             saved_prefs: prefs.clone(),
@@ -243,6 +247,9 @@ impl App {
         }
         self.background.retain(|h| !h.is_finished());
         self.watch_view = Default::default();
+        if let Some(d) = self.display.as_mut() {
+            d.reset();
+        }
         self.kick_pending = None;
         self.copied_at = None;
         self.quality_open = false;
@@ -367,6 +374,10 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        watch_view::sync_visible(self, ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if ctx.input(|i| i.viewport().close_requested())
@@ -515,8 +526,15 @@ pub fn run() -> Result<()> {
     {
         viewport = viewport.with_position([w[0], w[1]]);
     }
+    // DX12 é o backend do viewer sem cópia (`video::present`); WGPU_BACKEND continua valendo como escape.
+    let mut setup = WgpuSetupCreateNew::without_display_handle();
+    setup.instance_descriptor.backends = wgpu::Backends::from_env().unwrap_or(wgpu::Backends::DX12);
     let options = eframe::NativeOptions {
         viewport,
+        wgpu_options: WgpuConfiguration {
+            wgpu_setup: WgpuSetup::CreateNew(setup),
+            ..Default::default()
+        },
         ..Default::default()
     };
     eframe::run_native(
@@ -524,7 +542,8 @@ pub fn run() -> Result<()> {
         options,
         Box::new(move |cc| {
             theme::install(&cc.egui_ctx);
-            Ok(Box::new(App::new(handle, prefs, cc.egui_ctx.clone())))
+            let display = cc.wgpu_render_state.as_ref().and_then(crate::video::present::Display::new);
+            Ok(Box::new(App::new(handle, prefs, cc.egui_ctx.clone(), display)))
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))

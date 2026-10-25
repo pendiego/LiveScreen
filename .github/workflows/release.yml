@@ -5,7 +5,39 @@ on:
 permissions:
   contents: write
 jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android,aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-ndk --locked
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: keystore
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KS" ]; then echo "::error::secret ANDROID_KEYSTORE_B64 ausente"; exit 1; fi
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/release.jks"
+      - working-directory: android
+        env:
+          LIVESCREEN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          export LIVESCREEN_KEYSTORE="$RUNNER_TEMP/release.jks"
+          bash ./gradlew assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../livescreen-android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: livescreen-android.apk
   release:
+    needs: android
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,10 +53,15 @@ jobs:
           tool: git-cliff@2.14.2
       # notas = todos os Conventional Commits desde a tag anterior (config em cliff.toml)
       - run: git-cliff --current --strip all --output CHANGES.md
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
       - uses: softprops/action-gh-release@v2
         with:
-          # o exe solto é o que o updater do app baixa (confere pelo sha256 do GitHub)
+          # o exe solto é o que o updater do app baixa (confere pelo sha256 do GitHub);
+          # o apk solto é o que o updater do Android baixa (nome fixo em Updater.ASSET)
           files: |
             livescreen-windows-x64.zip
             target/release/livescreen.exe
+            livescreen-android.apk
           body_path: CHANGES.md

@@ -17,14 +17,29 @@ use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::core::Interface;
 
-use crate::preset::EncodeParams;
-use crate::protocol::EncodedFrame;
+use livescreen_core::preset::EncodeParams;
+use livescreen_core::protocol::{Codec, EncodedFrame};
 use crate::video::mf;
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EncoderKind {
-    Hardware { name: String },
+    Hardware { name: String, codec: Codec },
     Software,
+}
+
+impl EncoderKind {
+    pub fn codec(&self) -> Codec {
+        match self {
+            EncoderKind::Hardware { codec, .. } => *codec,
+            EncoderKind::Software => Codec::H264,
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            EncoderKind::Hardware { name, .. } => name.clone(),
+            EncoderKind::Software => "software (Microsoft H.264)".to_string(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -187,6 +202,7 @@ struct Encoder {
     bitrate: u32,
     cpu: Option<CpuCopy>,
     spare: mf::OutSample,
+    codec: Codec,
 }
 
 impl Encoder {
@@ -204,7 +220,8 @@ impl Encoder {
         mf::startup();
         let (t, is_async) = create_mft(&kind, device)?;
         let (input_id, output_id) = stream_ids(&t);
-        let api = configure(&t, &params)?;
+        let codec = kind.codec();
+        let api = configure(&t, &params, codec)?;
         let seq_header = read_seq_header(&t);
         let events_gen = if is_async {
             t.cast::<IMFMediaEventGenerator>().ok()
@@ -237,6 +254,7 @@ impl Encoder {
             bitrate: params.bitrate_bps,
             cpu,
             spare: mf::OutSample::default(),
+            codec,
         })
     }
 
@@ -429,13 +447,30 @@ impl Encoder {
             .unwrap_or(false);
         let time = unsafe { sample.GetSampleTime() }.unwrap_or(0);
         let mut data = mf::sample_bytes(sample)?;
-        if key && !mf::has_sps(&data) && !self.seq_header.is_empty() {
-            data = mf::prepend_sequence_header(&self.seq_header, &data);
+        if key && !mf::has_param_sets(self.codec, &data) && !self.seq_header.is_empty() {
+            let should_prepend = match self.codec {
+                Codec::Av1 => {
+                    if (self.seq_header[0] >> 3) & 0xF == 1 {
+                        true
+                    } else {
+                        static WARNED: AtomicBool = AtomicBool::new(false);
+                        if !WARNED.swap(true, Ordering::Relaxed) {
+                            warn!("AV1 seq_header sem OBU de sequência");
+                        }
+                        false
+                    }
+                }
+                _ => true,
+            };
+            if should_prepend {
+                data = mf::prepend_sequence_header(&self.seq_header, &data);
+            }
         }
         let frame = EncodedFrame {
             seq: self.seq,
             keyframe: key,
             pts_us: (time / 10).max(0) as u64,
+            codec: self.codec,
             data: Bytes::from(data),
         };
         self.seq += 1;
@@ -450,10 +485,10 @@ impl Encoder {
 
 fn create_mft(kind: &EncoderKind, device: &ID3D11Device) -> Result<(IMFTransform, bool)> {
     match kind {
-        EncoderKind::Hardware { name } => {
+        EncoderKind::Hardware { name, codec } => {
             let info = MFT_REGISTER_TYPE_INFO {
                 guidMajorType: MFMediaType_Video,
-                guidSubtype: MFVideoFormat_H264,
+                guidSubtype: mf::subtype(*codec),
             };
             let flags = MFT_ENUM_FLAG(
                 MFT_ENUM_FLAG_HARDWARE.0
@@ -508,7 +543,7 @@ fn stream_ids(t: &IMFTransform) -> (u32, u32) {
     }
 }
 
-fn configure(t: &IMFTransform, params: &EncodeParams) -> Result<Option<ICodecAPI>> {
+fn configure(t: &IMFTransform, params: &EncodeParams, codec: Codec) -> Result<Option<ICodecAPI>> {
     unsafe {
         let api = t.cast::<ICodecAPI>().ok();
         if let Some(api) = &api {
@@ -522,7 +557,7 @@ fn configure(t: &IMFTransform, params: &EncodeParams) -> Result<Option<ICodecAPI
 
         let out = MFCreateMediaType()?;
         out.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-        out.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
+        out.SetGUID(&MF_MT_SUBTYPE, &mf::subtype(codec))?;
         out.SetUINT32(&MF_MT_AVG_BITRATE, params.bitrate_bps)?;
         out.SetUINT64(
             &MF_MT_FRAME_SIZE,
@@ -531,7 +566,12 @@ fn configure(t: &IMFTransform, params: &EncodeParams) -> Result<Option<ICodecAPI
         out.SetUINT64(&MF_MT_FRAME_RATE, mf::pack_pair(params.fps, 1))?;
         out.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, mf::pack_pair(1, 1))?;
         out.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
-        out.SetUINT32(&MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High.0 as u32)?;
+        let profile = match codec {
+            Codec::H264 => eAVEncH264VProfile_High.0 as u32,
+            Codec::Hevc => eAVEncH265VProfile_Main_420_8.0 as u32,
+            Codec::Av1 => eAVEncAV1VProfile_Main_420_8.0 as u32,
+        };
+        out.SetUINT32(&MF_MT_MPEG2_PROFILE, profile)?;
         t.SetOutputType(0, &out, 0)?;
 
         let mut i = 0;
@@ -582,7 +622,7 @@ fn configure(t: &IMFTransform, params: &EncodeParams) -> Result<Option<ICodecAPI
             mf::set_codec_value(
                 api,
                 &CODECAPI_AVEncMPVGOPSize,
-                mf::variant_u32(params.fps * 4),
+                mf::variant_u32(params.fps * 30),
             );
             mf::set_codec_value(api, &CODECAPI_AVLowLatencyMode, mf::variant_bool(true));
         }

@@ -2921,7 +2921,7 @@ checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 
 [[package]]
 name = "livescreen"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2932,10 +2932,12 @@ dependencies = [
  "hex",
  "iroh",
  "iroh-tickets",
+ "livescreen-core",
  "mimalloc",
  "noq-proto",
  "opus",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",
@@ -2946,6 +2948,38 @@ dependencies = [
  "wasapi",
  "windows",
  "yuv",
+]
+
+[[package]]
+name = "livescreen-android"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "iroh",
+ "jni 0.21.1",
+ "livescreen-core",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "livescreen-core"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "hex",
+ "iroh",
+ "iroh-tickets",
+ "noq-proto",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

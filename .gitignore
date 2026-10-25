@@ -4,3 +4,8 @@
 .idea/
 graphify-out/cache/
 graphify-out/.graphify_*
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/jniLibs/
+android/local.properties

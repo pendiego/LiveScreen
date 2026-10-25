@@ -178,7 +178,7 @@ pub fn selftest() -> Result<()> {
     let Some(source) = sources::primary_monitor() else {
         bail!("monitor primário não encontrado");
     };
-    let (device, context) = crate::gpu::create_device()?;
+    let (device, context) = crate::gpu::create_device(None)?;
     crate::gpu::com_init();
 
     let mut failed = false;

@@ -54,13 +54,6 @@ pub fn start(
     })
 }
 
-fn parse_packet(datagram: &[u8]) -> Option<(u32, &[u8])> {
-    if datagram.len() < 4 {
-        return None;
-    }
-    let seq = u32::from_le_bytes([datagram[0], datagram[1], datagram[2], datagram[3]]);
-    Some((seq, &datagram[4..]))
-}
 
 async fn decode_loop(
     conn: iroh::endpoint::Connection,
@@ -82,24 +75,17 @@ async fn decode_loop(
             Ok(datagram) => datagram,
             Err(_) => break,
         };
-        let Some((seq, payload)) = parse_packet(&datagram) else {
+        let Some((seq, payload)) = livescreen_core::protocol::parse_audio_datagram(&datagram) else {
             continue;
         };
-
-        if let Some(previous) = expected {
-            let gap = seq.wrapping_sub(previous);
-            if gap >= 0x8000_0000 {
-                // Pacote antigo/reordenado: descartar.
-                continue;
-            }
-            // Lacuna curta: ocultação de perda (PLC) para cada pacote perdido.
-            for _ in 0..gap.min(3) {
-                if let Ok(n) = decoder.decode_float(&[], &mut pcm, false) {
-                    push(&samples, &pcm[..n * 2]);
-                }
+        let Some(lost) = livescreen_core::protocol::audio_gap(&mut expected, seq) else {
+            continue;
+        };
+        for _ in 0..lost.min(3) {
+            if let Ok(n) = decoder.decode_float(&[], &mut pcm, false) {
+                push(&samples, &pcm[..n * 2]);
             }
         }
-        expected = Some(seq.wrapping_add(1));
 
         match decoder.decode_float(payload, &mut pcm, false) {
             Ok(n) => push(&samples, &pcm[..n * 2]),
@@ -203,7 +189,7 @@ mod tests {
         framed.extend_from_slice(&7u32.to_le_bytes());
         framed.extend_from_slice(&packet[..len]);
 
-        let (seq, payload) = parse_packet(&framed).unwrap();
+        let (seq, payload) = livescreen_core::protocol::parse_audio_datagram(&framed).unwrap();
         assert_eq!(seq, 7);
 
         let mut pcm = [0f32; DECODE_FLOATS];
