@@ -12,3 +12,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
       - run: cargo test
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff@2.14.2
+      - run: bash .github/scripts/test-changelog.sh
