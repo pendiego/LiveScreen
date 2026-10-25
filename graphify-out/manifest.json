@@ -1,19 +1,19 @@
 {
   ".github/workflows/ci.yml": {
-    "mtime": 1792960997.858885,
-    "seen": 1792963590.9963996,
-    "ast_hash": "f89ca971550c84ad538f73de2af7bed1",
+    "mtime": 1792968505.4737375,
+    "seen": 1792969262.615374,
+    "ast_hash": "a0ad6e34c90ffb0a00753c62de7dbd28",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1792966793.221838,
-    "seen": 1792966836.6568036,
+    "mtime": 1792968505.4752414,
+    "seen": 1792969262.6153774,
     "ast_hash": "3a0299fcb89b42a0d9f5ae2d55cdb1fc",
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1792964517.436202,
-    "seen": 1792966836.6568055,
+    "mtime": 1792968505.4993742,
+    "seen": 1792969262.6153798,
     "ast_hash": "d480c7d798334448cc31f2627f6cec75",
     "semantic_hash": ""
   },
@@ -36,20 +36,20 @@
     "semantic_hash": ""
   },
   "src/audio/playback.rs": {
-    "mtime": 1792956075.6237347,
-    "seen": 1792963590.9964485,
+    "mtime": 1792968505.848297,
+    "seen": 1792969262.615413,
     "ast_hash": "13247a3d2e8fbe76defabc10a1275959",
     "semantic_hash": ""
   },
   "src/capture/dxgi.rs": {
-    "mtime": 1792963298.285339,
-    "seen": 1792963590.99645,
+    "mtime": 1792968505.8492746,
+    "seen": 1792969262.6154144,
     "ast_hash": "203de0c9dc3fc7f2a3a49fd2ab639244",
     "semantic_hash": ""
   },
   "src/capture/mod.rs": {
-    "mtime": 1792963298.285339,
-    "seen": 1792963590.996452,
+    "mtime": 1792968505.8502517,
+    "seen": 1792969262.6154153,
     "ast_hash": "9c13e47a0ccabf5d24c07a18966f0e99",
     "semantic_hash": ""
   },
@@ -66,20 +66,20 @@
     "semantic_hash": ""
   },
   "src/config.rs": {
-    "mtime": 1792963298.2863603,
-    "seen": 1792963590.9964576,
+    "mtime": 1792968505.8512268,
+    "seen": 1792969262.6154191,
     "ast_hash": "c10b9aaa24dabb5c249c0bdcc94eef6e",
     "semantic_hash": ""
   },
   "src/e2e_window.rs": {
-    "mtime": 1792963448.2228482,
-    "seen": 1792963590.9964592,
-    "ast_hash": "74f28197e096c7ed5a68bc9907b5fffd",
+    "mtime": 1792970581.338336,
+    "seen": 1792971098.6357467,
+    "ast_hash": "e4d97ed35f4d218a2b2701c3c1c22220",
     "semantic_hash": ""
   },
   "src/gpu.rs": {
-    "mtime": 1792963298.287387,
-    "seen": 1792963590.9964612,
+    "mtime": 1792968505.8531797,
+    "seen": 1792969262.6154213,
     "ast_hash": "88f2530dcf6c89e0305e1722b34ddd25",
     "semantic_hash": ""
   },
@@ -90,15 +90,15 @@
     "semantic_hash": ""
   },
   "src/main.rs": {
-    "mtime": 1792956160.765141,
-    "seen": 1792963590.9964645,
+    "mtime": 1792968505.854156,
+    "seen": 1792969262.6154234,
     "ast_hash": "2f4e36d2bb34a889f9c2dbabf6821596",
     "semantic_hash": ""
   },
   "src/share.rs": {
-    "mtime": 1792963409.4381537,
-    "seen": 1792963590.9964662,
-    "ast_hash": "473490c211ecb04361cc90f131691b04",
+    "mtime": 1792968957.9437704,
+    "seen": 1792969262.6154244,
+    "ast_hash": "9072509eedb35f403fdcacd16a2c3e6a",
     "semantic_hash": ""
   },
   "src/speedtest.rs": {
@@ -108,32 +108,32 @@
     "semantic_hash": ""
   },
   "src/ui/home.rs": {
-    "mtime": 1792963344.3192644,
-    "seen": 1792963590.99647,
-    "ast_hash": "5fb2767472c8ba7cd4ac82ad7349bf67",
+    "mtime": 1792969679.6926215,
+    "seen": 1792970017.9438372,
+    "ast_hash": "323a0ff2811d819c4f69a79881136bc8",
     "semantic_hash": ""
   },
   "src/ui/mod.rs": {
-    "mtime": 1792963298.2908533,
-    "seen": 1792963590.9964716,
+    "mtime": 1792968505.8583958,
+    "seen": 1792969262.6154275,
     "ast_hash": "9026c69a251c1a465ad35374d91ea9c8",
     "semantic_hash": ""
   },
   "src/ui/prefs.rs": {
-    "mtime": 1792963298.2918289,
-    "seen": 1792963590.9964736,
+    "mtime": 1792968505.8593733,
+    "seen": 1792969262.615429,
     "ast_hash": "ff31b6c77f57861c53b283bf9d108177",
     "semantic_hash": ""
   },
   "src/ui/settings.rs": {
-    "mtime": 1792963344.3192644,
-    "seen": 1792963590.9964755,
+    "mtime": 1792968505.8603477,
+    "seen": 1792969262.6154299,
     "ast_hash": "8f92a435ed944500bbe4240d997987e8",
     "semantic_hash": ""
   },
   "src/ui/share_view.rs": {
-    "mtime": 1792963298.293332,
-    "seen": 1792963590.9964774,
+    "mtime": 1792968505.8623023,
+    "seen": 1792969262.6154308,
     "ast_hash": "02999d07fba56f3a8013dbeb7aba68cf",
     "semantic_hash": ""
   },
@@ -150,9 +150,9 @@
     "semantic_hash": ""
   },
   "src/ui/watch_view.rs": {
-    "mtime": 1792963344.3202403,
-    "seen": 1792963590.9964826,
-    "ast_hash": "8a6c034044a5ca284bfd78fc4e710caf",
+    "mtime": 1792969743.5432355,
+    "seen": 1792970017.943846,
+    "ast_hash": "51b9f591043178f3d5e23d38262a69c9",
     "semantic_hash": ""
   },
   "src/update.rs": {
@@ -162,62 +162,62 @@
     "semantic_hash": ""
   },
   "src/video/codec_roundtrip.rs": {
-    "mtime": 1792963409.4391274,
-    "seen": 1792963590.9964862,
+    "mtime": 1792968505.864286,
+    "seen": 1792969262.6154366,
     "ast_hash": "0686bb622dfd246d3543459da76d2cd3",
     "semantic_hash": ""
   },
   "src/video/convert.rs": {
-    "mtime": 1792963298.2952888,
-    "seen": 1792963590.9964879,
+    "mtime": 1792968505.865314,
+    "seen": 1792969262.6154375,
     "ast_hash": "c6cdcb79754d25a248f8860704a69fc9",
     "semantic_hash": ""
   },
   "src/video/decoder.rs": {
-    "mtime": 1792963358.3326814,
-    "seen": 1792963590.9964898,
+    "mtime": 1792968505.866354,
+    "seen": 1792969262.6154387,
     "ast_hash": "43c3ff9bb3f420aeb0dc43815fdff128",
     "semantic_hash": ""
   },
   "src/video/encoder.rs": {
-    "mtime": 1792963344.3212442,
-    "seen": 1792963590.9964914,
+    "mtime": 1792968505.8683133,
+    "seen": 1792969262.61544,
     "ast_hash": "b467bf6228d887f05aa7cf5424cfbc1e",
     "semantic_hash": ""
   },
   "src/video/mf.rs": {
-    "mtime": 1792963409.4391274,
-    "seen": 1792963590.9964938,
+    "mtime": 1792968505.8692915,
+    "seen": 1792969262.615441,
     "ast_hash": "4948934379f6e6ddf11f69a20584cb5e",
     "semantic_hash": ""
   },
   "src/video/mod.rs": {
-    "mtime": 1792963298.2982826,
-    "seen": 1792963590.9964957,
+    "mtime": 1792968505.8702667,
+    "seen": 1792969262.6154423,
     "ast_hash": "6b723b2d658871357d0fbf81dec12f6c",
     "semantic_hash": ""
   },
   "src/video/probe.rs": {
-    "mtime": 1792963344.3222249,
-    "seen": 1792963590.996499,
+    "mtime": 1792968505.8717713,
+    "seen": 1792969262.6154444,
     "ast_hash": "255491e9a9171df1cb542a1436db9997",
     "semantic_hash": ""
   },
   "src/watch.rs": {
-    "mtime": 1792963402.8290658,
-    "seen": 1792963590.9965005,
+    "mtime": 1792968505.8737307,
+    "seen": 1792969262.6154456,
     "ast_hash": "96c5559f4ee064fef2b775f9bb0a43a9",
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1792963297.754942,
-    "seen": 1792963590.9965026,
+    "mtime": 1792968505.4772482,
+    "seen": 1792969262.6154485,
     "ast_hash": "1f5dbbd4bc9870979e605032d4327fb8",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1792963297.7584686,
-    "seen": 1792963590.996504,
+    "mtime": 1792968505.5003505,
+    "seen": 1792969262.61545,
     "ast_hash": "75e120c342470f3e1295886ba5e48d7a",
     "semantic_hash": ""
   },
@@ -228,8 +228,8 @@
     "semantic_hash": ""
   },
   ".github/scripts/test-changelog.sh": {
-    "mtime": 1792966793.2207644,
-    "seen": 1792966836.6567938,
+    "mtime": 1792968505.4737375,
+    "seen": 1792969262.6153684,
     "ast_hash": "a7450475d3e9b1252475d1f2bb15fd0e",
     "semantic_hash": ""
   },
@@ -264,129 +264,153 @@
     "semantic_hash": ""
   },
   "android/app/build.gradle.kts": {
-    "mtime": 1792961035.9371915,
-    "seen": 1792963590.9964085,
-    "ast_hash": "5cfc75c7bd483885ca7cb53ee5ebc9bb",
+    "mtime": 1792970531.4527066,
+    "seen": 1792971098.6357086,
+    "ast_hash": "70545885f4dcbfdda56ab9ca24c0152a",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/AudioPlayer.kt": {
-    "mtime": 1792958618.935676,
-    "seen": 1792963590.9964108,
-    "ast_hash": "da75cdc3ac5df80975a4b5cfcc0eb7f4",
+    "mtime": 1792971688.1113496,
+    "seen": 1792972193.7894678,
+    "ast_hash": "fdfebda17c150b1bcf162d82d9b84b7b",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/MainActivity.kt": {
-    "mtime": 1792959639.229048,
-    "seen": 1792963590.9964128,
-    "ast_hash": "06d6477da3fd10d88445ef2605f3fbff",
+    "mtime": 1792970531.453683,
+    "seen": 1792971098.6357126,
+    "ast_hash": "bde34e05aa126fb36ecfcd2cddbb1495",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Native.kt": {
-    "mtime": 1792956084.206928,
-    "seen": 1792963590.9964144,
-    "ast_hash": "62bbcbc49aa26eb21f45d07e7fdd2660",
+    "mtime": 1792971697.9290826,
+    "seen": 1792972193.7894711,
+    "ast_hash": "ed02aca60fac0a2ef3f06e23e6664e4c",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Screens.kt": {
-    "mtime": 1792960981.1892247,
-    "seen": 1792963590.996416,
-    "ast_hash": "2c0c8ee943f47689926ad2ba103654e9",
+    "mtime": 1792970571.6958623,
+    "seen": 1792971098.6357155,
+    "ast_hash": "a0126eea414679b987a4b796b5ef6110",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Theme.kt": {
-    "mtime": 1792960044.6472497,
-    "seen": 1792963590.9964175,
-    "ast_hash": "f6174689db87c1c1ec44ba91725aa647",
+    "mtime": 1792970531.3770778,
+    "seen": 1792971098.6357167,
+    "ast_hash": "0350a9a06b468d33925ee5f1a6a3657f",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Updater.kt": {
-    "mtime": 1792960946.5449197,
-    "seen": 1792963590.996419,
+    "mtime": 1792968505.5111911,
+    "seen": 1792969262.615389,
     "ast_hash": "f1bd9e9163ce81a1f3ade36d974f77fe",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/VideoDecoder.kt": {
-    "mtime": 1792958633.5082743,
-    "seen": 1792963590.9964206,
-    "ast_hash": "dfa5b2dab79fa671fcb090003cd304be",
+    "mtime": 1792971727.9520974,
+    "seen": 1792972193.789477,
+    "ast_hash": "28275fcc2452d0c7afd9009b5f4563e5",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/ViewerModel.kt": {
-    "mtime": 1792960973.004876,
-    "seen": 1792963590.9964223,
-    "ast_hash": "d05fd7b3a68b3ab4df60db9b74f4ed8e",
+    "mtime": 1792971710.5577078,
+    "seen": 1792972193.7894783,
+    "ast_hash": "2299e55586c826040bdee745737ff673",
     "semantic_hash": ""
   },
   "android/app/src/test/java/io/github/pendiego/livescreen/UpdaterTest.kt": {
-    "mtime": 1792961035.920902,
-    "seen": 1792963590.9964237,
+    "mtime": 1792968505.5174465,
+    "seen": 1792969262.615393,
     "ast_hash": "0f846dbe4e1d17134237eed28c4c3358",
     "semantic_hash": ""
   },
   "android/build.gradle.kts": {
-    "mtime": 1792956058.650854,
-    "seen": 1792963590.9964254,
+    "mtime": 1792968505.5174465,
+    "seen": 1792969262.6153944,
     "ast_hash": "627a1e2067543d86c9c7d3feec8a2c3d",
     "semantic_hash": ""
   },
   "android/gradlew": {
-    "mtime": 1792957106.2755566,
-    "seen": 1792963590.996427,
+    "mtime": 1792968505.538365,
+    "seen": 1792969262.6153955,
     "ast_hash": "794669d78aef1dd5c7d889ef618b311a",
     "semantic_hash": ""
   },
   "android/rust/Cargo.toml": {
-    "mtime": 1792964517.7719984,
-    "seen": 1792966836.6568258,
+    "mtime": 1792968505.562543,
+    "seen": 1792969262.615397,
     "ast_hash": "6bd8beb168ac0088ef8c6bf4f8072a87",
     "semantic_hash": ""
   },
   "android/rust/src/lib.rs": {
-    "mtime": 1792963414.4599726,
-    "seen": 1792963590.9964302,
-    "ast_hash": "3a37005fd76cc818eb2723f178e72959",
+    "mtime": 1792971697.9251063,
+    "seen": 1792972193.7894847,
+    "ast_hash": "9cf219c2f24cbd9e9f52642b64cdf924",
     "semantic_hash": ""
   },
   "android/settings.gradle.kts": {
-    "mtime": 1792956054.5618353,
-    "seen": 1792963590.9964316,
+    "mtime": 1792968505.5655766,
+    "seen": 1792969262.6153991,
     "ast_hash": "d02e648aa487bf528e22bafdae214607",
     "semantic_hash": ""
   },
   "crates/livescreen-core/Cargo.toml": {
-    "mtime": 1792964517.6071558,
-    "seen": 1792966836.6568308,
+    "mtime": 1792968505.568516,
+    "seen": 1792969262.6154027,
     "ast_hash": "24fbb80a8a43aed0ed4a8bf68f6aa899",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/lib.rs": {
-    "mtime": 1792956037.7973053,
-    "seen": 1792963590.9964375,
+    "mtime": 1792968505.5694928,
+    "seen": 1792969262.615404,
     "ast_hash": "811ccc7659363f6d273b73b0111b6ca4",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/preset.rs": {
-    "mtime": 1792956081.9870808,
-    "seen": 1792963590.9964387,
+    "mtime": 1792968505.5694928,
+    "seen": 1792969262.615405,
     "ast_hash": "6e91b295a1a9bc1bc3a57b3c4ac838b2",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/protocol.rs": {
-    "mtime": 1792963297.7594488,
-    "seen": 1792963590.9964406,
-    "ast_hash": "211f9bab650226d5689c5c8463ed1f92",
+    "mtime": 1792969659.9802876,
+    "seen": 1792970017.943816,
+    "ast_hash": "868767531b6abd0ffafbeffd49b1feb5",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/viewer.rs": {
-    "mtime": 1792963389.048337,
-    "seen": 1792963590.996442,
-    "ast_hash": "9d447b92214199460a88b858920ed765",
+    "mtime": 1792968954.2569072,
+    "seen": 1792969262.6154082,
+    "ast_hash": "521d8e6bf7957c2079ba0a9eb2ab3493",
     "semantic_hash": ""
   },
   "src/video/present.rs": {
-    "mtime": 1792963298.2992592,
-    "seen": 1792963590.9964972,
+    "mtime": 1792968505.8702667,
+    "seen": 1792969262.6154432,
     "ast_hash": "7c51b4e938c5f715628030a476fe4b3e",
+    "semantic_hash": ""
+  },
+  ".omp/plans/COMPAT_HOST_04_PLAN.md": {
+    "mtime": 1792968934.877383,
+    "seen": 1792969262.6154468,
+    "ast_hash": "f0218c3f4a7a780258e63b70edd28a15",
+    "semantic_hash": ""
+  },
+  ".omp/plans/INVITE_PASTE_UX_PLAN.md": {
+    "mtime": 1792969643.1621616,
+    "seen": 1792970017.9438617,
+    "ast_hash": "2ec4dff1c4f6d1937633dfc1826bec4f",
+    "semantic_hash": ""
+  },
+  ".omp/plans/ANDROID_M3_REDESIGN_PLAN.md": {
+    "mtime": 1792970508.5360508,
+    "seen": 1792971098.6357746,
+    "ast_hash": "75cadc3decc673d94749f66f664efa5e",
+    "semantic_hash": ""
+  },
+  ".omp/plans/ANDROID_BATTERY_PLAN.md": {
+    "mtime": 1792971665.5183985,
+    "seen": 1792972193.7895336,
+    "ast_hash": "b2d1d35f929e89de7d8709a4244d8e3c",
     "semantic_hash": ""
   }
 }
