@@ -1,5 +1,6 @@
 # Notas de release geradas pelo git-cliff (release.yml) a partir dos Conventional Commits
-# entre a tag anterior e a atual. Corpo em lista (`- item`) vira subitens.
+# entre a tag anterior e a atual. Corpo em lista (`- item`) vira subitens. "What's Changed",
+# "New Contributors" e "Full Changelog" vêm do generate_release_notes do GitHub (release.yml).
 
 [changelog]
 header = ""
@@ -12,23 +13,33 @@ body = """
 {{ "  - " ~ t }}{% endif %}{% endfor %}{% endif %}
 {%- endmacro item -%}
 
-## What's Changed
 {%- set breaking = commits | filter(attribute="breaking", value=true) %}
 {%- if breaking | length > 0 %}
-### Breaking Changes
+## Breaking Changes
 {% for c in breaking -%}
 * {{ c.breaking_description | default(value=c.message) }} ([{{ c.id | truncate(length=7, end="") }}]({{ repo }}/commit/{{ c.id }}))
 {% endfor -%}
 {%- endif %}
+{#- uma seção por componente (como os pacotes das notas do oh-my-pi), com Added/Changed/Fixed dentro -#}
+{%- for comp in ["LiveScreen", "Android"] %}
+{%- set_global n = 0 %}
+{%- for c in commits %}{% if comp == "Android" and c.scope == "android" or comp != "Android" and c.scope != "android" %}{% set_global n = n + 1 %}{% endif %}{% endfor %}
+{%- if n > 0 %}
+## {{ comp }}
 {%- for group, list in commits | group_by(attribute="group") %}
+{%- set_global k = 0 %}
+{%- for c in list %}{% if comp == "Android" and c.scope == "android" or comp != "Android" and c.scope != "android" %}{% set_global k = k + 1 %}{% endif %}{% endfor %}
+{%- if k > 0 %}
 ### {{ group | striptags | trim }}
 {% for c in list -%}
+{%- if comp == "Android" and c.scope == "android" or comp != "Android" and c.scope != "android" -%}
 {{ self::item(c=c, repo=repo) }}
-{% endfor -%}
-{%- endfor %}
-{%- if previous.version %}
-**Full Changelog**: {{ repo }}/compare/{{ previous.version }}...{{ version }}
+{% endif -%}
+{%- endfor -%}
 {%- endif %}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
 """
 trim = true
 
@@ -43,6 +54,7 @@ sort_commits = "oldest"
 commit_parsers = [
   { message = "^chore\\(release\\)", skip = true },
   { message = "^Merge ", skip = true },
+  { message = "^chore\\(merge\\)", skip = true },
   { message = "^feat", group = "<!-- 0 -->Added" },
   { message = "^perf", group = "<!-- 1 -->Changed" },
   { message = "^refactor", group = "<!-- 1 -->Changed" },

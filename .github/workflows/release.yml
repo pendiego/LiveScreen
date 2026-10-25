@@ -65,3 +65,5 @@ jobs:
             target/release/livescreen.exe
             livescreen-android.apk
           body_path: CHANGES.md
+          # o GitHub acrescenta "What's Changed" (PRs), "New Contributors" e "Full Changelog"
+          generate_release_notes: true
