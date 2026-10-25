@@ -27,6 +27,8 @@ use crate::video::convert::Converter;
 
 pub const SLOTS: usize = 3;
 
+static NEXT_SURFACES_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 /// Adaptador da UI (wgpu); o decoder cria o device D3D11 nele para o compartilhamento valer.
 #[derive(Clone, Copy)]
 pub struct Target {
@@ -35,7 +37,8 @@ pub struct Target {
 
 /// Handles de uma geração do pool; fechados quando o último `GpuFrame` e o produtor os soltam.
 pub struct Surfaces {
-    generation: u64,
+    /// Único no processo: um produtor novo (troca de codec) nunca reaproveita o id de outro.
+    id: u64,
     width: u32,
     height: u32,
     slots: [HANDLE; SLOTS],
@@ -117,7 +120,7 @@ impl Producer {
             let (width, height) = conv.output_size();
             // `Surfaces` fecha o que já foi criado se algo falhar no meio
             let mut surf = Surfaces {
-                generation: conv.generation(),
+                id: NEXT_SURFACES_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
                 width,
                 height,
                 slots: [HANDLE::default(); SLOTS],
@@ -143,7 +146,7 @@ impl Producer {
             self.consumed = Some(cf);
             self.slot_seq = [0; SLOTS];
             self.last_slot = None;
-            self.generation = surf.generation;
+            self.generation = conv.generation();
             self.surfaces = Some(Arc::new(surf));
         }
         let (Some(surfaces), Some(produced), Some(consumed)) =
@@ -172,7 +175,7 @@ impl Producer {
 }
 
 struct Imported {
-    generation: u64,
+    id: u64,
     slots: Vec<wgpu::Texture>,
     produced: ID3D12Fence,
     consumed: ID3D12Fence,
@@ -275,7 +278,7 @@ impl Display {
             ..desc
         });
         Ok(Imported {
-            generation: s.generation,
+            id: s.id,
             slots,
             produced: fence(s.produced)?,
             consumed: fence(s.consumed)?,
@@ -286,9 +289,11 @@ impl Display {
 
     /// Copia o quadro para a textura de exibição (na fila do wgpu) e devolve o id do egui.
     pub fn show(&mut self, f: &GpuFrame) -> Result<(egui::TextureId, egui::Vec2)> {
-        let fresh = self.imported.as_ref().is_none_or(|i| i.generation != f.surfaces.generation);
+        let fresh = self.imported.as_ref().is_none_or(|i| i.id != f.surfaces.id);
         if fresh {
             let imp = self.import(f)?;
+            // a numeração de quadros recomeça a cada produtor
+            self.last_seq = 0;
             let view = imp.display.create_view(&wgpu::TextureViewDescriptor::default());
             let mut r = self.rs.renderer.write();
             match self.id {
