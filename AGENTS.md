@@ -24,7 +24,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 | `src/watch.rs` | lado de quem assiste: conecta pelo ticket, recebe vídeo e áudio, publica `WatchStatus` |
 | `src/protocol.rs` | wire format: ALPN, `PROTOCOL_VERSION`, mensagens JSON (`ViewerMsg`/`HostMsg`), quadros de vídeo, códigos de close |
 | `src/capture/` | `wgc.rs` (Windows Graphics Capture), `dxgi.rs` (Desktop Duplication, fallback de tela), `sources.rs` (enumeração/miniaturas); `FrameSink` recebe texturas D3D11 |
-| `src/video/` | `encoder.rs`/`decoder.rs` H.264 via Media Foundation, `mf.rs` helpers, `convert.rs` RGB→NV12 com escala no D3D11 Video Processor (GPU), `probe.rs` detecção do encoder em processo filho |
+| `src/video/` | `encoder.rs`/`decoder.rs` H.264/HEVC/AV1 via Media Foundation, `mf.rs` helpers, `convert.rs` RGB→NV12 com escala no D3D11 Video Processor (GPU) e NV12→RGBA (pool compartilhável), `present.rs` viewer zero-copy (texturas D3D11 compartilhadas → wgpu DX12, fences `produced`/`consumed`), `probe.rs` detecção do encoder em processo filho |
 | `src/audio/` | `capture.rs` loopback WASAPI → Opus; `playback.rs` datagram → Opus → cpal |
 | `src/preset.rs` | qualidades (480p..4K/nativa), limites H.264 nível 5.2, bitrate e recomendação |
 | `src/speedtest.rs` | medição de upload contra `speed.cloudflare.com` |
@@ -38,12 +38,12 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 - Só Windows 10 2004+ x64. A crate `windows` está fixada em `=0.62.2`: ao precisar de API nova, adicione a feature em `Cargo.toml` em vez de subir a versão.
 - Protocolo: qualquer mudança incompatível em `protocol.rs` (campos obrigatórios, enum, framing) exige incrementar `PROTOCOL_VERSION`; versões diferentes são recusadas. Campos novos opcionais usam `#[serde(default)]` para não quebrar.
 - Limites de entrada da rede (`MAX_MSG`, `MAX_FRAME`, `MAX_HANDSHAKES`, `HANDSHAKE_TIMEOUT`) são fronteira de confiança: não afrouxe sem motivo.
-- Captura e encoder têm fallback (WGC → DXGI, hardware → software) e overrides (`deny-graphics-capture`, `deny-dxgi`, `deny-hardware-encoder`, `deny-hardware-decoder`). Mudanças nesses caminhos devem preservar os dois lados do fallback.
+- Captura e encoder têm fallback (WGC → DXGI, hardware → software) e overrides (`deny-graphics-capture`, `deny-dxgi`, `deny-hardware-encoder`, `deny-hardware-decoder`, `deny-zero-copy`). Mudanças nesses caminhos devem preservar os dois lados do fallback.
 - Threads de captura/encoder não podem morrer por um quadro ruim (ver `SinkHandle::lock`, que recupera mutex envenenado).
 - Updater: o asset `livescreen.exe` solto da release é o que o app baixa e confere pelo sha256 do GitHub. Não renomeie o asset em `release.yml` sem ajustar `update.rs`.
 - Dependências: `reqwest`/`rustls` reaproveitam o que o iroh já traz (provider `ring`); evite adicionar crates para o que a stdlib, `windows` ou as dependências atuais resolvem.
 - Novas conexões de rede externas precisam entrar na tabela "Conexões que o app faz" do `README.md`.
-- Viewer: decoder por hardware (`video/decoder.rs`, MFT com `IMFDXGIDeviceManager` + `Converter::new_rgb`) cai para software após 3 falhas seguidas; preservar os dois caminhos. `ViewerMsg::SetQuality` é pedido, não ordem: `share.rs::apply_quality_request` só aceita redução real (`preset::is_reduction`).
+- Viewer: decoder por hardware (`video/decoder.rs`, MFT com `IMFDXGIDeviceManager` + `Converter::new_rgb`) cai para software após 3 falhas seguidas; preservar os dois caminhos. O quadro vai à UI por textura compartilhada (`GpuOut::Shared`, `video/present.rs`) e cai para readback (`GpuOut::Readback`) quando o egui não roda em DX12, o adaptador difere, falta saída RGBA, a importação falha ou há `deny-zero-copy`; preservar os dois caminhos. `ViewerMsg::SetQuality` é pedido, não ordem: `share.rs::apply_quality_request` só aceita redução real (`preset::is_reduction`).
 
 ## Estilo
 

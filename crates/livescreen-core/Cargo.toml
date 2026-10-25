@@ -10,6 +10,10 @@ anyhow = "1"
 bytes = "1"
 iroh = "1.4.1"
 iroh-tickets = "1.0.0"
+hex = "0.4"
+noq-proto = "1.4.0"
+# já vem pelo rustls/iroh (provider ring)
+ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "sync", "time"] }

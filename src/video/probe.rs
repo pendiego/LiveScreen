@@ -13,28 +13,33 @@ use windows::Win32::Media::MediaFoundation::*;
 
 use crate::config::Overrides;
 use livescreen_core::preset::EncodeParams;
+use livescreen_core::protocol::Codec;
 use crate::video::encoder::{self, EncoderKind, EncoderStats, Nv12Frame};
 use crate::video::mf;
 
 /// Escolha do encoder: hardware só se o probe fora do processo aprovar.
-pub fn detect(overrides: &Overrides) -> EncoderKind {
+pub fn detect(overrides: &Overrides) -> Vec<EncoderKind> {
     if overrides.deny_hardware_encoder {
-        return EncoderKind::Software;
+        return vec![EncoderKind::Software];
     }
     match probe_child() {
-        Ok(Some(name)) => EncoderKind::Hardware { name },
-        Ok(None) => {
-            warn!("nenhum encoder H.264 de hardware funcionou; usando software");
-            EncoderKind::Software
+        Ok(kinds) if !kinds.is_empty() => {
+            let mut all = kinds;
+            all.push(EncoderKind::Software);
+            all
+        }
+        Ok(_) => {
+            warn!("nenhum encoder de hardware funcionou; usando software");
+            vec![EncoderKind::Software]
         }
         Err(e) => {
             warn!("probe do encoder falhou: {e:#}; usando software");
-            EncoderKind::Software
+            vec![EncoderKind::Software]
         }
     }
 }
 
-fn probe_child() -> Result<Option<String>> {
+fn probe_child() -> Result<Vec<EncoderKind>> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -51,7 +56,7 @@ fn probe_child() -> Result<Option<String>> {
         if child.try_wait()?.is_some() {
             break;
         }
-        if start.elapsed() > Duration::from_secs(10) {
+        if start.elapsed() > Duration::from_secs(30) {
             let _ = child.kill();
             let _ = child.wait();
             bail!("probe expirou");
@@ -68,9 +73,17 @@ fn probe_child() -> Result<Option<String>> {
         .ok_or_else(|| anyhow!("probe sem saída"))?;
     let v: serde_json::Value = serde_json::from_str(line)?;
     if v["ok"].as_bool() == Some(true) {
-        Ok(Some(v["name"].as_str().unwrap_or_default().to_string()))
+        let mut kinds = Vec::new();
+        if let Some(arr) = v["encoders"].as_array() {
+            for item in arr {
+                let codec: Codec = serde_json::from_value(item["codec"].clone())?;
+                let name = item["name"].as_str().unwrap_or_default().to_string();
+                kinds.push(EncoderKind::Hardware { name, codec });
+            }
+        }
+        Ok(kinds)
     } else {
-        Ok(None)
+        Ok(Vec::new())
     }
 }
 
@@ -102,14 +115,12 @@ fn black_nv12(device: &ID3D11Device, w: u32, h: u32) -> Result<ID3D11Texture2D> 
     tex.ok_or_else(|| anyhow!("textura NV12 nula"))
 }
 
-fn try_encoder(device: &ID3D11Device, params: EncodeParams, name: &str) -> Result<()> {
+fn try_encoder(device: &ID3D11Device, params: EncodeParams, kind: &EncoderKind) -> Result<()> {
     let tex = black_nv12(device, params.width, params.height)?;
     let (tx, rx) = std::sync::mpsc::sync_channel(2);
     let (btx, mut brx) = broadcast::channel(8);
     let handle = encoder::spawn(
-        EncoderKind::Hardware {
-            name: name.to_string(),
-        },
+        kind.clone(),
         device,
         params,
         rx,
@@ -150,41 +161,72 @@ fn try_encoder(device: &ID3D11Device, params: EncodeParams, name: &str) -> Resul
     }
 }
 
+fn candidates(codec: Codec) -> Vec<String> {
+    let info = MFT_REGISTER_TYPE_INFO {
+        guidMajorType: MFMediaType_Video,
+        guidSubtype: mf::subtype(codec),
+    };
+    let flags = MFT_ENUM_FLAG(
+        MFT_ENUM_FLAG_HARDWARE.0 | MFT_ENUM_FLAG_TRANSCODE_ONLY.0 | MFT_ENUM_FLAG_SORTANDFILTER.0,
+    );
+    mf::enumerate_mfts(MFT_CATEGORY_VIDEO_ENCODER, flags, None, Some(info))
+        .into_iter()
+        .map(|a| mf::friendly_name(&a))
+        .collect()
+}
+
 /// `--probe-encoder`: testa cada MFT de hardware e imprime uma linha JSON.
 pub fn run_child() -> Result<()> {
     mf::startup();
-    let (device, _ctx) = crate::gpu::create_device()?;
+    let (device, _ctx) = crate::gpu::create_device(None)?;
     let params = EncodeParams {
         width: 1280,
         height: 720,
         fps: 30,
         bitrate_bps: 1_000_000,
     };
-    let info = MFT_REGISTER_TYPE_INFO {
-        guidMajorType: MFMediaType_Video,
-        guidSubtype: MFVideoFormat_H264,
-    };
-    let flags = MFT_ENUM_FLAG(
-        MFT_ENUM_FLAG_HARDWARE.0 | MFT_ENUM_FLAG_TRANSCODE_ONLY.0 | MFT_ENUM_FLAG_SORTANDFILTER.0,
-    );
-    let acts = mf::enumerate_mfts(MFT_CATEGORY_VIDEO_ENCODER, flags, None, Some(info));
+    let mut encoders = Vec::new();
     let mut errors = Vec::new();
-    for a in acts {
-        let name = mf::friendly_name(&a);
-        drop(a);
-        match try_encoder(&device, params, &name) {
-            Ok(()) => {
-                println!("{}", serde_json::json!({ "ok": true, "name": name }));
-                return Ok(());
+    for codec in [Codec::Av1, Codec::Hevc, Codec::H264] {
+        for name in candidates(codec) {
+            let kind = EncoderKind::Hardware {
+                name: name.clone(),
+                codec,
+            };
+            match try_encoder(&device, params, &kind) {
+                Ok(()) => {
+                    encoders.push(serde_json::json!({
+                        "codec": codec,
+                        "name": name,
+                    }));
+                    break;
+                }
+                Err(e) => errors.push(format!("{name} ({}): {e:#}", codec.label())),
             }
-            Err(e) => errors.push(format!("{name}: {e:#}")),
         }
     }
-    let error = if errors.is_empty() {
-        "nenhum encoder H.264 de hardware encontrado".to_string()
+    if !encoders.is_empty() {
+        println!("{}", serde_json::json!({ "ok": true, "encoders": encoders }));
     } else {
-        errors.join("; ")
-    };
-    println!("{}", serde_json::json!({ "ok": false, "error": error }));
+        let error = if errors.is_empty() {
+            "nenhum encoder de hardware encontrado".to_string()
+        } else {
+            errors.join("; ")
+        };
+        println!("{}", serde_json::json!({ "ok": false, "error": error }));
+    }
     Ok(())
+}
+
+#[cfg(test)]
+pub fn hardware_kinds() -> Vec<EncoderKind> {
+    mf::startup();
+    let mut kinds = Vec::new();
+    for codec in [Codec::Av1, Codec::Hevc, Codec::H264] {
+        if let Some(name) = candidates(codec).into_iter().next() {
+            kinds.push(EncoderKind::Hardware { name, codec });
+        }
+    }
+    kinds.push(EncoderKind::Software);
+    kinds
 }

@@ -9,13 +9,12 @@ use anyhow::{Result, anyhow};
 use tokio::sync::broadcast;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Media::MediaFoundation::*;
 
 use livescreen_core::preset::{EncodeParams, Preset};
 use livescreen_core::protocol::EncodedFrame;
 use livescreen_core::viewer::DecodeStats;
 use crate::video::convert::Converter;
-use crate::video::decoder::{self, RgbaFrame};
+use crate::video::decoder::{self, RgbaFrame, VideoFrame};
 use crate::video::encoder::{self, EncoderKind, EncoderStats, Nv12Frame};
 use crate::video::mf;
 
@@ -140,9 +139,9 @@ fn forward(
     }
 }
 
-fn collect(slot: &Arc<Mutex<Option<RgbaFrame>>>, rec: &mut Rec, pat: &[Vec<f32>]) {
+fn collect(slot: &Arc<Mutex<Option<VideoFrame>>>, rec: &mut Rec, pat: &[Vec<f32>]) {
     let guard = slot.lock().unwrap();
-    let Some(frame) = guard.as_ref() else {
+    let Some(VideoFrame::Cpu(frame)) = guard.as_ref() else {
         return;
     };
     let fp = fingerprint(frame);
@@ -180,7 +179,7 @@ fn roundtrip(
         Arc::new(AtomicBool::new(false)),
         Arc::new(EncoderStats::default()),
     )?;
-    let slot: Arc<Mutex<Option<RgbaFrame>>> = Arc::default();
+    let slot: Arc<Mutex<Option<VideoFrame>>> = Arc::default();
     let (dtx, drx) = std::sync::mpsc::channel::<EncodedFrame>();
     let dstats = Arc::new(DecodeStats::default());
     let dec = decoder::spawn(
@@ -190,6 +189,8 @@ fn roundtrip(
         Arc::new(AtomicBool::new(false)),
         dstats.clone(),
         hardware_decode,
+        None,
+        Arc::new(AtomicBool::new(false)),
     );
 
     let mut rec = Rec::default();
@@ -211,15 +212,23 @@ fn roundtrip(
             std::thread::sleep(Duration::from_millis(2));
         }
     }
-    let until = Instant::now() + Duration::from_millis(1000);
+    drop(tx);
+    enc.stop();
+    let until = Instant::now() + Duration::from_millis(2000);
     while Instant::now() < until {
         forward(&mut brx, &dtx, &mut rec);
         collect(&slot, &mut rec, pat);
+        if rec.decoded >= N {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(2));
     }
-    drop(tx);
-    enc.stop();
     drop(dtx);
+    while !dec.is_finished() {
+        collect(&slot, &mut rec, pat);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    collect(&slot, &mut rec, pat);
     let _ = dec.join();
     if hardware_decode && !dstats.hardware.load(Ordering::Relaxed) {
         return Err(anyhow!("decoder de hardware não ficou ativo"));
@@ -246,49 +255,28 @@ fn roundtrip(
     Ok((rec.decoded, mean, min))
 }
 
-fn hardware_kind() -> Option<EncoderKind> {
-    let info = MFT_REGISTER_TYPE_INFO {
-        guidMajorType: MFMediaType_Video,
-        guidSubtype: MFVideoFormat_H264,
-    };
-    let flags = MFT_ENUM_FLAG(
-        MFT_ENUM_FLAG_HARDWARE.0 | MFT_ENUM_FLAG_TRANSCODE_ONLY.0 | MFT_ENUM_FLAG_SORTANDFILTER.0,
-    );
-    mf::enumerate_mfts(MFT_CATEGORY_VIDEO_ENCODER, flags, None, Some(info))
-        .first()
-        .map(|a| EncoderKind::Hardware {
-            name: mf::friendly_name(a),
-        })
-}
-
 #[test]
 #[ignore = "usa GPU/encoder real: cargo test --release -- --ignored codec_roundtrip"]
 fn codec_roundtrip() {
     mf::startup();
-    let (device, ctx) = crate::gpu::create_device().expect("dispositivo D3D11");
+    let (device, ctx) = crate::gpu::create_device(None).expect("dispositivo D3D11");
     let params = livescreen_core::preset::encode_params(Preset::P720p30, W, H, 60);
     assert_eq!((params.width, params.height, params.fps), (W, H, 30));
     let pat = patterns();
 
-    let mut kinds = Vec::new();
-    let hw = match crate::video::probe::detect(&crate::config::Overrides::default()) {
-        k @ EncoderKind::Hardware { .. } => Some(k),
-        EncoderKind::Software => hardware_kind(),
-    };
-    if let Some(k) = hw {
-        kinds.push(k);
-    }
-    kinds.push(EncoderKind::Software);
-
+    let kinds = crate::video::probe::hardware_kinds();
     let mut failures = Vec::new();
     for (kind, hardware_decode) in kinds
         .into_iter()
-        .flat_map(|k| [(k.clone(), true), (k, false)])
+        .flat_map(|k| {
+            if k.codec() == livescreen_core::protocol::Codec::H264 {
+                vec![(k.clone(), true), (k, false)]
+            } else {
+                vec![(k, true)]
+            }
+        })
     {
-        let name = match &kind {
-            EncoderKind::Hardware { name } => name.clone(),
-            EncoderKind::Software => "software".to_string(),
-        };
+        let name = kind.label();
         let name = format!(
             "{name} / decoder {}",
             if hardware_decode {
@@ -311,3 +299,4 @@ fn codec_roundtrip() {
     }
     assert!(failures.is_empty(), "falhas:\n{}", failures.join("\n"));
 }
+

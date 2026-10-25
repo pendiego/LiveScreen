@@ -61,23 +61,32 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                             .color(weak),
                     );
                 }
-                Some(EncoderKind::Hardware { name }) => {
-                    ui.label(
-                        RichText::new(format!(
-                            "{I_CHECK}  Encoder: {name} (aceleração por hardware)"
-                        ))
-                        .small()
-                        .color(weak),
-                    );
-                }
-                Some(EncoderKind::Software) => {
-                    ui.label(
-                        RichText::new(format!(
-                            "{I_INFO}  Encoder: software (Microsoft H.264) — pode usar mais CPU"
-                        ))
-                        .small()
-                        .color(weak),
-                    );
+                Some(kinds) => {
+                    let hw_labels: Vec<_> = kinds
+                        .iter()
+                        .filter_map(|k| match k {
+                            EncoderKind::Hardware { .. } => Some(k.label()),
+                            EncoderKind::Software => None,
+                        })
+                        .collect();
+                    if !hw_labels.is_empty() {
+                        ui.label(
+                            RichText::new(format!(
+                                "{I_CHECK}  Encoder: {} (aceleração por hardware)",
+                                hw_labels.join(", ")
+                            ))
+                            .small()
+                            .color(weak),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new(format!(
+                                "{I_INFO}  Encoder: software (Microsoft H.264) — pode usar mais CPU"
+                            ))
+                            .small()
+                            .color(weak),
+                        );
+                    }
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -146,7 +155,7 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                 // convite já copiado? entra preenchido: falta só "Conectar"
                 if let Ok(t) = arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
                     let t: String = t.chars().filter(|c| !c.is_whitespace()).collect();
-                    if livescreen_core::viewer::is_valid_ticket(&t) {
+                    if livescreen_core::viewer::is_valid_invite(&t) {
                         app.ticket_input = t;
                         app.toasts.push(
                             "Código de convite colado da área de transferência",

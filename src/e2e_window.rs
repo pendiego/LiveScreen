@@ -11,6 +11,7 @@ use crate::capture::{SourceId, enumerate};
 use livescreen_core::preset::Preset;
 use crate::share::ShareSession;
 use crate::video::encoder::EncoderKind;
+use livescreen_core::protocol::Codec;
 use livescreen_core::viewer::Phase;
 use crate::watch::WatchSession;
 
@@ -91,16 +92,14 @@ fn e2e_window() {
         .into_iter()
         .find(|s| matches!(&s.id, SourceId::Window { hwnd: x, .. } if *x == hwnd))
         .unwrap();
-    let kind = EncoderKind::Hardware {
-        name: "NVIDIA H.264 Encoder MFT".into(),
-    };
+    let kinds = crate::video::probe::hardware_kinds();
     let share = ShareSession::start(
         &h,
         info,
         Preset::P720p30,
         false,
         None,
-        kind,
+        kinds.clone(),
         Default::default(),
         4,
     )
@@ -112,7 +111,7 @@ fn e2e_window() {
         std::thread::sleep(Duration::from_millis(100));
     };
     let ctx = egui::Context::default();
-    let w = WatchSession::start(&h, &ticket, "", 1.0, true, ctx).unwrap();
+    let w = WatchSession::start(&h, &ticket, "", 1.0, true, None, ctx).unwrap();
     std::thread::sleep(Duration::from_secs(4));
     let snap = |tag: &str| {
         let s = w.status.lock().unwrap().clone();
@@ -121,13 +120,20 @@ fn e2e_window() {
             .lock()
             .unwrap()
             .as_ref()
-            .map(|f| (f.width, f.height));
+            .map(|f| f.size());
         let hs = share.status.lock().unwrap().clone();
         println!(
             "{tag}: phase={:?} fps={} frame={:?} welcome={}x{} audio={:?} ended={:?} decoder_hw={} decode={:.0}fps {:.2}ms",
             s.phase, s.fps, f, s.width, s.height, hs.audio, hs.ended, s.decoder_hw, s.decode_fps, s.decode_ms
         );
     };
+    let _ = share.apply_codec();
+    std::thread::sleep(Duration::from_secs(2));
+    let expect_hevc = kinds.iter().any(|k| k.codec() == Codec::Hevc)
+        && crate::video::decoder::supported_codecs(true).contains(&Codec::Hevc);
+    if expect_hevc {
+        assert_eq!(w.status.lock().unwrap().codec, "HEVC");
+    }
     snap("start");
     w.request_quality(Preset::P480p30);
     std::thread::sleep(Duration::from_secs(1));
@@ -177,7 +183,7 @@ fn e2e_window() {
     // a janela externa é 1600 px; a captura é só a área cliente (sem bordas) e o teto
     // temporário 1080p60 vale para a saída, então o esperado vem de encode_params
     let expected = livescreen_core::preset::encode_params(Preset::Native60, sw, sh, hz).width;
-    let width = || w.frame.lock().unwrap().as_ref().map(|f| f.width);
+    let width = || w.frame.lock().unwrap().as_ref().map(|f| f.size().0);
     let t = std::time::Instant::now();
     while t.elapsed() < Duration::from_secs(8) && !width().is_some_and(|x| x >= expected) {
         std::thread::sleep(Duration::from_millis(100));
@@ -204,7 +210,7 @@ fn e2e_window() {
     within("troca 2 minimizada", || {
         share.set_preset(Preset::P720p30).unwrap()
     });
-    let late = WatchSession::start(&h, &ticket, "", 1.0, true, egui::Context::default()).unwrap();
+    let late = WatchSession::start(&h, &ticket, "", 1.0, true, None, egui::Context::default()).unwrap();
     std::thread::sleep(Duration::from_secs(4));
     println!(
         "late viewer while minimized: {:?} frame={:?}",
@@ -213,7 +219,7 @@ fn e2e_window() {
             .lock()
             .unwrap()
             .as_ref()
-            .map(|f| (f.width, f.height))
+            .map(|f| f.size())
     );
     unsafe {
         let _ = ShowWindow(hw, SW_RESTORE);
@@ -263,16 +269,17 @@ fn e2e_android() {
         .into_iter()
         .find(|s| matches!(&s.id, SourceId::Window { hwnd: x, .. } if *x == hwnd))
         .unwrap();
-    let kind = EncoderKind::Hardware {
+    let kinds = vec![EncoderKind::Hardware {
         name: "NVIDIA H.264 Encoder MFT".into(),
-    };
+        codec: Codec::H264,
+    }];
     let share = ShareSession::start(
         &h,
         info,
         Preset::P720p30,
         true,
         None,
-        kind,
+        kinds,
         Default::default(),
         4,
     )

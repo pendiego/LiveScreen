@@ -4,7 +4,8 @@ use std::mem::ManuallyDrop;
 use anyhow::{Context as _, Result, bail};
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11_BIND_RENDER_TARGET, D3D11_BIND_VIDEO_ENCODER, D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV,
+    D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_VIDEO_ENCODER,
+    D3D11_RESOURCE_MISC_SHARED, D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV,
     D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_VIDEO_COLOR, D3D11_VIDEO_COLOR_0,
     D3D11_VIDEO_COLOR_RGBA, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT,
@@ -47,6 +48,8 @@ pub struct Converter {
     next: usize,
     target: Target,
     out_format: DXGI_FORMAT,
+    shared_slots: usize,
+    generation: u64,
 }
 
 impl Converter {
@@ -72,6 +75,8 @@ impl Converter {
             next: 0,
             target: Target::Nv12,
             out_format: DXGI_FORMAT_NV12,
+            shared_slots: 0,
+            generation: 0,
         })
     }
 
@@ -80,6 +85,31 @@ impl Converter {
         let mut c = Self::new(device, context, 0, 0, 60)?;
         c.target = Target::Rgb;
         Ok(c)
+    }
+
+    /// Como `new_rgb`, mas com `slots` texturas RGBA compartilháveis com outro dispositivo (zero-copy).
+    pub fn new_rgb_shared(device: &ID3D11Device, context: &ID3D11DeviceContext, slots: usize) -> Result<Self> {
+        let mut c = Self::new_rgb(device, context)?;
+        c.shared_slots = slots;
+        Ok(c)
+    }
+
+    /// Contador que sobe a cada recriação do pool (invalida handles compartilhados).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn pool_texture(&self, i: usize) -> &ID3D11Texture2D {
+        &self.pool[i].0
+    }
+
+    pub fn prepare(&mut self, w: u32, h: u32) -> Result<()> {
+        self.ensure(w, h)
+    }
+
+    /// Tamanho (par) das texturas do pool.
+    pub fn output_size(&self) -> (u32, u32) {
+        (self.out_w, self.out_h)
     }
 
     /// Formato da textura devolvida por `convert`/`convert_slice`.
@@ -105,7 +135,19 @@ impl Converter {
         size: (u32, u32),
     ) -> Result<ID3D11Texture2D> {
         self.ensure(size.0, size.1)?;
+        let index = self.next;
+        self.next = (self.next + 1) % self.pool.len();
+        self.blt(src, slice, index)?;
+        Ok(self.pool[index].0.clone())
+    }
 
+    /// Converte para o slot `index` do pool (viewer com textura compartilhada).
+    pub fn convert_into(&mut self, src: &ID3D11Texture2D, slice: u32, size: (u32, u32), index: usize) -> Result<()> {
+        self.ensure(size.0, size.1)?;
+        self.blt(src, slice, index)
+    }
+
+    fn blt(&mut self, src: &ID3D11Texture2D, slice: u32, index: usize) -> Result<()> {
         let enumerator = self.enumerator.as_ref().context("enumerador de vídeo")?;
         let processor = self.processor.as_ref().context("processador de vídeo")?;
         let input_desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
@@ -129,10 +171,6 @@ impl Converter {
         };
         let input = input.context("input view do processador de vídeo")?;
 
-        let index = self.next;
-        self.next = (self.next + 1) % self.pool.len();
-        let output = self.pool[index].0.clone();
-
         let mut streams = [D3D11_VIDEO_PROCESSOR_STREAM::default()];
         streams[0].Enable = true.into();
         streams[0].pInputSurface = ManuallyDrop::new(Some(input));
@@ -144,7 +182,7 @@ impl Converter {
         // (e a textura de captura que ela segura) vaza a cada quadro.
         let _input = unsafe { ManuallyDrop::take(&mut streams[0].pInputSurface) };
         res?;
-        Ok(output)
+        Ok(())
     }
 
     /// O tamanho de entrada faz parte do content desc, então o processador é recriado quando a fonte muda.
@@ -181,6 +219,7 @@ impl Converter {
                 Texture2D: D3D11_TEX2D_VPOV { MipSlice: 0 },
             },
         };
+        let shared = self.shared_slots > 0;
         let (format, bind, count) = match self.target {
             Target::Nv12 => (
                 DXGI_FORMAT_NV12,
@@ -193,17 +232,37 @@ impl Converter {
                         s & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT.0 as u32 != 0
                     })
                 };
-                let f = [DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM]
-                    .into_iter()
+                // o wgpu só importa Rgba8Unorm; sem essa saída o viewer cai no readback
+                let formats: &[DXGI_FORMAT] = if shared {
+                    &[DXGI_FORMAT_R8G8B8A8_UNORM]
+                } else {
+                    &[DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_B8G8R8A8_UNORM]
+                };
+                let f = formats
+                    .iter()
+                    .copied()
                     .find(|&f| ok(f))
-                    .context("processador de vídeo sem saída RGB")?;
-                (f, D3D11_BIND_RENDER_TARGET.0 as u32, 1)
+                    .context(if shared {
+                        "processador de vídeo sem saída RGBA"
+                    } else {
+                        "processador de vídeo sem saída RGB"
+                    })?;
+                if shared {
+                    (f, (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32, self.shared_slots)
+                } else {
+                    (f, D3D11_BIND_RENDER_TARGET.0 as u32, 1)
+                }
             }
+        };
+        let misc = if shared {
+            (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0 | D3D11_RESOURCE_MISC_SHARED.0) as u32
+        } else {
+            0
         };
         self.out_format = format;
         let mut pool = Vec::with_capacity(count);
         for _ in 0..count {
-            let texture = create_output(&self.device, self.out_w, self.out_h, format, bind)?;
+            let texture = create_output(&self.device, self.out_w, self.out_h, format, bind, misc)?;
             let mut view = None;
             unsafe {
                 self.video_device.CreateVideoProcessorOutputView(
@@ -277,6 +336,7 @@ impl Converter {
         self.processor = Some(processor);
         self.pool = pool;
         self.src = (src_w, src_h);
+        self.generation += 1;
         Ok(())
     }
 }
@@ -287,6 +347,7 @@ fn create_output(
     h: u32,
     format: DXGI_FORMAT,
     bind: u32,
+    misc: u32,
 ) -> Result<ID3D11Texture2D> {
     let desc = D3D11_TEXTURE2D_DESC {
         Width: w,
@@ -301,7 +362,7 @@ fn create_output(
         Usage: D3D11_USAGE_DEFAULT,
         BindFlags: bind,
         CPUAccessFlags: 0,
-        MiscFlags: 0,
+        MiscFlags: misc,
     };
     let mut texture = None;
     unsafe { device.CreateTexture2D(&desc, None, Some(&mut texture)) }

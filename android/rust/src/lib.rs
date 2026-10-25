@@ -24,7 +24,7 @@ use jni::objects::{JClass, JLongArray, JString};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring};
 use livescreen_core::preset::Preset;
 use livescreen_core::protocol::{EncodedFrame, audio_gap, parse_audio_datagram};
-use livescreen_core::viewer::{DecodeStats, StartOutputs, ViewerSession, is_valid_ticket};
+use livescreen_core::viewer::{DecodeStats, StartOutputs, ViewerSession, is_valid_invite};
 use tokio::runtime::Runtime;
 use tracing::warn;
 
@@ -130,7 +130,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_isValidTicket(
         return JNI_FALSE;
     };
     let s: String = ticket.into();
-    if is_valid_ticket(&s) {
+    if is_valid_invite(&s) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -182,6 +182,8 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_start(
         &ticket_str,
         &name_str,
         env!("CARGO_PKG_VERSION"),
+        // o MediaCodec do app só decodifica video/avc
+        vec![livescreen_core::protocol::Codec::H264],
         need_key.clone(),
         stats.clone(),
         notify,

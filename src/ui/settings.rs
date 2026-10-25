@@ -9,7 +9,6 @@ use super::share_view::{MAX_ROOM, preset_hint};
 use super::theme::{self, I_SETTINGS};
 use super::toast::ToastKind;
 use livescreen_core::preset::Preset;
-use crate::video::encoder::EncoderKind;
 
 const FORCED: &str = "Desligado por config.json ou LIVESCREEN_CAPTURE_OVERRIDES";
 
@@ -132,9 +131,11 @@ fn video(app: &mut App, ui: &mut egui::Ui) {
     toggle_hint(ui, "Vale na próxima transmissão.");
     toggle_hint(
         ui,
-        &match encoder {
-            Some(EncoderKind::Hardware { name }) => format!("Em uso: {name}"),
-            Some(EncoderKind::Software) => "Em uso: software".to_string(),
+        &match &encoder {
+            Some(kinds) => format!(
+                "Em uso: {}",
+                kinds.iter().map(|k| k.label()).collect::<Vec<_>>().join(", ")
+            ),
             None => "Detectando…".to_string(),
         },
     );

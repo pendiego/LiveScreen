@@ -1,13 +1,12 @@
 //! Sessão de quem assiste (viewer): conexão com o host, GOPs, keyframe, estatísticas e parada.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use iroh::Endpoint;
 use iroh::endpoint::{Connection, ConnectionError, presets};
-use iroh_tickets::endpoint::EndpointTicket;
 use serde::Serialize;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::UnboundedSender;
@@ -17,8 +16,8 @@ use tracing::{info, warn};
 use crate::preset::Preset;
 use crate::protocol::*;
 
-pub fn is_valid_ticket(s: &str) -> bool {
-    s.trim().parse::<EndpointTicket>().is_ok()
+pub fn is_valid_invite(s: &str) -> bool {
+    parse_invite(s).is_some()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -41,6 +40,8 @@ pub struct WatchStatus {
     pub decoder_hw: bool,
     pub decode_fps: f32,
     pub decode_ms: f32,
+    pub codec: String,
+    pub zero_copy: bool,
 }
 
 pub fn close_reason(e: &ConnectionError) -> &'static str {
@@ -49,6 +50,7 @@ pub fn close_reason(e: &ConnectionError) -> &'static str {
             CLOSE_FULL_U64 => "Sessão cheia",
             CLOSE_PROTOCOL_U64 => "Versão incompatível do LiveScreen",
             CLOSE_KICKED_U64 => "Removido pelo host",
+            CLOSE_DENIED_U64 => "Convite inválido ou substituído",
             CLOSE_STOPPED_U64 => "Transmissão encerrada",
             _ => "Conexão perdida",
         },
@@ -60,9 +62,11 @@ pub const CLOSE_FULL_U64: u64 = CLOSE_FULL as u64;
 pub const CLOSE_PROTOCOL_U64: u64 = CLOSE_PROTOCOL as u64;
 pub const CLOSE_KICKED_U64: u64 = CLOSE_KICKED as u64;
 pub const CLOSE_STOPPED_U64: u64 = CLOSE_STOPPED as u64;
+pub const CLOSE_DENIED_U64: u64 = CLOSE_DENIED as u64;
+
+const BUDGET_MSG: &str = "Transmissão interrompida: o host enviou dados demais";
 
 /// Contadores lidos pelo `stats_loop` do viewer.
-#[derive(Default)]
 pub struct DecodeStats {
     /// quadros publicados
     pub frames: AtomicU64,
@@ -72,6 +76,23 @@ pub struct DecodeStats {
     pub hardware: AtomicBool,
     /// a thread/serviço do decoder acabou; o viewer encerra a sessão
     pub dead: AtomicBool,
+    /// codec atualmente decodificado (`Codec::wire`); u8::MAX = nenhum
+    pub codec: AtomicU8,
+    /// o quadro vai à UI por textura compartilhada, sem readback
+    pub zero_copy: AtomicBool,
+}
+
+impl Default for DecodeStats {
+    fn default() -> Self {
+        Self {
+            frames: AtomicU64::new(0),
+            busy_us: AtomicU64::new(0),
+            hardware: AtomicBool::new(false),
+            dead: AtomicBool::new(false),
+            codec: AtomicU8::new(u8::MAX),
+            zero_copy: AtomicBool::new(false),
+        }
+    }
 }
 
 /// Chamado depois do Welcome (conexão, host manda áudio?): devolve a entrada do decoder e o que mantém o áudio vivo.
@@ -90,7 +111,7 @@ pub struct ViewerSession {
     ep: Endpoint,
     task: JoinHandle<()>,
     pub status: Arc<Mutex<WatchStatus>>,
-    quality_tx: UnboundedSender<Preset>,
+    ctl_tx: UnboundedSender<ViewerMsg>,
     stopped: AtomicBool,
 }
 
@@ -100,16 +121,23 @@ impl ViewerSession {
         ticket: &str,
         name: &str,
         app_version: &str,
+        decoders: Vec<Codec>,
         need_key: Arc<AtomicBool>,
         stats: Arc<DecodeStats>,
         notify: Arc<dyn Fn() + Send + Sync>,
         outputs: StartOutputs,
     ) -> Result<ViewerSession> {
-        let t: EndpointTicket = ticket
-            .trim()
-            .parse()
-            .map_err(|_| anyhow!("Código de convite inválido"))?;
-        let ep = rt.block_on(async { Endpoint::builder(presets::N0).bind().await })?;
+        let (t, key) = parse_invite(ticket).ok_or_else(|| anyhow!("Código de convite inválido"))?;
+        let ep = rt.block_on(async {
+            let transport = iroh::endpoint::QuicTransportConfig::builder()
+                .max_concurrent_uni_streams(noq_proto::VarInt::from_u32(8))
+                .max_concurrent_bidi_streams(noq_proto::VarInt::from_u32(0))
+                .build();
+            Endpoint::builder(presets::N0)
+                .transport_config(transport)
+                .bind()
+                .await
+        })?;
         let status = Arc::new(Mutex::new(WatchStatus {
             phase: Phase::Connecting,
             path: "?".into(),
@@ -122,8 +150,10 @@ impl ViewerSession {
             decoder_hw: false,
             decode_fps: 0.0,
             decode_ms: 0.0,
+            codec: String::new(),
+            zero_copy: false,
         }));
-        let (quality_tx, quality_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (ctl_tx, ctl_rx) = tokio::sync::mpsc::unbounded_channel();
         let task = {
             let (ep, status) = (ep.clone(), status.clone());
             let (name, app_version) = (name.to_string(), app_version.to_string());
@@ -140,14 +170,16 @@ impl ViewerSession {
                 match run(
                     &ep,
                     addr,
+                    key,
                     &status,
                     name,
                     app_version,
+                    decoders,
                     need_key,
                     stats,
                     notify.clone(),
                     outputs,
-                    quality_rx,
+                    ctl_rx,
                 )
                 .await
                 {
@@ -164,7 +196,7 @@ impl ViewerSession {
             status,
             ep,
             task,
-            quality_tx,
+            ctl_tx,
             stopped: AtomicBool::new(false),
         })
     }
@@ -172,7 +204,12 @@ impl ViewerSession {
     /// Pede ao host a qualidade da transmissão; vale para a sala toda e o host pode demorar
     /// ou ignorar (há um intervalo mínimo entre pedidos).
     pub fn request_quality(&self, preset: Preset) {
-        let _ = self.quality_tx.send(preset);
+        let _ = self.ctl_tx.send(ViewerMsg::SetQuality { preset });
+    }
+
+    /// Avisa o host que a janela foi minimizada/restaurada: escondido, ele para de mandar vídeo.
+    pub fn set_visible(&self, v: bool) {
+        let _ = self.ctl_tx.send(ViewerMsg::SetVisible { visible: v });
     }
 
     /// Idempotente: chamado explicitamente e de novo pelo `Drop`, sem pagar o block_on duas vezes.
@@ -197,16 +234,18 @@ impl Drop for ViewerSession {
 async fn run(
     ep: &Endpoint,
     addr: iroh::EndpointAddr,
+    key: [u8; ROOM_KEY_LEN],
     status: &Arc<Mutex<WatchStatus>>,
     name: String,
     app_version: String,
+    decoders: Vec<Codec>,
     need_key: Arc<AtomicBool>,
     stats: Arc<DecodeStats>,
     notify: Arc<dyn Fn() + Send + Sync>,
     outputs: StartOutputs,
-    mut quality_rx: tokio::sync::mpsc::UnboundedReceiver<Preset>,
+    mut ctl_rx: tokio::sync::mpsc::UnboundedReceiver<ViewerMsg>,
 ) -> Result<String> {
-    let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr, ALPN))
+    let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr.clone(), ALPN))
         .await
         .map_err(|_| anyhow!("Não foi possível conectar (tempo esgotado)"))?
         .map_err(|e| anyhow!("Não foi possível conectar: {e}"))?;
@@ -217,6 +256,8 @@ async fn run(
             protocol: PROTOCOL_VERSION,
             app_version,
             name,
+            room_proof: room_proof(&key, &addr.id, &ep.id()),
+            decoders,
         },
     )
     .await?;
@@ -246,6 +287,8 @@ async fn run(
     let (tx, _audio) = outputs(&conn, audio);
 
     let count = Arc::new(AtomicU64::new(0));
+    let budget = Arc::new(FrameBudget::default());
+    let budget_hit = Arc::new(AtomicBool::new(false));
 
     let read_loop = async {
         let (ftx, mut frx) = tokio::sync::mpsc::channel::<(u64, EncodedFrame)>(32);
@@ -258,13 +301,30 @@ async fn run(
                         Ok(s) => s,
                         Err(e) => return Err::<(), anyhow::Error>(e.into()),
                     };
-                    let (gop, ftx) = (next_gop, ftx.clone());
+                    let (gop, ftx, conn, budget, budget_hit) = (
+                        next_gop,
+                        ftx.clone(),
+                        conn.clone(),
+                        budget.clone(),
+                        budget_hit.clone(),
+                    );
                     next_gop += 1;
                     readers.spawn(async move {
                         // reset do host (GOP descartado) é o fim normal deste stream
-                        while let Ok(Some(f)) = read_video_frame(&mut s).await {
-                            if ftx.send((gop, f)).await.is_err() {
-                                break;
+                        loop {
+                            match read_video_frame(&mut s, &budget).await {
+                                Ok(Some(f)) => {
+                                    if ftx.send((gop, f)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Ok(None) => break,
+                                Err(e) if e.is::<BudgetExceeded>() => {
+                                    budget_hit.store(true, Ordering::SeqCst);
+                                    conn.close(CLOSE_PROTOCOL.into(), b"budget");
+                                    break;
+                                }
+                                Err(_) => break,
                             }
                         }
                     });
@@ -302,8 +362,8 @@ async fn run(
                         }
                     }
                 }
-                Some(preset) = quality_rx.recv() => {
-                    if write_msg(&mut send, &ViewerMsg::SetQuality { preset }).await.is_err() {
+                Some(msg) = ctl_rx.recv() => {
+                    if write_msg(&mut send, &msg).await.is_err() {
                         return;
                     }
                 }
@@ -353,14 +413,19 @@ async fn run(
                 } else {
                     db as f32 / df as f32 / 1000.0
                 };
+                s.codec = Codec::from_wire(stats.codec.load(Ordering::Relaxed))
+                    .map(|c| c.label().to_string())
+                    .unwrap_or_default();
+                s.zero_copy = stats.zero_copy.load(Ordering::Relaxed);
             }
             prev = c;
             (acc_frames, acc_busy, ticks) = (acc_frames + df, acc_busy + db, ticks + 1);
             if ticks >= 10 {
                 if acc_frames > 0 {
                     info!(
-                        "decoder {}: {:.0} quadros/s, {:.1} ms por quadro",
+                        "decoder {}{}: {:.0} quadros/s, {:.1} ms por quadro",
                         if hw { "hardware" } else { "software" },
+                        if stats.zero_copy.load(Ordering::Relaxed) { " (sem cópia)" } else { "" },
                         acc_frames as f32 / ticks as f32,
                         acc_busy as f32 / acc_frames as f32 / 1000.0
                     );
@@ -397,9 +462,17 @@ async fn run(
                 return Ok("Transmissão encerrada".into());
             }
         }
-        e = conn.closed() => return Ok(close_reason(&e).into()),
+        e = conn.closed() => {
+            if budget_hit.load(Ordering::SeqCst) {
+                return Ok(BUDGET_MSG.into());
+            }
+            return Ok(close_reason(&e).into());
+        }
     }
     // o stream acabou; o código de fechamento diz o motivo
+    if budget_hit.load(Ordering::SeqCst) {
+        return Ok(BUDGET_MSG.into());
+    }
     Ok(
         match tokio::time::timeout(Duration::from_secs(1), conn.closed()).await {
             Ok(e) => close_reason(&e).into(),
