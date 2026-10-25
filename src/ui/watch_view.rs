@@ -14,6 +14,7 @@ pub struct WatchView {
     fullscreen: bool,
     last_activity: Instant,
     started: Instant,
+    sent_visible: Option<bool>,
 }
 
 impl Default for WatchView {
@@ -23,6 +24,7 @@ impl Default for WatchView {
             fullscreen: false,
             last_activity: Instant::now(),
             started: Instant::now(),
+            sent_visible: None,
         }
     }
 }
@@ -241,6 +243,11 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     w.set_gain(app.prefs.gain());
+    let visible = !ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+    if app.watch_view.sent_visible != Some(visible) {
+        w.set_visible(visible);
+        app.watch_view.sent_visible = Some(visible);
+    }
     if let Some(f) = w.frame.lock().unwrap().take() {
         let img = egui::ColorImage::new([f.width as usize, f.height as usize], f.pixels);
         match &mut app.watch_view.texture {

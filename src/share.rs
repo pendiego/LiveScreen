@@ -1080,11 +1080,14 @@ async fn handle_viewer(
     // controle: pedidos de keyframe e de qualidade
     let sh2 = sh.clone();
     let who = sanitize(&name, 32);
+    let visible = Arc::new(AtomicBool::new(true));
+    let visible2 = visible.clone();
     let ctl = tokio::spawn(async move {
         while let Ok(m) = read_msg::<ViewerMsg>(&mut recv).await {
             match m {
                 ViewerMsg::RequestKeyframe => sh2.request_keyframe(),
                 ViewerMsg::SetQuality { preset } => sh2.request_quality(preset, &who),
+                ViewerMsg::SetVisible { visible: v } => visible2.store(v, Ordering::Relaxed),
                 _ => {}
             }
         }
@@ -1101,6 +1104,11 @@ async fn handle_viewer(
         tokio::select! {
             r = vrx.recv() => match r {
                 Ok(f) => {
+                    // espectador escondido: sem vídeo; o keyframe é pedido quando voltar
+                    if !visible.load(Ordering::Relaxed) {
+                        waiting_key = true;
+                        continue;
+                    }
                     if waiting_key && !f.keyframe {
                         if last_kf.elapsed() >= Duration::from_secs(1) {
                             last_kf = Instant::now();

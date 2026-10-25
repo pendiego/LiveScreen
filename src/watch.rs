@@ -46,7 +46,7 @@ pub struct WatchSession {
     ep: Endpoint,
     task: JoinHandle<()>,
     gain: Arc<AtomicU32>,
-    quality_tx: tokio::sync::mpsc::UnboundedSender<crate::preset::Preset>,
+    ctl_tx: tokio::sync::mpsc::UnboundedSender<ViewerMsg>,
     stopped: AtomicBool,
 }
 
@@ -103,7 +103,7 @@ impl WatchSession {
         }));
         let frame = Arc::new(Mutex::new(None));
         let gain = Arc::new(AtomicU32::new(gain.to_bits()));
-        let (quality_tx, quality_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (ctl_tx, ctl_rx) = tokio::sync::mpsc::unbounded_channel();
         let task = {
             let (ep, status, frame) = (ep.clone(), status.clone(), frame.clone());
             let (name, gain2) = (name.to_string(), gain.clone());
@@ -126,7 +126,7 @@ impl WatchSession {
                     name,
                     gain2,
                     hardware_decode,
-                    quality_rx,
+                    ctl_rx,
                 )
                 .await
                 {
@@ -145,7 +145,7 @@ impl WatchSession {
             ep,
             task,
             gain,
-            quality_tx,
+            ctl_tx,
             stopped: AtomicBool::new(false),
         })
     }
@@ -153,7 +153,12 @@ impl WatchSession {
     /// Pede ao host a qualidade da transmissão; vale para a sala toda e o host pode demorar
     /// ou ignorar (há um intervalo mínimo entre pedidos).
     pub fn request_quality(&self, preset: crate::preset::Preset) {
-        let _ = self.quality_tx.send(preset);
+        let _ = self.ctl_tx.send(ViewerMsg::SetQuality { preset });
+    }
+
+    /// Avisa o host que a janela foi minimizada/restaurada: escondido, ele para de mandar vídeo.
+    pub fn set_visible(&self, v: bool) {
+        let _ = self.ctl_tx.send(ViewerMsg::SetVisible { visible: v });
     }
 
     pub fn set_gain(&self, g: f32) {
@@ -189,7 +194,7 @@ async fn run(
     name: String,
     gain: Arc<AtomicU32>,
     hardware_decode: bool,
-    mut quality_rx: tokio::sync::mpsc::UnboundedReceiver<crate::preset::Preset>,
+    mut ctl_rx: tokio::sync::mpsc::UnboundedReceiver<ViewerMsg>,
 ) -> Result<String> {
     let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr.clone(), ALPN))
         .await
@@ -325,8 +330,8 @@ async fn run(
                         }
                     }
                 }
-                Some(preset) = quality_rx.recv() => {
-                    if write_msg(&mut send, &ViewerMsg::SetQuality { preset }).await.is_err() {
+                Some(msg) = ctl_rx.recv() => {
+                    if write_msg(&mut send, &msg).await.is_err() {
                         return;
                     }
                 }
