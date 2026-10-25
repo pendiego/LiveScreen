@@ -301,9 +301,7 @@ fn e2e_android() {
     let home = Command::new(adb).args(["-s", "127.0.0.1:16384", "exec-out", "screencap", "-p"]).output().unwrap();
     std::fs::write(std::env::temp_dir().join("mumu_home_valid.png"), &home.stdout).unwrap();
     // Tap "Assistir" button
-    if !tap_text(adb, "Assistir") {
-        let _ = Command::new(adb).args(["-s", "127.0.0.1:16384", "shell", "input", "tap", "575", "880"]).status();
-    }
+    assert!(tap_text(adb, "Assistir"), "Deveria encontrar 'Assistir'");
 
     // Wait for initial streaming and decoding at 720p (12s)
     std::thread::sleep(Duration::from_secs(12));
@@ -393,7 +391,7 @@ fn find_text(adb: &str, target_text: &str) -> Option<(i32, i32)> {
         let _ = Command::new(adb).args(["-s", "127.0.0.1:16384", "shell", "uiautomator", "dump", "/sdcard/dump.xml"]).output();
         if let Ok(out) = Command::new(adb).args(["-s", "127.0.0.1:16384", "shell", "cat", "/sdcard/dump.xml"]).output() {
             let xml = String::from_utf8_lossy(&out.stdout);
-            if let Some(pos) = xml.find(&format!("text=\"{target_text}\"")) {
+            if let Some(pos) = xml.find(&format!("text=\"{target_text}\"")).or_else(|| xml.find(&format!("content-desc=\"{target_text}\""))) {
                 let rest = &xml[pos..];
                 if let Some(b_start) = rest.find("bounds=\"[") {
                     let b_str = &rest[b_start + 8..];

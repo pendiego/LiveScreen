@@ -5,7 +5,8 @@ use egui::{Align, Align2, Color32, CursorIcon, Layout, Margin, Order, RichText, 
 use super::theme::{self, I_BACK, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_MUTE, I_PASTE, I_VOLUME};
 use super::toast::ToastKind;
 use super::{App, Screen};
-use livescreen_core::viewer::{Phase, WatchStatus, is_valid_invite};
+use livescreen_core::protocol::{find_invite, parse_invite};
+use livescreen_core::viewer::{Phase, WatchStatus};
 use crate::video::decoder::VideoFrame;
 use crate::video::present::Display;
 use crate::watch::WatchSession;
@@ -72,13 +73,31 @@ pub fn connect(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+/// Deixa só o convite quando o texto tem um; senão só tira os espaços (código quebrado em linhas).
+fn normalize_ticket(s: &mut String) {
+    match find_invite(s) {
+        Some(inv) => *s = inv,
+        None => s.retain(|c| !c.is_whitespace()),
+    }
+}
+
 pub fn input(app: &mut App, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let mut back = false;
     let mut go = false;
-    if app.ticket_input.chars().any(char::is_whitespace) {
-        app.ticket_input.retain(|c| !c.is_whitespace());
-    }
+    let ticket_id = egui::Id::unique("watch_ticket");
+    let name_id = egui::Id::unique("watch_name");
+    let pasted: Option<String> = ctx.input(|i| {
+        i.events.iter().rev().find_map(|e| match e {
+            egui::Event::Paste(t) => Some(t.clone()),
+            _ => None,
+        })
+    });
+    let text_focus = ctx
+        .memory(|m| m.focused())
+        .is_some_and(|f| f == ticket_id || f == name_id);
+    let mut paste: Option<String> = None;
+    let mut auto = false;
     egui::Panel::bottom("input_footer").show(ui, |ui| {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             super::settings::button(app, ui);
@@ -99,29 +118,51 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
                             )
                             .weak(),
                         );
-                        ui.add(
+                        let r = ui.add(
                             egui::TextEdit::multiline(&mut app.ticket_input)
+                                .id(ticket_id)
                                 .font(egui::TextStyle::Monospace)
                                 .desired_rows(3)
                                 .hint_text("Cole o código aqui")
                                 .desired_width(f32::INFINITY),
                         );
-                        if app.ticket_input.chars().any(char::is_whitespace) {
-                            app.ticket_input.retain(|c| !c.is_whitespace());
+                        if r.changed() {
+                            normalize_ticket(&mut app.ticket_input);
+                            // Ctrl+V dentro do campo
+                            auto = pasted.is_some();
                         }
                         if ui.button(format!("{I_PASTE}  Colar")).clicked() {
                             match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
-                                Ok(t) => {
-                                    app.ticket_input = t;
-                                    app.ticket_input.retain(|c| !c.is_whitespace());
-                                }
+                                Ok(t) => paste = Some(t),
                                 Err(_) => app.toasts.push(
                                     "Não foi possível ler a área de transferência",
                                     ToastKind::Warn,
                                 ),
                             }
                         }
-                        let valid = is_valid_invite(&app.ticket_input);
+                        // Ctrl+V fora dos campos de texto
+                        if !text_focus && paste.is_none() {
+                            paste = pasted.clone();
+                        }
+                        if let Some(t) = paste {
+                            match find_invite(&t) {
+                                Some(inv) => {
+                                    app.ticket_input = inv;
+                                    auto = true;
+                                }
+                                None => app.toasts.push(
+                                    "O texto colado não tem um código de convite",
+                                    ToastKind::Warn,
+                                ),
+                            }
+                        }
+                        let parsed = parse_invite(&app.ticket_input);
+                        let valid = parsed.is_some();
+                        let legacy = matches!(parsed, Some((_, None)));
+                        // convite sem chave nunca conecta sozinho: o aviso precisa ser lido
+                        if auto && valid && !legacy {
+                            go = true;
+                        }
                         if !app.ticket_input.trim().is_empty() && !valid {
                             ui.label(
                                 RichText::new(
@@ -130,10 +171,19 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
                                 .color(ui.visuals().error_fg_color),
                             );
                         }
+                        if valid && legacy {
+                            ui.label(
+                                RichText::new(
+                                    "Código sem chave de sala: só conecta em quem transmite com o LiveScreen 0.4. Se veio de uma versão mais nova, falta o final do código (a parte depois do ponto).",
+                                )
+                                .color(ui.visuals().warn_fg_color),
+                            );
+                        }
                         ui.label("Seu nome (opcional)");
                         ui.add(theme::field(
                             ui,
                             egui::TextEdit::singleline(&mut app.prefs.name)
+                                .id(name_id)
                                 .char_limit(32)
                                 .hint_text("Como você aparece para quem compartilha")
                                 .desired_width(f32::INFINITY),
@@ -152,6 +202,10 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
                                 go = true;
                             }
                         });
+                        // não rouba o foco de botão (Tab) nem do campo de nome
+                        if ctx.memory(|m| m.focused().is_none()) && !valid {
+                            ctx.memory_mut(|m| m.request_focus(ticket_id));
+                        }
                         if let Some(e) = &app.error {
                             ui.label(RichText::new(e).color(ui.visuals().error_fg_color));
                         }

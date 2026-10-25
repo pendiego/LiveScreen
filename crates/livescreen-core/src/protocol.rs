@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub const ALPN: &[u8] = b"livescreen/1";
 pub const PROTOCOL_VERSION: u32 = 5;
+/// Hosts 0.4: convite sem chave de sala, `Hello` sem prova.
+pub const LEGACY_PROTOCOL_VERSION: u32 = 4;
 pub const MAX_MSG: usize = 64 * 1024;
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 
@@ -254,16 +256,40 @@ pub fn format_invite(ticket: &EndpointTicket, key: &[u8; ROOM_KEY_LEN]) -> Strin
     format!("{ticket}.{}", hex::encode(key))
 }
 
-pub fn parse_invite(s: &str) -> Option<(EndpointTicket, [u8; ROOM_KEY_LEN])> {
+pub fn parse_invite(s: &str) -> Option<(EndpointTicket, Option<[u8; ROOM_KEY_LEN]>)> {
     let s = s.trim();
-    let (ticket_str, hex_str) = s.rsplit_once('.')?;
+    let Some((ticket_str, hex_str)) = s.rsplit_once('.') else {
+        // convite do 0.4: só o ticket, sem segredo de sala
+        return Some((s.parse().ok()?, None));
+    };
     if hex_str.len() != ROOM_KEY_LEN * 2 {
         return None;
     }
     let mut key = [0u8; ROOM_KEY_LEN];
     hex::decode_to_slice(hex_str, &mut key).ok()?;
     let ticket: EndpointTicket = ticket_str.parse().ok()?;
-    Some((ticket, key))
+    Some((ticket, Some(key)))
+}
+
+/// Acha o convite em texto colado: o código puro (quebras de linha e espaços somem) ou no meio
+/// de uma mensagem ("entra aí: endpoint….abc"). Convite com chave de sala tem prioridade.
+pub fn find_invite(text: &str) -> Option<String> {
+    let mut legacy = None;
+    for tok in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.')) {
+        let tok = tok.trim_matches('.');
+        match parse_invite(tok) {
+            Some((_, Some(_))) => return Some(tok.to_string()),
+            Some((_, None)) if legacy.is_none() => legacy = Some(tok.to_string()),
+            _ => {}
+        }
+    }
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    match parse_invite(&compact) {
+        Some((_, Some(_))) => Some(compact),
+        _ if legacy.is_some() => legacy,
+        Some(_) => Some(compact),
+        None => None,
+    }
 }
 
 pub fn new_room_key() -> [u8; ROOM_KEY_LEN] {
@@ -392,7 +418,7 @@ mod tests {
         let inv = format_invite(&ticket, &key);
         let (parsed_t, parsed_k) = parse_invite(&inv).expect("invite válido");
         assert_eq!(parsed_t, ticket);
-        assert_eq!(parsed_k, key);
+        assert_eq!(parsed_k, Some(key));
 
         let proof = room_proof(&key, &host_id, &viewer_id);
         assert!(verify_room_proof(&key, &host_id, &viewer_id, &proof));
@@ -401,8 +427,31 @@ mod tests {
         let bad_key = [99u8; ROOM_KEY_LEN];
         assert!(!verify_room_proof(&bad_key, &host_id, &viewer_id, &proof));
 
-        assert!(parse_invite(&ticket.to_string()).is_none());
+        let (legacy_t, legacy_k) = parse_invite(&ticket.to_string()).expect("convite 0.4");
+        assert_eq!(legacy_t, ticket);
+        assert!(legacy_k.is_none());
         assert!(parse_invite(&format!("{ticket}.short")).is_none());
+    }
+
+    #[test]
+    fn find_invite_in_pasted_text() {
+        let host_id = iroh::SecretKey::from_bytes(&[1u8; 32]).public();
+        let ticket = EndpointTicket::new(iroh::EndpointAddr::new(host_id));
+        let inv = format_invite(&ticket, &[42u8; ROOM_KEY_LEN]);
+        let some = |s: &str| find_invite(s);
+
+        assert_eq!(some(&inv), Some(inv.clone()));
+        let dot = inv.rfind('.').unwrap() + 1;
+        let broken = format!("{}\n{}", &inv[..dot], &inv[dot..]);
+        assert_eq!(some(&broken), Some(inv.clone()));
+        let mid = format!("{}\r\n {}", &inv[..40], &inv[40..]);
+        assert_eq!(some(&mid), Some(inv.clone()));
+        assert_eq!(some(&format!("Entra aí: `{inv}` valeu!")), Some(inv.clone()));
+        assert_eq!(some(&format!("assiste: {inv}.")), Some(inv.clone()));
+        assert_eq!(some(&format!("olha: {ticket} ok")), Some(ticket.to_string()));
+        assert_eq!(some(&format!("{ticket} e {inv}")), Some(inv.clone()));
+        assert_eq!(some("bom dia"), None);
+        assert_eq!(some(""), None);
     }
 
     #[test]

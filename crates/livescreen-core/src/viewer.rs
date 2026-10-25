@@ -234,7 +234,7 @@ impl Drop for ViewerSession {
 async fn run(
     ep: &Endpoint,
     addr: iroh::EndpointAddr,
-    key: [u8; ROOM_KEY_LEN],
+    key: Option<[u8; ROOM_KEY_LEN]>,
     status: &Arc<Mutex<WatchStatus>>,
     name: String,
     app_version: String,
@@ -245,6 +245,10 @@ async fn run(
     outputs: StartOutputs,
     mut ctl_rx: tokio::sync::mpsc::UnboundedReceiver<ViewerMsg>,
 ) -> Result<String> {
+    let legacy = key.is_none();
+    if legacy {
+        info!("convite sem chave de sala: host 0.4, protocolo {LEGACY_PROTOCOL_VERSION}");
+    }
     let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr.clone(), ALPN))
         .await
         .map_err(|_| anyhow!("Não foi possível conectar (tempo esgotado)"))?
@@ -253,10 +257,10 @@ async fn run(
     write_msg(
         &mut send,
         &ViewerMsg::Hello {
-            protocol: PROTOCOL_VERSION,
+            protocol: if legacy { LEGACY_PROTOCOL_VERSION } else { PROTOCOL_VERSION },
             app_version,
             name,
-            room_proof: room_proof(&key, &addr.id, &ep.id()),
+            room_proof: key.map(|k| room_proof(&k, &addr.id, &ep.id())).unwrap_or_default(),
             decoders,
         },
     )
@@ -363,6 +367,10 @@ async fn run(
                     }
                 }
                 Some(msg) = ctl_rx.recv() => {
+                    // host 0.4 não conhece SetVisible: a mensagem derrubaria o canal de controle dele
+                    if legacy && matches!(msg, ViewerMsg::SetVisible { .. }) {
+                        continue;
+                    }
                     if write_msg(&mut send, &msg).await.is_err() {
                         return;
                     }

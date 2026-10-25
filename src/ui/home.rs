@@ -154,8 +154,7 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                 app.error = None;
                 // convite já copiado? entra preenchido: falta só "Conectar"
                 if let Ok(t) = arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
-                    let t: String = t.chars().filter(|c| !c.is_whitespace()).collect();
-                    if livescreen_core::viewer::is_valid_invite(&t) {
+                    if let Some(t) = livescreen_core::protocol::find_invite(&t) {
                         app.ticket_input = t;
                         app.toasts.push(
                             "Código de convite colado da área de transferência",

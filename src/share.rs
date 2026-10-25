@@ -978,7 +978,12 @@ async fn handle_viewer(
         let _ = write_msg(
             &mut send,
             &HostMsg::Rejected {
-                reason: "versão incompatível".into(),
+                reason: if protocol < PROTOCOL_VERSION {
+                    "LiveScreen desatualizado ou código de convite incompleto: atualize o app e use o código completo"
+                } else {
+                    "quem transmite está com um LiveScreen mais antigo e precisa atualizar"
+                }
+                .into(),
             },
         )
         .await;
