@@ -1,0 +1,55 @@
+# Notas de release geradas pelo git-cliff (release.yml) a partir dos Conventional Commits
+# entre a tag anterior e a atual. Corpo em lista (`- item`) vira subitens.
+
+[changelog]
+header = ""
+body = """
+{%- set repo = "https://github.com/pendiego/LiveScreen" -%}
+{%- macro item(c, repo) -%}
+* {% if c.scope %}**{{ c.scope }}:** {% endif %}{{ c.message }} ([{{ c.id | truncate(length=7, end="") }}]({{ repo }}/commit/{{ c.id }}))
+{%- if c.body %}{% for line in c.body | split(pat="\n") %}{% set l = line | trim %}{% if l is starting_with("- ") or l is starting_with("* ") %}{% set t = l | trim_start_matches(pat="- ") | trim_start_matches(pat="* ") %}
+{{ "  - " ~ t }}{% endif %}{% endfor %}{% endif %}
+{%- endmacro item -%}
+
+## What's Changed
+{%- set breaking = commits | filter(attribute="breaking", value=true) %}
+{%- if breaking | length > 0 %}
+### Breaking Changes
+{% for c in breaking -%}
+* {{ c.breaking_description | default(value=c.message) }} ([{{ c.id | truncate(length=7, end="") }}]({{ repo }}/commit/{{ c.id }}))
+{% endfor -%}
+{%- endif %}
+{%- for group, list in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for c in list -%}
+{{ self::item(c=c, repo=repo) }}
+{% endfor -%}
+{%- endfor %}
+{%- if previous.version %}
+**Full Changelog**: {{ repo }}/compare/{{ previous.version }}...{{ version }}
+{%- endif %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^Merge ", skip = true },
+  { message = "^feat", group = "<!-- 0 -->Added" },
+  { message = "^perf", group = "<!-- 1 -->Changed" },
+  { message = "^refactor", group = "<!-- 1 -->Changed" },
+  { message = "^style", group = "<!-- 1 -->Changed" },
+  { message = "^fix", group = "<!-- 2 -->Fixed" },
+  { message = "^revert", group = "<!-- 2 -->Fixed" },
+  { message = "^docs", group = "<!-- 3 -->Documentation" },
+  { message = "^test", group = "<!-- 4 -->Maintenance" },
+  { message = "^(ci|build|chore)", group = "<!-- 4 -->Maintenance" },
+  { message = ".*", group = "<!-- 5 -->Other Changes" },
+]
