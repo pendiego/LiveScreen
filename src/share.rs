@@ -201,6 +201,9 @@ struct Shared {
     shutdown: watch::Receiver<bool>,
     /// Algum espectador ficou para trás desde o último tick.
     congested: AtomicBool,
+    room_key: Mutex<[u8; ROOM_KEY_LEN]>,
+    ticket: Mutex<Option<EndpointTicket>>,
+    host_id: iroh::EndpointId,
 }
 
 impl Shared {
@@ -218,6 +221,15 @@ impl Shared {
         if l.elapsed() >= Duration::from_secs(5) {
             *l = Instant::now();
             *self.quality_req.lock().unwrap() = Some((preset, who.to_string()));
+        }
+    }
+
+    fn new_invite(&self) {
+        let key = new_room_key();
+        *self.room_key.lock().unwrap() = key;
+        if let Some(t) = self.ticket.lock().unwrap().as_ref() {
+            let invite = format_invite(t, &key);
+            self.status.lock().unwrap().ticket = Some(invite);
         }
     }
 }
@@ -497,6 +509,9 @@ impl ShareSession {
             // BBR: fila curta e tolerância a perda aleatória (Wi-Fi); o CUBIC padrão enche o buffer e aumenta a latência
             let transport = iroh::endpoint::QuicTransportConfig::builder()
                 .congestion_controller_factory(Arc::new(noq_proto::congestion::Bbr3Config::default()))
+                .max_concurrent_uni_streams(noq_proto::VarInt::from_u32(0))
+                .max_concurrent_bidi_streams(noq_proto::VarInt::from_u32(1))
+                .datagram_receive_buffer_size(None)
                 .build();
             Endpoint::builder(presets::N0)
                 .alpns(vec![ALPN.to_vec()])
@@ -522,8 +537,10 @@ impl ShareSession {
             title: source.title.clone(),
             shutdown: sd_rx,
             congested: AtomicBool::new(false),
+            room_key: Mutex::new(new_room_key()),
+            ticket: Mutex::new(None),
+            host_id: ep.id(),
         });
-
         {
             let (ep, shared, status) = (ep.clone(), shared.clone(), status.clone());
             rt.spawn(async move {
@@ -533,8 +550,10 @@ impl ShareSession {
                 {
                     status.lock().unwrap().online_warning = true;
                 }
-                let ticket = EndpointTicket::new(invite_addr(ep.addr())).to_string();
-                status.lock().unwrap().ticket = Some(ticket);
+                let ticket = EndpointTicket::new(invite_addr(ep.addr()));
+                let key = *shared.room_key.lock().unwrap();
+                *shared.ticket.lock().unwrap() = Some(ticket.clone());
+                status.lock().unwrap().ticket = Some(format_invite(&ticket, &key));
                 while let Some(incoming) = ep.accept().await {
                     // Sem vaga de handshake, recusa na hora: sem task por conexão pendurada.
                     let Ok(permit) = shared.pending.clone().try_acquire_owned() else {
@@ -843,6 +862,9 @@ impl ShareSession {
         c.close(CLOSE_KICKED.into(), b"kicked");
     }
 
+    pub fn new_invite(&self) {
+        self.shared.new_invite();
+    }
     /// Idempotente. Bloqueia a thread chamadora (nunca chamar de dentro do runtime).
     pub fn stop(&self) {
         let Some(r) = self.res.lock().unwrap().take() else {
@@ -901,7 +923,12 @@ async fn handle_viewer(
     let hello: ViewerMsg = tokio::time::timeout(Duration::from_secs(10), read_msg(&mut recv))
         .await
         .map_err(|_| anyhow!("timeout hello"))??;
-    let ViewerMsg::Hello { protocol, name, .. } = hello else {
+    let ViewerMsg::Hello {
+        protocol,
+        name,
+        room_proof,
+        ..
+    } = hello else {
         conn.close(CLOSE_PROTOCOL.into(), b"protocol");
         return Ok(());
     };
@@ -916,6 +943,20 @@ async fn handle_viewer(
         let _ = send.finish();
         let _ = tokio::time::timeout(Duration::from_millis(500), conn.closed()).await;
         conn.close(CLOSE_PROTOCOL.into(), b"protocol");
+        return Ok(());
+    }
+    let key = *sh.room_key.lock().unwrap();
+    if !verify_room_proof(&key, &sh.host_id, &conn.remote_id(), &room_proof) {
+        let _ = write_msg(
+            &mut send,
+            &HostMsg::Rejected {
+                reason: "convite inválido ou substituído".into(),
+            },
+        )
+        .await;
+        let _ = send.finish();
+        let _ = tokio::time::timeout(Duration::from_millis(500), conn.closed()).await;
+        conn.close(CLOSE_DENIED.into(), b"denied");
         return Ok(());
     }
     // limite da sala definido por quem transmite; baixar o limite não derruba quem já está
@@ -1025,7 +1066,8 @@ async fn handle_viewer(
                     }
                     waiting_key = false;
                     let Some(s) = vsend.as_mut() else { continue };
-                    match tokio::time::timeout(STALE_VIDEO, s.write_all(&encode_video_frame(&f))).await {
+                    let mut chunks = [Bytes::copy_from_slice(&video_frame_header(&f)), f.data.clone()];
+                    match tokio::time::timeout(STALE_VIDEO, s.write_all_chunks(&mut chunks)).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.into()),
                         Err(_) => {

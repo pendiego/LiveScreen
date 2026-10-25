@@ -955,6 +955,7 @@ fn invite_card(
     ctx: &egui::Context,
     st: &ShareStatus,
     copied_at: &mut Option<Instant>,
+    new_invite: &mut bool,
 ) {
     theme::card(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -985,6 +986,13 @@ fn invite_card(
                 if theme::primary_button_full(ui, &btn_text).clicked() {
                     ctx.copy_text(t.clone());
                     *copied_at = Some(Instant::now());
+                }
+                if ui
+                    .add_sized([ui.available_width(), 0.0], egui::Button::new("Novo convite"))
+                    .on_hover_text("O código anterior deixa de funcionar; quem já está assistindo continua")
+                    .clicked()
+                {
+                    *new_invite = true;
                 }
                 if let Some(inst) = copied_at {
                     if inst.elapsed() < Duration::from_secs(2) {
@@ -1235,6 +1243,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     let mut stop = false;
     let mut kick: Option<String> = None;
     let mut toggle_mic = false;
+    let mut new_invite = false;
     egui::Panel::top("share_top").show(ui, |ui| {
         ui.horizontal(|ui| {
             theme::live_pill(ui);
@@ -1305,7 +1314,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                 if ui.available_width() >= 900.0 {
                     ui.columns(2, |cols| {
                         preview_card(&mut cols[0], &st, &app.share_source, &app.share_preview);
-                        invite_card(&mut cols[1], &ctx, &st, &mut app.copied_at);
+                        invite_card(&mut cols[1], &ctx, &st, &mut app.copied_at, &mut new_invite);
                         viewers_card(
                             &mut cols[1],
                             &st,
@@ -1318,7 +1327,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                     });
                 } else {
                     preview_card(ui, &st, &app.share_source, &app.share_preview);
-                    invite_card(ui, &ctx, &st, &mut app.copied_at);
+                    invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite);
                     viewers_card(
                         ui,
                         &st,
@@ -1436,8 +1445,25 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             share.kick(&id);
         }
         let label = app.known_viewers.remove(&id).unwrap_or_else(|| id.clone());
-        app.toasts
-            .push(format!("{label} foi removido"), ToastKind::Warn);
+        app.toasts.push(
+            format!("{label} foi removido. Para impedir a volta, gere um novo convite."),
+            ToastKind::Warn,
+        );
+    }
+    if new_invite {
+        if let Some(share) = app.share.as_ref() {
+            share.new_invite();
+            let ticket = share.status.lock().unwrap().ticket.clone();
+            if let Some(t) = ticket {
+                ctx.copy_text(t);
+                let now = Instant::now();
+                app.copied_at = Some(now);
+                app.toasts.push(
+                    "Novo código copiado; o anterior não funciona mais",
+                    ToastKind::Info,
+                );
+            }
+        }
     }
     if stop {
         app.end("Compartilhamento encerrado".into(), false);

@@ -5,7 +5,6 @@ use std::time::Duration;
 use anyhow::{Result, anyhow};
 use iroh::Endpoint;
 use iroh::endpoint::{Connection, ConnectionError, presets};
-use iroh_tickets::endpoint::EndpointTicket;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
@@ -13,8 +12,8 @@ use tracing::{info, warn};
 use crate::protocol::*;
 use crate::video::decoder::{self, RgbaFrame};
 
-pub fn is_valid_ticket(s: &str) -> bool {
-    s.trim().parse::<EndpointTicket>().is_ok()
+pub fn is_valid_invite(s: &str) -> bool {
+    parse_invite(s).is_some()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,6 +55,7 @@ fn close_reason(e: &ConnectionError) -> &'static str {
             CLOSE_KICKED_U64 => "Você foi removido",
             CLOSE_STOPPED_U64 => "Transmissão encerrada",
             CLOSE_FULL_U64 => "Sala cheia",
+            CLOSE_DENIED_U64 => "Convite inválido ou substituído",
             _ => "Conexão perdida",
         },
         _ => "Conexão perdida",
@@ -64,6 +64,7 @@ fn close_reason(e: &ConnectionError) -> &'static str {
 const CLOSE_FULL_U64: u64 = CLOSE_FULL as u64;
 const CLOSE_KICKED_U64: u64 = CLOSE_KICKED as u64;
 const CLOSE_STOPPED_U64: u64 = CLOSE_STOPPED as u64;
+const CLOSE_DENIED_U64: u64 = CLOSE_DENIED as u64;
 
 impl WatchSession {
     pub fn start(
@@ -74,11 +75,17 @@ impl WatchSession {
         hardware_decode: bool,
         ctx: egui::Context,
     ) -> Result<WatchSession> {
-        let t: EndpointTicket = ticket
-            .trim()
-            .parse()
-            .map_err(|_| anyhow!("Código de convite inválido"))?;
-        let ep = rt.block_on(async { Endpoint::builder(presets::N0).bind().await })?;
+        let (t, key) = parse_invite(ticket).ok_or_else(|| anyhow!("Código de convite inválido"))?;
+        let ep = rt.block_on(async {
+            let transport = iroh::endpoint::QuicTransportConfig::builder()
+                .max_concurrent_uni_streams(noq_proto::VarInt::from_u32(8))
+                .max_concurrent_bidi_streams(noq_proto::VarInt::from_u32(0))
+                .build();
+            Endpoint::builder(presets::N0)
+                .transport_config(transport)
+                .bind()
+                .await
+        })?;
         let status = Arc::new(Mutex::new(WatchStatus {
             phase: Phase::Connecting,
             path: "?".into(),
@@ -110,6 +117,7 @@ impl WatchSession {
                 match run(
                     &ep,
                     addr,
+                    key,
                     &status,
                     frame,
                     ctx.clone(),
@@ -172,6 +180,7 @@ impl Drop for WatchSession {
 async fn run(
     ep: &Endpoint,
     addr: iroh::EndpointAddr,
+    key: [u8; ROOM_KEY_LEN],
     status: &Arc<Mutex<WatchStatus>>,
     frame: Arc<Mutex<Option<RgbaFrame>>>,
     ctx: egui::Context,
@@ -180,7 +189,7 @@ async fn run(
     hardware_decode: bool,
     mut quality_rx: tokio::sync::mpsc::UnboundedReceiver<crate::preset::Preset>,
 ) -> Result<String> {
-    let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr, ALPN))
+    let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr.clone(), ALPN))
         .await
         .map_err(|_| anyhow!("Não foi possível conectar (tempo esgotado)"))?
         .map_err(|e| anyhow!("Não foi possível conectar: {e}"))?;
@@ -191,6 +200,8 @@ async fn run(
             protocol: PROTOCOL_VERSION,
             app_version: env!("CARGO_PKG_VERSION").into(),
             name,
+            room_proof: room_proof(&key, &addr.id, &ep.id()),
+            decoders: vec![Codec::H264],
         },
     )
     .await?;
@@ -242,6 +253,9 @@ async fn run(
     );
     let count = Arc::new(AtomicU64::new(0));
 
+    let budget = Arc::new(FrameBudget::default());
+    let budget_hit = Arc::new(AtomicBool::new(false));
+
     let read_loop = async {
         let (ftx, mut frx) = tokio::sync::mpsc::channel::<(u64, EncodedFrame)>(32);
         let mut readers = tokio::task::JoinSet::new(); // dropar aborta os leitores
@@ -250,12 +264,31 @@ async fn run(
             tokio::select! {
                 s = conn.accept_uni() => {
                     let mut s = match s { Ok(s) => s, Err(e) => return Err::<(), anyhow::Error>(e.into()) };
-                    let (gop, ftx) = (next_gop, ftx.clone());
+                    let (gop, ftx, conn, budget, budget_hit) = (
+                        next_gop,
+                        ftx.clone(),
+                        conn.clone(),
+                        budget.clone(),
+                        budget_hit.clone(),
+                    );
                     next_gop += 1;
                     readers.spawn(async move {
                         // reset do host (GOP descartado) é o fim normal deste stream
-                        while let Ok(Some(f)) = read_video_frame(&mut s).await {
-                            if ftx.send((gop, f)).await.is_err() { break; }
+                        loop {
+                            match read_video_frame(&mut s, &budget).await {
+                                Ok(Some(f)) => {
+                                    if ftx.send((gop, f)).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Ok(None) => break,
+                                Err(e) if e.is::<BudgetExceeded>() => {
+                                    budget_hit.store(true, Ordering::SeqCst);
+                                    conn.close(CLOSE_PROTOCOL.into(), b"budget");
+                                    break;
+                                }
+                                Err(_) => break,
+                            }
                         }
                     });
                     while readers.try_join_next().is_some() {}
@@ -379,12 +412,26 @@ async fn run(
         } => {
             if ended { return Ok("Transmissão encerrada".into()); }
         }
-        e = conn.closed() => return Ok(close_reason(&e).into()),
+        e = conn.closed() => {
+            if budget_hit.load(Ordering::SeqCst) {
+                return Ok("Transmissão interrompida: o host enviou dados demais".into());
+            }
+            return Ok(close_reason(&e).into());
+        }
     }
     // o stream acabou; o código de fechamento diz o motivo
+    if budget_hit.load(Ordering::SeqCst) {
+        return Ok("Transmissão interrompida: o host enviou dados demais".into());
+    }
     Ok(
         match tokio::time::timeout(Duration::from_secs(1), conn.closed()).await {
-            Ok(e) => close_reason(&e).into(),
+            Ok(e) => {
+                if budget_hit.load(Ordering::SeqCst) {
+                    "Transmissão interrompida: o host enviou dados demais".into()
+                } else {
+                    close_reason(&e).into()
+                }
+            }
             Err(_) => "Conexão perdida".into(),
         },
     )

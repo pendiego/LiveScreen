@@ -146,7 +146,7 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                 // convite já copiado? entra preenchido: falta só "Conectar"
                 if let Ok(t) = arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
                     let t: String = t.chars().filter(|c| !c.is_whitespace()).collect();
-                    if crate::watch::is_valid_ticket(&t) {
+                    if crate::watch::is_valid_invite(&t) {
                         app.ticket_input = t;
                         app.toasts.push(
                             "Código de convite colado da área de transferência",

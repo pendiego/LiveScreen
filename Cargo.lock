@@ -2936,6 +2936,7 @@ dependencies = [
  "noq-proto",
  "opus",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",

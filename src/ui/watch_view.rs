@@ -5,7 +5,7 @@ use egui::{Align, Align2, Color32, CursorIcon, Layout, Margin, Order, RichText, 
 use super::theme::{self, I_BACK, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_MUTE, I_PASTE, I_VOLUME};
 use super::toast::ToastKind;
 use super::{App, Screen};
-use crate::watch::{Phase, WatchSession, WatchStatus, is_valid_ticket};
+use crate::watch::{Phase, WatchSession, WatchStatus, is_valid_invite};
 
 const OVERLAY_TIMEOUT: Duration = Duration::from_millis(2500);
 
@@ -103,7 +103,7 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
                                 ),
                             }
                         }
-                        let valid = is_valid_ticket(&app.ticket_input);
+                        let valid = is_valid_invite(&app.ticket_input);
                         if !app.ticket_input.trim().is_empty() && !valid {
                             ui.label(
                                 RichText::new(

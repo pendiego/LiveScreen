@@ -18,9 +18,8 @@ use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::core::Interface;
 
 use crate::preset::EncodeParams;
-use crate::protocol::EncodedFrame;
+use crate::protocol::{Codec, EncodedFrame};
 use crate::video::mf;
-
 #[derive(Clone, Debug)]
 pub enum EncoderKind {
     Hardware { name: String },
@@ -436,6 +435,7 @@ impl Encoder {
             seq: self.seq,
             keyframe: key,
             pts_us: (time / 10).max(0) as u64,
+            codec: Codec::H264,
             data: Bytes::from(data),
         };
         self.seq += 1;
