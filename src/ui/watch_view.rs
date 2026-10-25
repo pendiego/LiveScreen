@@ -246,6 +246,20 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
     action
 }
 
+/// Avisa o host quando a janela some ou volta. Roda em `App::logic`: com a janela minimizada o
+/// eframe não executa `App::ui`, só a lógica, então é o único lugar que enxerga a minimização.
+pub fn sync_visible(app: &mut App, ctx: &egui::Context) {
+    let Some(w) = app.watch.as_ref() else {
+        app.watch_view.sent_visible = None;
+        return;
+    };
+    let visible = !ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+    if app.watch_view.sent_visible != Some(visible) {
+        w.set_visible(visible);
+        app.watch_view.sent_visible = Some(visible);
+    }
+}
+
 pub fn watching(app: &mut App, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let Some(w) = app.watch.as_ref() else { return };
@@ -258,11 +272,7 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     w.set_gain(app.prefs.gain());
-    let visible = !ctx.input(|i| i.viewport().minimized.unwrap_or(false));
-    if app.watch_view.sent_visible != Some(visible) {
-        w.set_visible(visible);
-        app.watch_view.sent_visible = Some(visible);
-    }
+
     if let Some(f) = w.frame.lock().unwrap().take() {
         match f {
             VideoFrame::Cpu(f) => {
