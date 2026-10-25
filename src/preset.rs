@@ -64,7 +64,8 @@ mod reduction_tests {
         let cur = encode_params(Preset::P1080p60, 1920, 1080, 60);
         assert!(is_reduction(cur, encode_params(Preset::P480p30, 1920, 1080, 60)));
         assert!(!is_reduction(cur, cur));
-        assert!(!is_reduction(cur, encode_params(Preset::P1440p60, 2560, 1440, 60)));
+        // teto temporário 1080p60: nada é mais pesado que o 1080p60 de uma fonte 1080p
+        assert!(!is_reduction(cur, encode_params(Preset::NativeHigh, 1920, 1080, 144)));
     }
 
     #[test]
@@ -122,6 +123,10 @@ fn fit_level(w: f64, h: f64, fps: u64) -> (u64, u64) {
 /// software) e o nível 5.2 começam a cortar resolução.
 const MAX_FPS: u32 = 144;
 
+/// TEMPORÁRIO: limite global de resolução e fps (remover para liberar 1440p/4K/144 Hz).
+const LIMIT_PIXELS: u64 = 1920 * 1080;
+const LIMIT_FPS: u64 = 60;
+
 /// Orçamento de pixels, fps e bitrate de cada faixa fixa.
 fn tier(preset: Preset) -> Option<(u64, u64, u64)> {
     Some(match preset {
@@ -146,9 +151,15 @@ pub fn encode_params(preset: Preset, src_w: u32, src_h: u32, hz: u32) -> EncodeP
     // orçamento de pixels, não caixa fixa: ultrawide e tela em pé recebem a mesma área
     // (e o mesmo custo) que uma 16:9, sem virar faixa fina
     let (budget, fps) = tier(preset).map_or((u64::MAX, native_fps), |(b, f, _)| (b, f));
+    let (budget, fps) = (budget.min(LIMIT_PIXELS), fps.min(LIMIT_FPS));
     // nunca amplia
-    let s = (budget as f64 / (sw * sh) as f64).sqrt().min(1.0);
-    let (w, h) = fit_level(sw as f64 * s, sh as f64 * s, fps);
+    let mut s = (budget as f64 / (sw * sh) as f64).sqrt().min(1.0);
+    // o alinhamento de fit_level pode arredondar para cima: o teto vale para o tamanho devolvido
+    let (mut w, mut h) = fit_level(sw as f64 * s, sh as f64 * s, fps);
+    while w * h > LIMIT_PIXELS {
+        s *= 0.995;
+        (w, h) = fit_level(sw as f64 * s, sh as f64 * s, fps);
+    }
     let bitrate_bps = match tier(preset) {
         // fonte menor que a faixa: imagem menor, bitrate proporcional
         Some((b, _, bps)) => (bps as f64 * ((w * h) as f64 / b as f64).min(1.0)).round() as u64,
@@ -272,7 +283,8 @@ mod tests {
             assert!((src - out).abs() / src < 0.02, "{sw}x{sh} -> {w}x{h}");
         }
         let p = encode_params(Preset::Native60, 3840, 2160, 60);
-        assert_eq!((p.width, p.height), (3840, 2160));
+        // teto temporário 1080p60
+        assert_eq!((p.width, p.height), (1920, 1080));
     }
 
     #[test]
@@ -327,7 +339,7 @@ mod tests {
         );
         assert_eq!(
             encode_params(Preset::Native60, 7680, 4320, 60).bitrate_bps,
-            25_000_000
+            8_000_000 // teto temporário 1080p60
         );
         assert_eq!(
             encode_params(Preset::P720p30, 1920, 1080, 60).bitrate_bps,
@@ -336,10 +348,10 @@ mod tests {
         // fonte menor que a faixa: bitrate cai junto com a imagem
         let p = encode_params(Preset::P1080p60, 960, 540, 60);
         assert_eq!((p.width, p.height, p.bitrate_bps), (960, 540, 2_000_000));
-        // 144 Hz custa mais que 60 na mesma resolução, com teto
+        // teto temporário 1080p60: 144 Hz não custa mais que 60
         let lo = encode_params(Preset::Native60, 2560, 1440, 144).bitrate_bps;
         let hi = encode_params(Preset::NativeHigh, 2560, 1440, 144).bitrate_bps;
-        assert!(hi > lo && hi <= 40_000_000, "{lo} {hi}");
+        assert!(hi == lo && hi <= 40_000_000, "{lo} {hi}");
     }
 
     fn names(sw: u32, sh: u32, hz: u32) -> Vec<String> {
@@ -362,20 +374,14 @@ mod tests {
                 "Nativa (1920×1080) 60fps",
             ]
         );
-        // 1440p a 144 Hz: ganha a faixa 1440p (nativa) e a taxa do monitor
-        assert_eq!(
-            names(2560, 1440, 144)[4..],
-            [
-                "1080p 60fps",
-                "Nativa (2560×1440) 60fps",
-                "Nativa (2560×1440) 144fps",
-            ]
-        );
+        // 1440p a 144 Hz: teto temporário 1080p60, só a faixa 1080p60
+        assert_eq!(names(2560, 1440, 144)[4..], ["1080p 60fps"]);
         // 4K a 240 Hz: a taxa para no teto e a resolução cai para caber no nível 5.2
         let v = options(3840, 2160, 240);
         let (pr, p) = v.last().unwrap();
-        assert_eq!((*pr, p.fps), (Preset::NativeHigh, MAX_FPS));
-        assert!(p.width < 3840);
+        // teto temporário 1080p60: a taxa e a resolução param no teto
+        assert_eq!((*pr, p.fps), (Preset::P1080p60, 60));
+        assert!(p.width <= 1920);
         // janela pequena: as faixas grandes viram a própria janela e não se repetem
         assert_eq!(
             names(800, 600, 60),
@@ -385,6 +391,24 @@ mod tests {
                 "Nativa (800×600) 60fps"
             ]
         );
+    }
+
+    #[test]
+    fn temporary_cap_is_strict() {
+        for (sw, sh, hz) in [
+            (1924, 1078, 60),
+            (1920, 1080, 60),
+            (2560, 1440, 144),
+            (3840, 2160, 240),
+            (7680, 4320, 60),
+            (1080, 1920, 60),
+        ] {
+            for p in Preset::ALL {
+                let e = encode_params(p, sw, sh, hz);
+                assert!(e.fps <= 60, "{p:?} {sw}x{sh}: {e:?}");
+                assert!(e.width as u64 * e.height as u64 <= LIMIT_PIXELS, "{p:?} {sw}x{sh}: {e:?}");
+            }
+        }
     }
 
     #[test]

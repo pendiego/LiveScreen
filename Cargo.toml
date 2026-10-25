@@ -39,6 +39,8 @@ windows = { version = "=0.62.2", features = [
   "Win32_UI_WindowsAndMessaging", "Win32_Storage_Xps", "Win32_System_Com_StructuredStorage",
   "Win32_System_Variant", "Win32_UI_HiDpi", "Security_Authorization_AppCapabilityAccess",
 ] }
+mimalloc = "0.1.52"
+noq-proto = "1.4.0"
 
 [dev-dependencies]
 # servidor HTTP falso dos testes da medição de upload

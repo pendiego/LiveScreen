@@ -83,6 +83,7 @@ fn e2e_window() {
         info,
         Preset::P720p30,
         false,
+        None,
         kind,
         Default::default(),
         4,
@@ -156,19 +157,22 @@ fn e2e_window() {
     // a janela é movida para 1600x900 px lógicos; com escala de DPI o tamanho físico é maior,
     // então o esperado é a largura real da fonte (o decoder devolve múltiplo de 16). Espera o
     // quadro novo chegar em vez de confiar num sleep fixo.
-    let (sw, _, _) = share.source_shape();
+    let (sw, sh, hz) = share.source_shape();
+    // a janela externa é 1600 px; a captura é só a área cliente (sem bordas) e o teto
+    // temporário 1080p60 vale para a saída, então o esperado vem de encode_params
+    let expected = crate::preset::encode_params(Preset::Native60, sw, sh, hz).width;
     let width = || w.frame.lock().unwrap().as_ref().map(|f| f.width);
     let t = std::time::Instant::now();
-    while t.elapsed() < Duration::from_secs(8) && !width().is_some_and(|x| x >= sw) {
+    while t.elapsed() < Duration::from_secs(8) && !width().is_some_and(|x| x >= expected) {
         std::thread::sleep(Duration::from_millis(100));
     }
     let fw = width().expect("sem quadro");
     assert!(
-        fw >= sw && fw < sw + 16,
-        "largura do quadro {fw} fora de [{sw}, {})",
-        sw + 16
+        fw >= expected && fw < expected + 16,
+        "largura do quadro {fw} fora de [{expected}, {})",
+        expected + 16
     );
-    assert!(sw >= 1600, "janela menor que 1600 px: {sw}");
+    assert!(sw >= 1500, "janela menor que o esperado: {sw}");
     share.set_preset(Preset::P720p30).unwrap();
     std::thread::sleep(Duration::from_secs(3));
     snap("live 720p");

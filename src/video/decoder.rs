@@ -58,6 +58,7 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("decoder".into())
         .spawn(move || {
+            let _mmcss = crate::gpu::Mmcss::new(windows::core::w!("Playback"));
             if let Err(e) = run(input, out, ctx, need_key, stats, hardware) {
                 warn!("decoder: {e:#}");
             }

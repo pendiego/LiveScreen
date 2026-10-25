@@ -74,7 +74,7 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
                 theme::card(ui, |ui| {
                     ui.set_width(528.0);
                     ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                        ui.heading("Assistir a uma transmissão");
+                        theme::heading(ui, "Assistir a uma transmissão");
                         ui.label(
                             RichText::new(
                                 "Cole o código de convite que você recebeu e clique em Conectar.",
@@ -113,12 +113,13 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
                             );
                         }
                         ui.label("Seu nome (opcional)");
-                        ui.add(
+                        ui.add(theme::field(
+                            ui,
                             egui::TextEdit::singleline(&mut app.prefs.name)
                                 .char_limit(32)
                                 .hint_text("Como você aparece para quem compartilha")
                                 .desired_width(f32::INFINITY),
-                        );
+                        ));
                         if valid && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                             go = true;
                         }
@@ -182,7 +183,7 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
             } else {
                 (I_VOLUME, "Silenciar")
             };
-            if ui.button(icon).on_hover_text(tip).clicked() {
+            if theme::icon_button(ui, icon, tip).clicked() {
                 app.prefs.muted = !app.prefs.muted;
                 app.save_prefs();
             }
@@ -203,7 +204,7 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
             } else {
                 (I_FULLSCREEN, "Tela cheia (F11)")
             };
-            if ui.button(icon).on_hover_text(tip).clicked() {
+            if theme::icon_button(ui, icon, tip).clicked() {
                 action = ControlAction::ToggleFullscreen;
             }
             super::settings::button(app, ui);

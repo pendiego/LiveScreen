@@ -9,13 +9,16 @@ fn tile(ui: &mut egui::Ui, icon: &str, title: &str, desc: &str) -> bool {
     let p = theme::palette(ui);
     let (rect, resp) = ui.allocate_exact_size(vec2(280.0, 150.0), Sense::click());
     let hovered = resp.hovered();
-    let stroke = if hovered {
-        Stroke::new(1.5, p.accent)
+    let focused = resp.has_focus();
+    let stroke = if focused {
+        Stroke::new(2.0, p.accent)
+    } else if hovered {
+        Stroke::new(1.0, p.border_strong)
     } else {
         Stroke::new(1.0, p.border)
     };
+    theme::paint_surface(ui, rect, stroke);
     let painter = ui.painter();
-    painter.rect(rect, 8, p.card, stroke, egui::StrokeKind::Inside);
     painter.text(
         rect.center_top() + vec2(0.0, 24.0),
         Align2::CENTER_TOP,
@@ -83,8 +86,7 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                     ui.label(RichText::new("Baixando atualização…").small().color(weak));
                     ui.add(egui::Spinner::new().size(12.0));
                 } else if let Some(rel) = update
-                    && ui
-                        .small_button(format!(
+                    && theme::small_button(ui, format!(
                             "{I_UPDATE}  Atualizar para a versão {}",
                             rel.version
                         ))
@@ -99,7 +101,11 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
     egui::CentralPanel::default().show(ui, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space((ui.available_height() / 2.0 - 150.0).max(20.0));
-            ui.label(RichText::new("LiveScreen").text_style(egui::TextStyle::Name("title".into())));
+            ui.label(
+                RichText::new("LiveScreen")
+                    .text_style(egui::TextStyle::Name("title".into()))
+                    .extra_letter_spacing(-1.1),
+            );
             ui.label(
                 RichText::new("Compartilhe sua tela com seus amigos — direto, sem cadastro.")
                     .weak(),
@@ -126,6 +132,8 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                     ui.ctx().clone(),
                     app.prefs.preset,
                     app.prefs.share_audio,
+                    app.prefs.share_mic,
+                    app.prefs.mic_device.clone(),
                 ));
                 app.screen = Screen::SharePicker;
                 // mede antes de transmitir, quando o upload ainda está livre

@@ -266,9 +266,9 @@ impl App {
         let mut cancel = false;
         let mut confirm = false;
         let mut focus_in = false;
-        let modal = egui::Modal::new(egui::Id::unique("quit")).show(ctx, |ui| {
+        let modal = theme::modal(ctx, "quit").show(ctx, |ui| {
             ui.set_width(340.0);
-            ui.heading("Encerrar a transmissão?");
+            theme::heading(ui, "Encerrar a transmissão?");
             ui.label("Quem está assistindo será desconectado.");
             ui.add_space(8.0);
             ui.horizontal(|ui| {
