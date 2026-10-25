@@ -5,7 +5,8 @@ use egui::{Align, Align2, Color32, CursorIcon, Layout, Margin, Order, RichText, 
 use super::theme::{self, I_BACK, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_MUTE, I_PASTE, I_VOLUME};
 use super::toast::ToastKind;
 use super::{App, Screen};
-use crate::watch::{Phase, WatchSession, WatchStatus, is_valid_ticket};
+use livescreen_core::viewer::{Phase, WatchStatus, is_valid_ticket};
+use crate::watch::WatchSession;
 
 const OVERLAY_TIMEOUT: Duration = Duration::from_millis(2500);
 
@@ -210,8 +211,8 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
             super::settings::button(app, ui);
             ui.menu_button("Qualidade", |ui| {
                 ui.label(RichText::new("Só vale se for mais leve que a atual").small().weak());
-                for p in crate::preset::Preset::ALL {
-                    if ui.button(super::settings::preset_name(p)).clicked() {
+                for p in livescreen_core::preset::Preset::ALL {
+                    if ui.button(p.name()).clicked() {
                         if let Some(w) = app.watch.as_ref() {
                             w.request_quality(p);
                         }

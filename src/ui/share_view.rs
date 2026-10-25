@@ -15,7 +15,7 @@ use super::toast::ToastKind;
 use super::{App, Screen};
 use crate::audio::capture::Mic;
 use crate::capture::{self, SourceId, SourceInfo};
-use crate::preset::{self, EncodeParams, Preset, viewers_for};
+use livescreen_core::preset::{self, EncodeParams, Preset, viewers_for};
 use crate::share::{AudioState, ShareSession, ShareStatus};
 use crate::speedtest::Upload;
 
@@ -1419,7 +1419,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         && let Some((who, preset, res)) = share.apply_quality_request()
     {
         let who = if who.is_empty() { "Alguém".to_string() } else { who };
-        let name = super::settings::preset_name(preset);
+        let name = preset.name();
         match res {
             Ok(()) => app.toasts.push(
                 format!("{who} pediu {name}: qualidade alterada para todos"),

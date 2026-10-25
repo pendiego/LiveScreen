@@ -17,8 +17,8 @@ use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::core::Interface;
 
-use crate::preset::EncodeParams;
-use crate::protocol::EncodedFrame;
+use livescreen_core::preset::EncodeParams;
+use livescreen_core::protocol::EncodedFrame;
 use crate::video::mf;
 
 #[derive(Clone, Debug)]

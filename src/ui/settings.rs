@@ -8,7 +8,7 @@ use super::prefs::ThemeChoice;
 use super::share_view::{MAX_ROOM, preset_hint};
 use super::theme::{self, I_SETTINGS};
 use super::toast::ToastKind;
-use crate::preset::Preset;
+use livescreen_core::preset::Preset;
 use crate::video::encoder::EncoderKind;
 
 const FORCED: &str = "Desligado por config.json ou LIVESCREEN_CAPTURE_OVERRIDES";
@@ -41,19 +41,6 @@ pub fn button(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-pub(super) fn preset_name(p: Preset) -> &'static str {
-    match p {
-        Preset::P480p30 => "480p 30 fps",
-        Preset::P720p30 => "720p 30 fps",
-        Preset::P720p60 => "720p 60 fps",
-        Preset::P1080p30 => "1080p 30 fps",
-        Preset::P1080p60 => "1080p 60 fps",
-        Preset::P1440p60 => "1440p 60 fps",
-        Preset::P2160p60 => "4K 60 fps",
-        Preset::Native60 => "Nativa 60 fps",
-        Preset::NativeHigh => "Nativa na taxa do monitor",
-    }
-}
 
 /// Checkbox; `forced` (config.json/env) mostra desmarcado e travado. Devolve true se mudou.
 fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str, forced: bool, enabled: bool) -> bool {
@@ -161,10 +148,10 @@ fn video(app: &mut App, ui: &mut egui::Ui) {
 fn share(app: &mut App, ui: &mut egui::Ui) {
     let mut pr = app.prefs.preset;
     egui::ComboBox::from_label("Qualidade padrão")
-        .selected_text(preset_name(pr))
+        .selected_text(pr.name())
         .show_ui(ui, |ui| {
             for p in Preset::ALL {
-                ui.selectable_value(&mut pr, p, preset_name(p))
+                ui.selectable_value(&mut pr, p, p.name())
                     .on_hover_text(preset_hint(p));
             }
         });

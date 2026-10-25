@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use crate::config::Overrides;
-use crate::preset::Preset;
+use livescreen_core::preset::Preset;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum ThemeChoice {

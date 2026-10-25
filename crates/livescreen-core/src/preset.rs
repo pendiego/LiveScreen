@@ -26,6 +26,20 @@ impl Preset {
         Preset::Native60,
         Preset::NativeHigh,
     ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Preset::P480p30 => "480p 30 fps",
+            Preset::P720p30 => "720p 30 fps",
+            Preset::P720p60 => "720p 60 fps",
+            Preset::P1080p30 => "1080p 30 fps",
+            Preset::P1080p60 => "1080p 60 fps",
+            Preset::P1440p60 => "1440p 60 fps",
+            Preset::P2160p60 => "4K 60 fps",
+            Preset::Native60 => "Nativa 60 fps",
+            Preset::NativeHigh => "Nativa na taxa do monitor",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

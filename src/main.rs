@@ -10,8 +10,6 @@ mod capture;
 mod config;
 mod gpu;
 mod icon;
-mod preset;
-mod protocol;
 mod share;
 mod speedtest;
 mod ui;

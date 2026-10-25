@@ -2932,6 +2932,7 @@ dependencies = [
  "hex",
  "iroh",
  "iroh-tickets",
+ "livescreen-core",
  "mimalloc",
  "noq-proto",
  "opus",
@@ -2946,6 +2947,35 @@ dependencies = [
  "wasapi",
  "windows",
  "yuv",
+]
+
+[[package]]
+name = "livescreen-android"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "iroh",
+ "jni 0.21.1",
+ "livescreen-core",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "livescreen-core"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "iroh",
+ "iroh-tickets",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

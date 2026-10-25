@@ -11,8 +11,9 @@ use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Media::MediaFoundation::*;
 
-use crate::preset::{EncodeParams, Preset};
-use crate::protocol::EncodedFrame;
+use livescreen_core::preset::{EncodeParams, Preset};
+use livescreen_core::protocol::EncodedFrame;
+use livescreen_core::viewer::DecodeStats;
 use crate::video::convert::Converter;
 use crate::video::decoder::{self, RgbaFrame};
 use crate::video::encoder::{self, EncoderKind, EncoderStats, Nv12Frame};
@@ -181,7 +182,7 @@ fn roundtrip(
     )?;
     let slot: Arc<Mutex<Option<RgbaFrame>>> = Arc::default();
     let (dtx, drx) = std::sync::mpsc::channel::<EncodedFrame>();
-    let dstats = Arc::new(decoder::DecodeStats::default());
+    let dstats = Arc::new(DecodeStats::default());
     let dec = decoder::spawn(
         drx,
         slot.clone(),
@@ -265,7 +266,7 @@ fn hardware_kind() -> Option<EncoderKind> {
 fn codec_roundtrip() {
     mf::startup();
     let (device, ctx) = crate::gpu::create_device().expect("dispositivo D3D11");
-    let params = crate::preset::encode_params(Preset::P720p30, W, H, 60);
+    let params = livescreen_core::preset::encode_params(Preset::P720p30, W, H, 60);
     assert_eq!((params.width, params.height, params.fps), (W, H, 30));
     let pat = patterns();
 

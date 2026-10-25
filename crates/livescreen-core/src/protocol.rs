@@ -134,6 +134,44 @@ pub async fn read_video_frame(recv: &mut RecvStream) -> Result<Option<EncodedFra
     Ok(Some(frame_from_body(buf.freeze())))
 }
 
+/// Remove caracteres de controle e limita o texto a `max_chars` caracteres.
+pub fn sanitize(raw: &str, max_chars: usize) -> String {
+    raw.chars()
+        .filter(|c| !c.is_control())
+        .take(max_chars)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+pub fn parse_audio_datagram(datagram: &[u8]) -> Option<(u32, &[u8])> {
+    if datagram.len() < 4 {
+        return None;
+    }
+    let seq = u32::from_le_bytes([datagram[0], datagram[1], datagram[2], datagram[3]]);
+    Some((seq, &datagram[4..]))
+}
+
+/// Ordem dos datagramas de áudio: `None` descarta (antigo/reordenado, `expected` intacto);
+/// `Some(n)` aceita, com `n` pacotes perdidos antes deste, e avança `expected`.
+pub fn audio_gap(expected: &mut Option<u32>, seq: u32) -> Option<u32> {
+    match *expected {
+        None => {
+            *expected = Some(seq.wrapping_add(1));
+            Some(0)
+        }
+        Some(previous) => {
+            let gap = seq.wrapping_sub(previous);
+            if gap >= 0x8000_0000 {
+                None
+            } else {
+                *expected = Some(seq.wrapping_add(1));
+                Some(gap)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +221,35 @@ mod tests {
             panic!()
         };
         assert_eq!(title, "");
+    }
+    #[test]
+    fn sanitize_strips_controls_and_trims() {
+        assert_eq!(sanitize("  Ana\u{7}Maria\n ", 32), "AnaMaria");
+    }
+    #[test]
+    fn sanitize_limits_length() {
+        assert_eq!(sanitize(&"x".repeat(40), 32).chars().count(), 32);
+    }
+    #[test]
+    fn audio_gap_orders_packets() {
+        let mut exp = None;
+        // Primeiro pacote: dá Some(0)
+        assert_eq!(audio_gap(&mut exp, 10), Some(0));
+        assert_eq!(exp, Some(11));
+        // Em sequência: dá Some(0)
+        assert_eq!(audio_gap(&mut exp, 11), Some(0));
+        assert_eq!(exp, Some(12));
+        // Salto de 3 (esperava 12, veio 14: lost = 2): dá Some(2)
+        assert_eq!(audio_gap(&mut exp, 14), Some(2));
+        assert_eq!(exp, Some(15));
+        // Pacote antigo (veio 13 quando expected era 15): dá None e não mexe em expected
+        assert_eq!(audio_gap(&mut exp, 13), None);
+        assert_eq!(exp, Some(15));
+        // Virada u32::MAX -> 0
+        let mut exp_wrap = Some(u32::MAX);
+        assert_eq!(audio_gap(&mut exp_wrap, u32::MAX), Some(0));
+        assert_eq!(exp_wrap, Some(0));
+        assert_eq!(audio_gap(&mut exp_wrap, 0), Some(0));
+        assert_eq!(exp_wrap, Some(1));
     }
 }

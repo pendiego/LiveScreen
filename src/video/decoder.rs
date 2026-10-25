@@ -3,7 +3,7 @@
 //! Hardware: o MFT recebe um `IMFDXGIDeviceManager`, entrega NV12 em textura D3D11 e o
 //! Video Processor converte para RGB na GPU; só o RGB final é lido de volta. Se a GPU não
 //! serve (ou falha 3 vezes seguidas), a thread troca por um MFT novo de software.
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -20,7 +20,8 @@ use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::core::Interface;
 
-use crate::protocol::EncodedFrame;
+pub use livescreen_core::viewer::DecodeStats;
+use livescreen_core::protocol::EncodedFrame;
 use crate::video::convert::Converter;
 use crate::video::mf;
 
@@ -36,16 +37,6 @@ fn as_bytes(px: &mut [Color32]) -> &mut [u8] {
     unsafe { std::slice::from_raw_parts_mut(px.as_mut_ptr().cast(), px.len() * 4) }
 }
 
-/// Contadores lidos pelo `stats_loop` do viewer.
-#[derive(Default)]
-pub struct DecodeStats {
-    /// quadros publicados
-    pub frames: AtomicU64,
-    /// push + drain (decodificação + conversão), em µs
-    pub busy_us: AtomicU64,
-    /// modo atual do decoder
-    pub hardware: AtomicBool,
-}
 
 pub fn spawn(
     input: Receiver<EncodedFrame>,
@@ -58,6 +49,13 @@ pub fn spawn(
     std::thread::Builder::new()
         .name("decoder".into())
         .spawn(move || {
+            struct MarkDead(Arc<DecodeStats>);
+            impl Drop for MarkDead {
+                fn drop(&mut self) {
+                    self.0.dead.store(true, Ordering::Relaxed);
+                }
+            }
+            let _dead = MarkDead(stats.clone());
             let _mmcss = crate::gpu::Mmcss::new(windows::core::w!("Playback"));
             if let Err(e) = run(input, out, ctx, need_key, stats, hardware) {
                 warn!("decoder: {e:#}");

@@ -15,8 +15,8 @@ use tracing::{info, warn};
 use crate::audio::capture::{AudioHandle, AudioRequest, AudioTarget, Mic};
 use crate::capture::{self, Backend, CaptureHandle, FrameSink, SourceId, SourceInfo};
 use crate::config::Overrides;
-use crate::preset::{Preset, encode_params};
-use crate::protocol::*;
+use livescreen_core::preset::{EncodeParams, Preset, encode_params, is_reduction};
+use livescreen_core::protocol::*;
 use crate::video::convert::Converter;
 use crate::video::encoder::{self, EncoderHandle, EncoderKind, EncoderStats, Nv12Frame};
 
@@ -76,15 +76,6 @@ impl ViewerInfo {
     }
 }
 
-/// Remove caracteres de controle e limita o texto a `max_chars` caracteres.
-pub fn sanitize(raw: &str, max_chars: usize) -> String {
-    raw.chars()
-        .filter(|c| !c.is_control())
-        .take(max_chars)
-        .collect::<String>()
-        .trim()
-        .to_string()
-}
 
 /// Convite curto: só o ID e os relays; o iroh tenta a conexão direta depois.
 /// Sem relay (offline), mantém os IPs para a conexão direta funcionar.
@@ -165,7 +156,7 @@ struct Resources {
     hz: u32,
     stats: Arc<EncoderStats>,
     preset: Preset,
-    params: crate::preset::EncodeParams,
+    params: EncodeParams,
     /// Tamanho da fonte quando `params` foi calculado.
     applied_src: (u32, u32),
     ep: Endpoint,
@@ -328,7 +319,7 @@ impl FrameSink for Sink {
 fn start_encoder(
     kind: EncoderKind,
     device: &windows::Win32::Graphics::Direct3D11::ID3D11Device,
-    params: crate::preset::EncodeParams,
+    params: EncodeParams,
     out: broadcast::Sender<Arc<EncodedFrame>>,
     force_key: Arc<AtomicBool>,
     stats: Arc<EncoderStats>,
@@ -698,7 +689,7 @@ impl ShareSession {
     /// O que o encoder está usando agora (opção, parâmetros e tamanho da fonte quando foi
     /// configurado). A janela pode ter mudado de tamanho depois: capacidade e rótulo da
     /// transmissão atual vêm daqui, não das opções calculadas para o tamanho novo.
-    pub fn current(&self) -> (Preset, crate::preset::EncodeParams, (u32, u32)) {
+    pub fn current(&self) -> (Preset, EncodeParams, (u32, u32)) {
         let g = self.res.lock().unwrap();
         g.as_ref().map_or(
             (
@@ -727,7 +718,7 @@ impl ShareSession {
         let (preset, who) = self.shared.quality_req.lock().unwrap().take()?;
         let (sw, sh, hz) = self.source_shape();
         let wanted = encode_params(preset, sw, sh, hz);
-        let res = if crate::preset::is_reduction(self.current().1, wanted) {
+        let res = if is_reduction(self.current().1, wanted) {
             self.set_preset(preset)
         } else {
             Err(anyhow!("só é aceita uma qualidade mais leve que a atual"))
@@ -1061,7 +1052,7 @@ async fn handle_viewer(
 
 #[cfg(test)]
 mod tests {
-    use super::{Abr, Overload, invite_addr, sanitize};
+    use super::{Abr, Overload, invite_addr};
 
     #[test]
     fn abr_backs_off_and_recovers_slowly() {
@@ -1098,15 +1089,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn sanitize_strips_controls_and_trims() {
-        assert_eq!(sanitize("  Ana\u{7}Maria\n ", 32), "AnaMaria");
-    }
-
-    #[test]
-    fn sanitize_limits_length() {
-        assert_eq!(sanitize(&"x".repeat(40), 32).chars().count(), 32);
-    }
 
     fn ids() -> (iroh::EndpointId, iroh::RelayUrl) {
         (

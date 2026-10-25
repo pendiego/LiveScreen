@@ -12,7 +12,7 @@ use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Media::MediaFoundation::*;
 
 use crate::config::Overrides;
-use crate::preset::EncodeParams;
+use livescreen_core::preset::EncodeParams;
 use crate::video::encoder::{self, EncoderKind, EncoderStats, Nv12Frame};
 use crate::video::mf;
 
