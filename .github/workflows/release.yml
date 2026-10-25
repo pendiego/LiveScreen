@@ -9,14 +9,22 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # o git-cliff precisa do histórico e das tags para achar a tag anterior
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
       - run: Compress-Archive -Path target/release/livescreen.exe,LICENSE-MIT,LICENSE-APACHE,README.md -DestinationPath livescreen-windows-x64.zip
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff@2.14.2
+      # notas = todos os Conventional Commits desde a tag anterior (config em cliff.toml)
+      - run: git-cliff --current --strip all --output CHANGES.md
       - uses: softprops/action-gh-release@v2
         with:
           # o exe solto é o que o updater do app baixa (confere pelo sha256 do GitHub)
           files: |
             livescreen-windows-x64.zip
             target/release/livescreen.exe
-          generate_release_notes: true
+          body_path: CHANGES.md

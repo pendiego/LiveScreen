@@ -56,9 +56,9 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 ## Release
 
 1. Atualize `version` em `Cargo.toml` (o updater compara com `CARGO_PKG_VERSION`).
-2. Commit `chore(release): X.Y.Z`, tag `vX.Y.Z`, push da tag: `release.yml` compila e publica `.exe` e `.zip`.
+2. Commit `chore(release): X.Y.Z`, tag `vX.Y.Z`, push da tag: `release.yml` compila, publica `.exe` e `.zip` e gera as notas com o `git-cliff` (`cliff.toml`).
 
-Commits seguem Conventional Commits em português (`feat:`, `ci:`, `chore(release):`).
+Commits seguem Conventional Commits em português (`feat:`, `fix:`, `perf:`, `docs:`, `ci:`, `chore(release):`). As notas da release são esses commits desde a tag anterior, agrupados por tipo; itens `- ...` no corpo viram subitens e `!`/`BREAKING CHANGE:` entra em "Breaking Changes". Por isso PRs entram por rebase ou merge commit, nunca squash (o squash junta tudo num commit só e as notas perdem os itens).
 
 ## graphify
 
