@@ -7,7 +7,8 @@ body = """
 {%- set repo = "https://github.com/pendiego/LiveScreen" -%}
 {%- macro item(c, repo) -%}
 * {% if c.scope %}**{{ c.scope }}:** {% endif %}{{ c.message }} ([{{ c.id | truncate(length=7, end="") }}]({{ repo }}/commit/{{ c.id }}))
-{%- if c.body %}{% for line in c.body | split(pat="\n") %}{% set l = line | trim %}{% if l is starting_with("- ") or l is starting_with("* ") %}{% set t = l | trim_start_matches(pat="- ") | trim_start_matches(pat="* ") %}
+{#- linha não vazia que não começa com "- " ou "* " continua o item de cima: junta antes de dividir -#}
+{%- if c.body %}{% set body = c.body | replace_regex(from="\\n[ \\t]*([^-*\\s]|[-*][^ \\t\\n])", to=" ${1}") %}{% for line in body | split(pat="\n") %}{% set l = line | trim %}{% if l is starting_with("- ") or l is starting_with("* ") %}{% set t = l | trim_start_matches(pat="- ") | trim_start_matches(pat="* ") %}
 {{ "  - " ~ t }}{% endif %}{% endfor %}{% endif %}
 {%- endmacro item -%}
 
