@@ -3,38 +3,59 @@ package io.github.pendiego.livescreen
 import android.app.Activity
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -42,12 +63,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -55,6 +84,9 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private const val LEGACY_MSG = "Código sem chave de sala: só conecta em quem transmite com o LiveScreen 0.4. Se veio de uma versão mais nova, falta o final do código (a parte depois do ponto)."
 
 @Composable
 fun App(vm: ViewerModel) {
@@ -65,85 +97,137 @@ fun App(vm: ViewerModel) {
     }
 }
 
+private fun clipboardText(context: Context): String? {
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
+    val clip = cm.primaryClip ?: return null
+    if (clip.itemCount == 0) return null
+    return clip.getItemAt(0)?.coerceToText(context)?.toString()
+}
+
 @Composable
 fun HomeScreen(vm: ViewerModel) {
     val context = LocalContext.current
-    val trimmedTicket = vm.ticket.trim()
-    val isTicketValid = remember(trimmedTicket) { Native.isValidTicket(trimmedTicket) }
-    val isTicketNotEmpty = trimmedTicket.isNotEmpty()
+    val isTicketValid = remember(vm.ticket) { Native.isValidTicket(vm.ticket) }
+    val isLegacy = remember(vm.ticket) { Native.isLegacyInvite(vm.ticket) }
+    val isTicketNotEmpty = vm.ticket.isNotEmpty()
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    LaunchedEffect(windowFocused) {
+        if (windowFocused && !Native.isValidTicket(vm.ticket)) {
+            clipboardText(context)?.let(Native::findInvite)?.let { vm.ticket = it }
+        }
+    }
 
-    val p = LocalPalette.current
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .safeDrawingPadding()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.widthIn(max = 560.dp).verticalScroll(rememberScrollState())
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val sc = LocalStatusColors.current
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+    val paste: () -> Unit = {
+        val inv = clipboardText(context)?.let(Native::findInvite)
+        if (inv == null) {
+            scope.launch { snackbar.showSnackbar("O texto colado não tem um código de convite") }
+        } else {
+            vm.ticket = inv
+            if (!Native.isLegacyInvite(inv)) vm.connect()
+        }
+    }
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            Button(
+                onClick = { vm.connect() },
+                enabled = isTicketValid,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                    .padding(16.dp)
+                    .height(56.dp)
+            ) { Text("Assistir", style = type.titleMedium) }
+        }
+    ) { inner ->
+        Box(
+            Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner),
+            contentAlignment = Alignment.TopCenter
         ) {
-            Text(
-                text = "LiveScreen",
-                style = MaterialTheme.typography.headlineLarge
-            )
-            Text(
-                text = "Assista a uma tela compartilhada pelo LiveScreen do Windows.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = p.weak
-            )
-            Spacer(Modifier.height(16.dp))
-            UpdateBanner(vm)
-            SurfaceCard(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Column(
+                    Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(shape = CircleShape, color = colors.primaryContainer, modifier = Modifier.size(72.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painterResource(R.drawable.ic_live_tv), null,
+                                tint = colors.onPrimaryContainer, modifier = Modifier.size(36.dp)
+                            )
+                        }
+                    }
+                    Text("LiveScreen", style = type.headlineMedium)
+                    Text(
+                        "Assista a uma tela compartilhada pelo LiveScreen do Windows.",
+                        style = type.bodyLarge, color = colors.onSurfaceVariant, textAlign = TextAlign.Center
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                UpdateBanner(vm)
+                OutlinedTextField(
+                    value = vm.ticket,
+                    onValueChange = { vm.ticket = Native.findInvite(it) ?: it.filterNot(Char::isWhitespace) },
+                    label = { Text("Código de convite") },
+                    placeholder = { Text("Cole o código que você recebeu") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 4,
+                    isError = isTicketNotEmpty && !isTicketValid,
+                    supportingText = when {
+                        isTicketNotEmpty && !isTicketValid -> { { Text("Código inválido — confira se copiou o código inteiro.") } }
+                        isTicketValid && isLegacy -> { { Text(LEGACY_MSG, color = sc.warn) } }
+                        else -> null
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = paste) {
+                            Icon(painterResource(R.drawable.ic_content_paste), contentDescription = "Colar")
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Go
+                    ),
+                    keyboardActions = KeyboardActions(onGo = { if (isTicketValid) vm.connect() }),
+                    modifier = Modifier.fillMaxWidth()
+                )
                 OutlinedTextField(
                     value = vm.name,
                     onValueChange = { vm.name = it },
                     label = { Text("Seu nome (opcional)") },
+                    leadingIcon = { Icon(painterResource(R.drawable.ic_person), null) },
                     singleLine = true,
-                    colors = fieldColors(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedTextField(
-                    value = vm.ticket,
-                    onValueChange = { vm.ticket = it },
-                    label = { Text("Código de convite") },
-                    singleLine = true,
-                    textStyle = MonoStyle,
-                    colors = fieldColors(),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
-                ) {
-                    SecondaryButton(
-                        "Colar",
-                        onClick = {
-                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            val clip = cm?.primaryClip
-                            if (clip != null && clip.itemCount > 0) {
-                                val text = clip.getItemAt(0)?.coerceToText(context)?.toString() ?: ""
-                                vm.ticket = text.trim()
-                            }
+                vm.lastEnd?.let { end ->
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = colors.errorContainer, contentColor = colors.onErrorContainer
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(painterResource(R.drawable.ic_error), null)
+                            Text(end, style = type.bodyMedium)
                         }
-                    )
-                    PrimaryButton("Assistir", onClick = { vm.connect() }, enabled = isTicketValid)
-                }
-                if (isTicketNotEmpty && !isTicketValid) {
-                    Text(
-                        text = "Código de convite inválido",
-                        color = p.danger,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-                if (vm.lastEnd != null) {
-                    Text(
-                        text = vm.lastEnd!!,
-                        color = p.danger,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    }
                 }
             }
         }
@@ -152,21 +236,14 @@ fun HomeScreen(vm: ViewerModel) {
 
 @Composable
 fun WatchScreen(vm: ViewerModel) {
-    // Vídeo sempre sobre preto: o overlay usa a paleta escura mesmo com o sistema claro.
-    CompositionLocalProvider(LocalPalette provides DarkPalette) {
-        MaterialTheme(
-            colorScheme = DarkPalette.scheme(true),
-            typography = MaterialTheme.typography,
-            shapes = MaterialTheme.shapes
-        ) {
-            WatchContent(vm)
-        }
-    }
+    // Vídeo sempre sobre preto: o overlay usa o esquema escuro mesmo com o sistema claro.
+    LiveScreenTheme(dark = true) { WatchContent(vm) }
 }
 
 // Mesmo `OVERLAY_TIMEOUT` do desktop (watch_view.rs).
 private const val OVERLAY_TIMEOUT_MS = 2500L
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WatchContent(vm: ViewerModel) {
     val view = LocalView.current
@@ -185,6 +262,11 @@ private fun WatchContent(vm: ViewerModel) {
             }
         }
     }
+    val activity = view.context as? Activity
+    // Ao sair, a rotação volta a seguir o sensor.
+    DisposableEffect(activity) {
+        onDispose { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+    }
 
     BackHandler {
         vm.leave()
@@ -198,13 +280,19 @@ private fun WatchContent(vm: ViewerModel) {
         else -> Pair(16, 9)
     }
     val aspectRatio = w.toFloat() / h.toFloat()
+    val type = MaterialTheme.typography
+    val colors = MaterialTheme.colorScheme
+    val sc = LocalStatusColors.current
 
     var showOverlay by remember { mutableStateOf(true) }
-    var qualityExpanded by remember { mutableStateOf(false) }
+    var qualitySheet by remember { mutableStateOf(false) }
+    var showStats by remember { mutableStateOf(false) }
+    var landscape by remember { mutableStateOf(false) }
     var lastTouchTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val bump = { lastTouchTime = System.currentTimeMillis() }
 
-    LaunchedEffect(showOverlay, qualityExpanded, lastTouchTime) {
-        if (showOverlay && !qualityExpanded) {
+    LaunchedEffect(showOverlay, qualitySheet, lastTouchTime) {
+        if (showOverlay && !qualitySheet) {
             delay(OVERLAY_TIMEOUT_MS)
             showOverlay = false
         }
@@ -257,95 +345,112 @@ private fun WatchContent(vm: ViewerModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                CircularProgressIndicator(Modifier.size(24.dp), color = Color(0xFFC8C8C8), strokeWidth = 2.dp)
-                Text("Conectando…", style = MaterialTheme.typography.bodyMedium, color = Color(0xFFC8C8C8))
+                CircularProgressIndicator(Modifier.size(32.dp), color = Color.White, strokeWidth = 3.dp)
+                Text("Conectando…", style = type.bodyLarge, color = Color.White.copy(alpha = 0.8f))
             }
         }
 
-        if (showOverlay) {
-            val p = LocalPalette.current
-            @OptIn(ExperimentalLayoutApi::class)
-            FlowRow(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 16.dp, end = 16.dp, bottom = 24.dp)
-                    .widthIn(max = 720.dp)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 190f / 255f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                itemVerticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SecondaryButton("Sair", onClick = { vm.leave() })
-
+        AnimatedVisibility(
+            visible = showOverlay,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(Modifier.fillMaxSize()) {
                 val badgeText = when {
                     status?.connecting == true -> "Conectando…"
                     status?.path == "Relay" -> "Via servidor"
                     else -> "Conexão direta"
                 }
                 val badgeColor = when {
-                    status?.connecting == true -> p.weak
-                    status?.path == "Relay" -> p.warn
-                    else -> p.success
+                    status?.connecting == true -> Color.White.copy(alpha = 0.7f)
+                    status?.path == "Relay" -> sc.warn
+                    else -> sc.success
                 }
-                StatusBadge(badgeText, badgeColor)
+                Row(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
+                        .windowInsetsPadding(WindowInsets.displayCutout)
+                        .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { vm.leave() }) {
+                        Icon(painterResource(R.drawable.ic_arrow_back), "Sair", tint = Color.White)
+                    }
+                    Text(
+                        status?.title?.takeIf { it.isNotEmpty() } ?: "LiveScreen",
+                        style = type.titleMedium, color = Color.White,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+                    )
+                    Surface(shape = CircleShape, color = badgeColor.copy(alpha = 0.2f)) {
+                        Text(
+                            badgeText, style = type.labelMedium, color = badgeColor,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
 
                 val rttStr = status?.rttMs?.let { "$it ms" } ?: "- ms"
                 val fpsStr = "${status?.fps ?: 0} fps"
-                val dimStr = "${w}×${h}"
-                val titleStr = status?.title?.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""
-                val infoText = "$rttStr · $fpsStr · $dimStr$titleStr"
-
-                Text(
-                    text = infoText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = p.weak,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.align(Alignment.CenterVertically)
-                )
-
-                if (status?.audio == true) {
-                    SecondaryButton(
-                        if (vm.muted) "Ativar som" else "Silenciar",
-                        onClick = { vm.muted = !vm.muted }
+                val infoText = "$rttStr · $fpsStr · ${w}×${h} · decodificação ${if (status?.decoderHw == true) "por hardware" else "por software"}"
+                Column(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
+                        .windowInsetsPadding(WindowInsets.displayCutout)
+                        .padding(start = 4.dp, end = 4.dp, top = 24.dp, bottom = 8.dp)
+                ) {
+                    if (showStats) Text(
+                        infoText, style = type.bodySmall, color = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
-                }
-
-                // qualityExpanded lifted to WatchScreen scope
-                Box {
-                    SecondaryButton("Qualidade", onClick = { qualityExpanded = true })
-                    DropdownMenu(
-                        expanded = qualityExpanded,
-                        onDismissRequest = { qualityExpanded = false },
-                        shape = RoundedCornerShape(8.dp),
-                        containerColor = p.card,
-                        border = BorderStroke(1.dp, p.border),
-                        shadowElevation = 4.dp
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "Só vale se for mais leve que a atual",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = p.weak
-                                )
-                            },
-                            onClick = {},
-                            enabled = false
-                        )
-                        for ((id, name) in vm.presets) {
-                            DropdownMenuItem(
-                                text = { Text(name, style = MaterialTheme.typography.bodyMedium, color = p.text) },
-                                onClick = {
-                                    vm.requestQuality(id)
-                                    qualityExpanded = false
-                                }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (status?.audio == true) IconButton(onClick = { vm.muted = !vm.muted; bump() }) {
+                            Icon(
+                                painterResource(if (vm.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_up),
+                                if (vm.muted) "Ativar som" else "Silenciar", tint = Color.White
                             )
+                        }
+                        IconButton(onClick = { qualitySheet = true }) {
+                            Icon(painterResource(R.drawable.ic_tune), "Qualidade", tint = Color.White)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { showStats = !showStats; bump() }) {
+                            Icon(painterResource(R.drawable.ic_info), "Estatísticas", tint = Color.White)
+                        }
+                        IconButton(onClick = {
+                            landscape = !landscape
+                            activity?.requestedOrientation =
+                                if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                            bump()
+                        }) {
+                            Icon(painterResource(R.drawable.ic_screen_rotation), "Girar tela", tint = Color.White)
                         }
                     }
                 }
+            }
+        }
+
+        if (qualitySheet) {
+            ModalBottomSheet(onDismissRequest = { qualitySheet = false; bump() }) {
+                Text("Qualidade", style = type.titleLarge, modifier = Modifier.padding(horizontal = 24.dp))
+                Text(
+                    "Só vale se for mais leve que a atual", style = type.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 8.dp)
+                )
+                for ((id, name) in vm.presets) {
+                    ListItem(
+                        headlineContent = { Text(name) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable { vm.requestQuality(id); qualitySheet = false; bump() }
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -353,7 +458,8 @@ private fun WatchContent(vm: ViewerModel) {
 
 @Composable
 private fun UpdateBanner(vm: ViewerModel) {
-    val p = LocalPalette.current
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
     val s = vm.update
     val info = when (s) {
         is UpdateState.Available -> s.info
@@ -368,22 +474,26 @@ private fun UpdateBanner(vm: ViewerModel) {
         is UpdateState.Failed -> "Tentar de novo"
         else -> "Atualizar"
     }
-    SurfaceCard(Modifier.fillMaxWidth()) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = colors.secondaryContainer, contentColor = colors.onSecondaryContainer
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Row(
+            Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                "Versão ${info.version} disponível",
-                style = MaterialTheme.typography.bodyMedium,
-                color = p.text,
-                modifier = Modifier.weight(1f)
-            )
-            PrimaryButton(label, onClick = { vm.startUpdate() }, enabled = s !is UpdateState.Downloading)
+            Icon(painterResource(R.drawable.ic_system_update), null)
+            Text("Versão ${info.version} disponível", style = type.bodyMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = { vm.startUpdate() }, enabled = s !is UpdateState.Downloading) { Text(label) }
         }
         if (s is UpdateState.Failed) {
-            Text(s.message, style = MaterialTheme.typography.bodyMedium, color = p.danger)
+            Text(
+                s.message, style = type.bodySmall, color = colors.error,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+            )
         }
     }
-    Spacer(Modifier.height(12.dp))
 }

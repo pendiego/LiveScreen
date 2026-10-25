@@ -23,7 +23,7 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JLongArray, JString};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring};
 use livescreen_core::preset::Preset;
-use livescreen_core::protocol::{EncodedFrame, audio_gap, parse_audio_datagram};
+use livescreen_core::protocol::{EncodedFrame, audio_gap, find_invite, parse_audio_datagram, parse_invite};
 use livescreen_core::viewer::{DecodeStats, StartOutputs, ViewerSession, is_valid_invite};
 use tokio::runtime::Runtime;
 use tracing::warn;
@@ -134,6 +134,42 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_isValidTicket(
         JNI_TRUE
     } else {
         JNI_FALSE
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_isLegacyInvite(
+    mut env: JNIEnv,
+    _class: JClass,
+    ticket: JString,
+) -> jboolean {
+    let Ok(ticket) = env.get_string(&ticket) else {
+        return JNI_FALSE;
+    };
+    let s: String = ticket.into();
+    if matches!(parse_invite(&s), Some((_, None))) {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_findInvite(
+    mut env: JNIEnv,
+    _class: JClass,
+    text: JString,
+) -> jstring {
+    let Ok(text) = env.get_string(&text) else {
+        return std::ptr::null_mut();
+    };
+    let s: String = text.into();
+    let Some(inv) = find_invite(&s) else {
+        return std::ptr::null_mut();
+    };
+    match env.new_string(inv) {
+        Ok(js) => js.into_raw(),
+        Err(_) => std::ptr::null_mut(),
     }
 }
 
@@ -370,6 +406,27 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_requestQuality(
         Ok(preset) => session.viewer.request_quality(preset),
         Err(e) => warn!("solicitação de qualidade inválida: {e}"),
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_setVisible(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    visible: jboolean,
+) {
+    let Some(session) = (unsafe { get_session(handle) }) else {
+        return;
+    };
+    let v = visible != 0;
+    // quadros enfileirados ficaram velhos; o decoder já parou (o Kotlin dá join antes)
+    if let Ok(rx) = session.video.lock() {
+        while rx.try_recv().is_ok() {}
+    }
+    // Escondido não pede keyframe: o key_loop pediria um por segundo à sala toda.
+    // Ao voltar, o viewer descarta até o próximo keyframe e pede um.
+    session.need_key.store(v, Ordering::SeqCst);
+    session.viewer.set_visible(v);
 }
 
 #[unsafe(no_mangle)]

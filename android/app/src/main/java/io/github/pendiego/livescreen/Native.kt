@@ -6,6 +6,8 @@ object Native {
     }
 
     @JvmStatic external fun isValidTicket(ticket: String): Boolean
+    @JvmStatic external fun isLegacyInvite(ticket: String): Boolean
+    @JvmStatic external fun findInvite(text: String): String?
     @JvmStatic external fun start(ticket: String, name: String): Long
     @JvmStatic external fun status(handle: Long): String
     @JvmStatic external fun presets(): String
@@ -15,5 +17,6 @@ object Native {
     @JvmStatic external fun decoderFailed(handle: Long)
     @JvmStatic external fun requestKeyframe(handle: Long)
     @JvmStatic external fun requestQuality(handle: Long, id: String)
+    @JvmStatic external fun setVisible(handle: Long, visible: Boolean)
     @JvmStatic external fun stop(handle: Long)
 }
