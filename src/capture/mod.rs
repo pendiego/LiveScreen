@@ -124,6 +124,18 @@ pub fn start(
             if overrides.deny_graphics_capture && overrides.deny_dxgi {
                 bail!("nenhum backend de captura permitido");
             }
+            // no Windows 10 o WGC sempre desenha a borda amarela; a duplicação DXGI não tem borda
+            if !overrides.deny_dxgi && !wgc::border_removable() {
+                match dxgi::start(source, device, shared.clone()) {
+                    Ok(capture) => return Ok((CaptureHandle::Dxgi(capture), Backend::Dxgi)),
+                    Err(e) if overrides.deny_graphics_capture => return Err(e),
+                    Err(e) => {
+                        info!("DXGI indisponível ({e:#}); WGC com borda amarela");
+                        let capture = wgc::start(source, device, shared)?;
+                        return Ok((CaptureHandle::Wgc(capture), Backend::GraphicsCapture));
+                    }
+                }
+            }
             if !overrides.deny_graphics_capture {
                 let (tx, rx) = std::sync::mpsc::channel();
                 let probe = SinkHandle::new(Box::new(FirstFrameSink {

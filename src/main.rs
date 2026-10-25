@@ -1,6 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(dead_code)]
 
+// o decoder aloca ~8 MB de Color32 por quadro; o mimalloc evita page faults a cada alocação
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod audio;
 mod capture;
 mod config;

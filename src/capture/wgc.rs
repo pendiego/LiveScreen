@@ -45,6 +45,11 @@ fn property_present(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// `false` no Windows 10 (antes do build 20348): lá o WGC sempre desenha a borda amarela.
+pub fn border_removable() -> bool {
+    property_present("IsBorderRequired")
+}
+
 pub fn start(source: &SourceId, device: &ID3D11Device, sink: SinkHandle) -> Result<WgcCapture> {
     crate::gpu::com_init();
     let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()
@@ -68,7 +73,7 @@ pub fn start(source: &SourceId, device: &ID3D11Device, sink: SinkHandle) -> Resu
     let size = item.Size().context("tamanho do item WGC")?;
     let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(&winrt, PIXEL_FORMAT, 2, size)?;
     let session = pool.CreateCaptureSession(&item)?;
-    if property_present("IsBorderRequired") {
+    if border_removable() {
         let _ = session.SetIsBorderRequired(false);
     }
     if property_present("IsCursorCaptureEnabled") {

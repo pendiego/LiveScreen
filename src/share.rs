@@ -12,7 +12,7 @@ use tokio::runtime::Handle;
 use tokio::sync::{Semaphore, broadcast, watch};
 use tracing::{info, warn};
 
-use crate::audio::capture::{AudioHandle, AudioTarget};
+use crate::audio::capture::{AudioHandle, AudioRequest, AudioTarget, Mic};
 use crate::capture::{self, Backend, CaptureHandle, FrameSink, SourceId, SourceInfo};
 use crate::config::Overrides;
 use crate::preset::{Preset, encode_params};
@@ -25,6 +25,38 @@ use crate::video::encoder::{self, EncoderHandle, EncoderKind, EncoderStats, Nv12
 const MAX_HANDSHAKES: usize = 16;
 /// Teto de espera por um espectador que não lê o "welcome"/não abre o stream.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Vídeo mais velho que isso não vale a fila: o próximo keyframe substitui.
+const STALE_VIDEO: Duration = Duration::from_millis(500);
+/// Piso do bitrate adaptativo (bps).
+const ABR_FLOOR: u32 = 500_000;
+
+/// AIMD: congestionou → 70% na hora; 3 s calmos seguidos → +8% por segundo até o teto do preset.
+#[derive(Default)]
+struct Abr {
+    calm: u32,
+}
+impl Abr {
+    fn next(&mut self, current: u32, ceiling: u32, congested: bool) -> u32 {
+        let t = if congested {
+            self.calm = 0;
+            current as u64 * 7 / 10
+        } else {
+            self.calm += 1;
+            if self.calm >= 3 { current as u64 * 108 / 100 } else { current as u64 }
+        };
+        t.clamp(ABR_FLOOR.min(ceiling) as u64, ceiling as u64) as u32
+    }
+}
+
+/// GOP antigo: termina; se o peer não confirmar em STALE_VIDEO, descarta (para de retransmitir).
+fn retire(mut s: iroh::endpoint::SendStream) {
+    let _ = s.finish();
+    tokio::spawn(async move {
+        if tokio::time::timeout(STALE_VIDEO, s.stopped()).await.is_err() {
+            let _ = s.reset(0u32.into());
+        }
+    });
+}
 
 #[derive(Clone, Debug)]
 pub struct ViewerInfo {
@@ -83,6 +115,8 @@ pub struct ShareStatus {
     pub fps: f32,
     pub kbps: u32,
     pub audio: AudioState,
+    pub mic: AudioState,
+    pub mic_muted: bool,
     pub ended: Option<String>,
     pub width: u32,
     pub height: u32,
@@ -143,6 +177,7 @@ pub struct ShareSession {
     pub status: Arc<Mutex<ShareStatus>>,
     shared: Arc<Shared>,
     res: Mutex<Option<Resources>>,
+    mic_muted: Arc<AtomicBool>,
 }
 
 struct Shared {
@@ -164,6 +199,8 @@ struct Shared {
     params: watch::Sender<(u32, u32, u32, bool)>,
     title: String,
     shutdown: watch::Receiver<bool>,
+    /// Algum espectador ficou para trás desde o último tick.
+    congested: AtomicBool,
 }
 
 impl Shared {
@@ -341,6 +378,7 @@ impl ShareSession {
         source: SourceInfo,
         preset: Preset,
         audio: bool,
+        mic: Option<Mic>,
         encoder_kind: EncoderKind,
         overrides: Overrides,
         max_viewers: usize,
@@ -379,6 +417,12 @@ impl ShareSession {
             } else {
                 AudioState::Off
             },
+            mic: if mic.is_some() {
+                AudioState::Unavailable("iniciando".into())
+            } else {
+                AudioState::Off
+            },
+            mic_muted: false,
             ended: None,
             width: params.width,
             height: params.height,
@@ -410,19 +454,38 @@ impl ShareSession {
         };
         status.lock().unwrap().backend = backend;
 
-        let audio_h = if audio {
-            let target = match &source.id {
+        let mic_muted = Arc::new(AtomicBool::new(false));
+        let audio_h = if audio || mic.is_some() {
+            let loopback = audio.then(|| match &source.id {
                 SourceId::Window { pid, .. } => AudioTarget::Process(*pid),
                 SourceId::Monitor { .. } => AudioTarget::System,
+            });
+            let req = AudioRequest {
+                loopback,
+                mic: mic.clone(),
+                mic_muted: mic_muted.clone(),
             };
-            match crate::audio::capture::start(target, audio_tx.clone()) {
-                Ok(h) => {
-                    status.lock().unwrap().audio = AudioState::On;
+            let to_state = |r: Option<Result<(), String>>| match r {
+                None => AudioState::Off,
+                Some(Ok(())) => AudioState::On,
+                Some(Err(m)) => AudioState::Unavailable(m),
+            };
+            match crate::audio::capture::start(req, audio_tx.clone()) {
+                Ok((h, opened)) => {
+                    let mut s = status.lock().unwrap();
+                    s.audio = to_state(opened.loopback);
+                    s.mic = to_state(opened.mic);
                     Some(h)
                 }
                 Err(e) => {
                     warn!("áudio indisponível: {e:#}");
-                    status.lock().unwrap().audio = AudioState::Unavailable(format!("{e}"));
+                    let mut s = status.lock().unwrap();
+                    if audio {
+                        s.audio = AudioState::Unavailable(format!("{e}"));
+                    }
+                    if mic.is_some() {
+                        s.mic = AudioState::Unavailable(format!("{e}"));
+                    }
                     None
                 }
             }
@@ -431,8 +494,13 @@ impl ShareSession {
         };
 
         let ep = rt.block_on(async {
+            // BBR: fila curta e tolerância a perda aleatória (Wi-Fi); o CUBIC padrão enche o buffer e aumenta a latência
+            let transport = iroh::endpoint::QuicTransportConfig::builder()
+                .congestion_controller_factory(Arc::new(noq_proto::congestion::Bbr3Config::default()))
+                .build();
             Endpoint::builder(presets::N0)
                 .alpns(vec![ALPN.to_vec()])
+                .transport_config(transport)
                 .bind()
                 .await
         })?;
@@ -453,6 +521,7 @@ impl ShareSession {
             params: watch::channel((params.width, params.height, params.fps, audio_h.is_some())).0,
             title: source.title.clone(),
             shutdown: sd_rx,
+            congested: AtomicBool::new(false),
         });
 
         {
@@ -491,6 +560,8 @@ impl ShareSession {
             rt.spawn(async move {
                 let (mut pf, mut pb, mut pd) = (0u64, 0u64, 0u64);
                 let mut overload = Overload::default();
+                let mut abr = Abr::default();
+                let mut min_rtt: HashMap<String, (iroh::endpoint::PathId, Duration)> = HashMap::new();
                 let mut tick = tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tick.tick().await;
@@ -499,6 +570,7 @@ impl ShareSession {
                     }
                     let f = stats.frames.load(Ordering::Relaxed);
                     let b = stats.bytes.load(Ordering::Relaxed);
+                    let mut samples: Vec<(String, iroh::endpoint::PathId, Duration)> = Vec::new();
                     let viewers = shared
                         .conns
                         .lock()
@@ -517,6 +589,7 @@ impl ShareSession {
                                     }
                                     .into();
                                     rtt = p.rtt().as_millis() as u32;
+                                    samples.push((id.clone(), p.id(), p.rtt()));
                                 }
                             }
                             ViewerInfo {
@@ -527,6 +600,36 @@ impl ShareSession {
                             }
                         })
                         .collect();
+                    let mut congested = shared.congested.swap(false, Ordering::Relaxed);
+                    for (id, pid, rtt) in &samples {
+                        let e = min_rtt.entry(id.clone()).or_insert((*pid, *rtt));
+                        // troca de caminho (relay ↔ direto) muda a base de RTT
+                        if e.0 != *pid {
+                            *e = (*pid, *rtt);
+                        } else if *rtt < e.1 {
+                            e.1 = *rtt;
+                        }
+                        // fila crescendo: RTT acima de 2× o mínimo e mais de 80 ms acima dele
+                        if *rtt > e.1 + e.1.max(Duration::from_millis(80)) {
+                            congested = true;
+                        }
+                    }
+                    min_rtt.retain(|id, _| samples.iter().any(|(s, _, _)| s == id));
+                    let ceiling = stats.ceiling_bps.load(Ordering::Relaxed);
+                    if samples.is_empty() {
+                        stats.target_bps.store(0, Ordering::Relaxed);
+                        abr = Abr::default();
+                    } else {
+                        let cur = match stats.target_bps.load(Ordering::Relaxed) {
+                            0 => ceiling,
+                            t => t.min(ceiling),
+                        };
+                        let next = abr.next(cur, ceiling, congested);
+                        if next != cur {
+                            tracing::debug!("abr: {} → {} kbps", cur / 1000, next / 1000);
+                        }
+                        stats.target_bps.store(next, Ordering::Relaxed);
+                    }
                     let d = dropped.load(Ordering::Relaxed);
                     let mut s = shared.status.lock().unwrap();
                     s.viewers = viewers;
@@ -569,6 +672,7 @@ impl ShareSession {
         Ok(ShareSession {
             rt: rt.clone(),
             status,
+            mic_muted,
             shared,
             res: Mutex::new(Some(Resources {
                 capture: cap,
@@ -604,6 +708,11 @@ impl ShareSession {
             ),
             |r| (r.preset, r.params, r.applied_src),
         )
+    }
+
+    pub fn set_mic_muted(&self, muted: bool) {
+        self.mic_muted.store(muted, Ordering::Relaxed);
+        self.status.lock().unwrap().mic_muted = muted;
     }
 
     /// Muda o limite da sala na hora; quem já está assistindo continua.
@@ -865,9 +974,6 @@ async fn handle_viewer(
     )
     .await
     .map_err(|_| anyhow!("timeout enviando welcome"))??;
-    let mut vsend = tokio::time::timeout(HANDSHAKE_TIMEOUT, conn.open_uni())
-        .await
-        .map_err(|_| anyhow!("timeout abrindo vídeo"))??;
     // handshake concluído: a vaga volta para a próxima conexão; espectadores não têm teto
     drop(handshake);
     let mut vrx = sh.video_tx.subscribe();
@@ -887,6 +993,8 @@ async fn handle_viewer(
         }
     });
 
+    let mut vsend: Option<iroh::endpoint::SendStream> = None;
+    let mut gop_prio: i32 = 0;
     let mut waiting_key = true;
     // Um espectador lento não deve pedir keyframe a cada quadro perdido (inflaria o
     // bitrate de todos); no máximo um pedido por segundo, por espectador.
@@ -903,10 +1011,35 @@ async fn handle_viewer(
                         }
                         continue;
                     }
+                    if f.keyframe {
+                        if let Some(old) = vsend.take() { retire(old); }
+                        let s = match tokio::time::timeout(HANDSHAKE_TIMEOUT, conn.open_uni()).await {
+                            Ok(Ok(s)) => s,
+                            Ok(Err(e)) => break Err(e.into()),
+                            Err(_) => break Err(anyhow!("timeout abrindo stream de vídeo")),
+                        };
+                        // o GOP mais novo sai primeiro
+                        gop_prio = gop_prio.wrapping_add(1);
+                        let _ = s.set_priority(gop_prio);
+                        vsend = Some(s);
+                    }
                     waiting_key = false;
-                    if let Err(e) = vsend.write_all(&encode_video_frame(&f)).await { break Err(e.into()); }
+                    let Some(s) = vsend.as_mut() else { continue };
+                    match tokio::time::timeout(STALE_VIDEO, s.write_all(&encode_video_frame(&f))).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => break Err(e.into()),
+                        Err(_) => {
+                            // o quadro parcial some com o reset
+                            if let Some(mut s) = vsend.take() { let _ = s.reset(0u32.into()); }
+                            waiting_key = true;
+                            sh.congested.store(true, Ordering::Relaxed);
+                        }
+                    }
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => { waiting_key = true; }
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    waiting_key = true;
+                    sh.congested.store(true, Ordering::Relaxed);
+                }
                 Err(broadcast::error::RecvError::Closed) => break Ok(()),
             },
             r = arx.recv() => if let Ok(pkt) = r { let _ = conn.send_datagram(pkt); },
@@ -928,7 +1061,23 @@ async fn handle_viewer(
 
 #[cfg(test)]
 mod tests {
-    use super::{Overload, invite_addr, sanitize};
+    use super::{Abr, Overload, invite_addr, sanitize};
+
+    #[test]
+    fn abr_backs_off_and_recovers_slowly() {
+        assert_eq!(Abr::default().next(10_000_000, 10_000_000, true), 7_000_000);
+        let mut a = Abr::default();
+        assert_eq!(a.next(7_000_000, 10_000_000, false), 7_000_000);
+        assert_eq!(a.next(7_000_000, 10_000_000, false), 7_000_000);
+        assert_eq!(a.next(7_000_000, 10_000_000, false), 7_560_000);
+        assert_eq!(Abr::default().next(8_000_000, 4_000_000, false), 4_000_000);
+        let (mut a, mut c) = (Abr::default(), 10_000_000);
+        for _ in 0..20 {
+            c = a.next(c, 10_000_000, true);
+        }
+        assert_eq!(c, 500_000);
+        assert_eq!(Abr::default().next(1_000_000, 300_000, true), 300_000);
+    }
 
     #[test]
     fn overload_needs_sustained_drops_and_clears_slowly() {

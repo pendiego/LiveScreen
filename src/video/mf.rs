@@ -252,16 +252,18 @@ pub fn sample_bytes(sample: &IMFSample) -> Result<Vec<u8>> {
     Ok(v)
 }
 
-/// `ICodecAPI::SetValue` só quando suportado; não suportado não é erro.
-pub fn set_codec_value(api: &ICodecAPI, guid: &GUID, value: VARIANT) {
+/// `ICodecAPI::SetValue` só quando suportado; não suportado não é erro. `true` se aplicou.
+pub fn set_codec_value(api: &ICodecAPI, guid: &GUID, value: VARIANT) -> bool {
     unsafe {
         if api.IsSupported(guid).is_err() {
             debug!("codec api não suportada: {guid:?}");
-            return;
+            return false;
         }
         if let Err(e) = api.SetValue(guid, &value) {
             debug!("SetValue({guid:?}) falhou: {e}");
+            return false;
         }
+        true
     }
 }
 

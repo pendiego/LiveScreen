@@ -4,7 +4,7 @@ use iroh::endpoint::{RecvStream, SendStream};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub const ALPN: &[u8] = b"livescreen/1";
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 pub const MAX_MSG: usize = 64 * 1024;
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 

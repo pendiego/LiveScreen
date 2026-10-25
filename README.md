@@ -28,7 +28,6 @@ Cada pessoa que assiste recebe uma cópia do vídeo enviada pelo seu computador.
 | 480p 30fps | 1,5 Mbps |
 | 720p 30fps | 4 Mbps |
 | 1080p 60fps | 8 Mbps |
-| Nativa na taxa do monitor (ex.: 144 Hz) | até 40 Mbps |
 
 Telas paradas (slides, código, navegador) gastam bem menos que isso.
 
@@ -37,19 +36,21 @@ Para ajudar na escolha:
 - **Upload medido:** ao abrir a escolha de tela, o app mede o seu upload (~5 s) e mostra quantas pessoas cada qualidade aguenta.
 - **Qualidade recomendada:** o app marca a mais pesada que o seu PC e a sua internet sustentam para o tamanho da sala, até 1080p 60fps.
 - **Limite da sala:** começa em 4 pessoas e pode ser aumentado durante a transmissão. Se o limite passar do que a internet aguenta, aparece um aviso. Quem tenta entrar com a sala cheia recebe "Recusado: sala cheia".
-- **Opções conforme a fonte:** vão de 480p a 4K, mas só aparecem as que cabem na tela ou janela escolhida. Monitores acima de 60 Hz ganham a opção na taxa do monitor (até 144 fps).
+- **Opções conforme a fonte:** só aparecem as que cabem na tela ou janela escolhida. Por enquanto a transmissão vai até 1080p 60fps, mesmo em monitores maiores ou acima de 60 Hz.
 - **Aviso de PC sobrecarregado:** se o computador não der conta da qualidade, o app avisa e sugere uma mais leve.
 
 ## Recursos
 
-- **Captura:** Windows Graphics Capture, de tela inteira ou janela. Para telas inteiras, há fallback para DXGI Desktop Duplication.
+- **Captura:** Windows Graphics Capture, de tela inteira ou janela. Para telas inteiras, há fallback para DXGI Desktop Duplication, que no Windows 10 é o padrão para telas (sem a borda amarela do WGC) e desenha o cursor.
 - **Vídeo:**
   - codificação H.264 pela placa de vídeo (NVIDIA, AMD ou Intel, via Media Foundation), com fallback para codificação por software;
   - limitado ao H.264 nível 5.2: lado de até 4096 px, e a "Nativa" é reduzida quando passa disso;
   - telas ultrawide e em pé mantêm a área de imagem da qualidade escolhida, sem virar faixa fina.
-- **Áudio:** Opus, com todo o som do computador (tela) ou só o do aplicativo (janela).
+- **Áudio:** Opus, com todo o som do computador (tela) ou só o do aplicativo (janela), e o microfone opcional (desligado por padrão, com escolha do dispositivo ao iniciar), mixados num só stream.
 - **Conexão:** direta entre os PCs via [iroh](https://iroh.computer), com servidor de retransmissão quando a conexão direta não é possível. A conexão é criptografada de ponta a ponta.
+- **Rede:** controle de congestionamento BBR e bitrate adaptativo: quando a fila de algum espectador cresce, o bitrate cai na hora e volta aos poucos até o teto da qualidade. Vídeo atrasado é descartado em vez de acumular.
 - **Atualização:** pelo próprio app, com conferência do arquivo baixado.
+- **Interface:** visual no estilo Vercel/Geist, com fonte Geist embutida, tema claro e escuro (ou seguindo o Windows), anel de foco azul para navegar pelo teclado e nomes acessíveis nos botões só com ícone. Quando as animações estão desligadas no Windows, o app desativa as animações de transição e de rolagem; os indicadores de carregamento continuam girando.
 
 ## Requisitos
 
@@ -125,3 +126,5 @@ cargo test --release e2e_window -- --ignored --nocapture        # transmite uma 
 ## Licença
 
 Dual: [MIT](LICENSE-MIT) ou [Apache-2.0](LICENSE-APACHE), à sua escolha.
+
+A fonte [Geist](https://github.com/vercel/geist-font) (Geist Sans e Geist Mono), embutida no `.exe`, é distribuída sob a [SIL Open Font License 1.1](assets/fonts/OFL.txt).

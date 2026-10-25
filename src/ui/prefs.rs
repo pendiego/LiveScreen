@@ -28,6 +28,10 @@ impl From<ThemeChoice> for eframe::egui::ThemePreference {
 pub struct Prefs {
     pub preset: Preset,
     pub share_audio: bool,
+    /// Transmitir também o microfone (desligado por padrão, por privacidade).
+    pub share_mic: bool,
+    /// Id do microfone escolhido; `None` = padrão do Windows.
+    pub mic_device: Option<String>,
     pub name: String,
     pub volume: f32,
     pub muted: bool,
@@ -49,6 +53,8 @@ impl Default for Prefs {
         Prefs {
             preset: Preset::P1080p60,
             share_audio: true,
+            share_mic: false,
+            mic_device: None,
             name: String::new(),
             volume: 1.0,
             muted: false,

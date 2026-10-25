@@ -229,7 +229,6 @@ async fn run(
         None
     };
 
-    let mut vrecv = conn.accept_uni().await?;
     let need_key = Arc::new(AtomicBool::new(true));
     let (tx, rx) = std::sync::mpsc::sync_channel::<EncodedFrame>(8);
     let dstats = Arc::new(decoder::DecodeStats::default());
@@ -244,10 +243,26 @@ async fn run(
     let count = Arc::new(AtomicU64::new(0));
 
     let read_loop = async {
+        let (ftx, mut frx) = tokio::sync::mpsc::channel::<(u64, EncodedFrame)>(32);
+        let mut readers = tokio::task::JoinSet::new(); // dropar aborta os leitores
+        let (mut next_gop, mut cur_gop) = (0u64, 0u64);
         loop {
-            match read_video_frame(&mut vrecv).await? {
-                None => return Ok::<(), anyhow::Error>(()),
-                Some(f) => {
+            tokio::select! {
+                s = conn.accept_uni() => {
+                    let mut s = match s { Ok(s) => s, Err(e) => return Err::<(), anyhow::Error>(e.into()) };
+                    let (gop, ftx) = (next_gop, ftx.clone());
+                    next_gop += 1;
+                    readers.spawn(async move {
+                        // reset do host (GOP descartado) é o fim normal deste stream
+                        while let Ok(Some(f)) = read_video_frame(&mut s).await {
+                            if ftx.send((gop, f)).await.is_err() { break; }
+                        }
+                    });
+                    while readers.try_join_next().is_some() {}
+                }
+                Some((gop, f)) = frx.recv() => {
+                    if gop < cur_gop { continue; } // GOP velho chegando atrasado
+                    cur_gop = gop;
                     if need_key.load(Ordering::SeqCst) && !f.keyframe {
                         continue;
                     }

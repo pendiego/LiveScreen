@@ -38,7 +38,33 @@ pub fn create_device() -> Result<(ID3D11Device, ID3D11DeviceContext)> {
     unsafe {
         let _ = mt.SetMultithreadProtected(true);
     }
+    // prioridade máxima de GPU (faixa -7..7): encode/decode não engasgam com um jogo saturando a GPU
+    if let Ok(dxgi) = device.cast::<IDXGIDevice>()
+        && let Err(e) = unsafe { dxgi.SetGPUThreadPriority(7) }
+    {
+        tracing::debug!("SetGPUThreadPriority: {e}");
+    }
     Ok((device, context))
+}
+
+/// Thread registrada no MMCSS (fatias regulares de prioridade alta) enquanto o guard viver.
+pub struct Mmcss(windows::Win32::Foundation::HANDLE);
+impl Mmcss {
+    pub fn new(task: windows::core::PCWSTR) -> Option<Self> {
+        let mut index = 0u32;
+        match unsafe { windows::Win32::System::Threading::AvSetMmThreadCharacteristicsW(task, &mut index) } {
+            Ok(h) => Some(Self(h)),
+            Err(e) => {
+                tracing::debug!("MMCSS indisponível: {e}");
+                None
+            }
+        }
+    }
+}
+impl Drop for Mmcss {
+    fn drop(&mut self) {
+        let _ = unsafe { windows::Win32::System::Threading::AvRevertMmThreadCharacteristics(self.0) };
+    }
 }
 
 pub fn winrt_device(device: &ID3D11Device) -> Result<IDirect3DDevice> {

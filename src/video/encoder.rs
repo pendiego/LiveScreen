@@ -3,7 +3,7 @@
 //! Hardware (MFT de hardware + `IMFDXGIDeviceManager`) recebe os samples
 //! direto da textura NV12; o software (MFT da Microsoft) copia via CPU.
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -33,10 +33,19 @@ pub struct Nv12Frame {
     pub pts: Duration,
 }
 
+/// VBV curto: limita picos de quadro que enchem a fila da rede (250 ms de buffer, em bytes).
+fn vbv_bytes(bps: u32) -> u32 {
+    bps / 32
+}
+
 #[derive(Default)]
 pub struct EncoderStats {
     pub frames: AtomicU64,
     pub bytes: AtomicU64,
+    /// alvo do controle adaptativo; 0 = teto do preset
+    pub target_bps: AtomicU32,
+    /// bitrate do preset do encoder atual
+    pub ceiling_bps: AtomicU32,
 }
 
 pub struct EncoderHandle {
@@ -69,6 +78,7 @@ pub fn spawn(
         std::thread::Builder::new()
             .name("encoder".into())
             .spawn(move || {
+                let _mmcss = crate::gpu::Mmcss::new(windows::core::w!("Capture"));
                 match Encoder::new(kind, &device, params, input, out, force_key, stats) {
                     Ok(mut enc) => {
                         let _ = ready_tx.send(Ok(()));
@@ -173,6 +183,8 @@ struct Encoder {
     out: broadcast::Sender<Arc<EncodedFrame>>,
     force_key: Arc<AtomicBool>,
     stats: Arc<EncoderStats>,
+    ceiling: u32,
+    bitrate: u32,
     cpu: Option<CpuCopy>,
     spare: mf::OutSample,
 }
@@ -187,6 +199,8 @@ impl Encoder {
         force_key: Arc<AtomicBool>,
         stats: Arc<EncoderStats>,
     ) -> Result<Self> {
+        stats.ceiling_bps.store(params.bitrate_bps, Ordering::Relaxed);
+        stats.target_bps.store(0, Ordering::Relaxed);
         mf::startup();
         let (t, is_async) = create_mft(&kind, device)?;
         let (input_id, output_id) = stream_ids(&t);
@@ -219,6 +233,8 @@ impl Encoder {
             out,
             force_key,
             stats,
+            ceiling: params.bitrate_bps,
+            bitrate: params.bitrate_bps,
             cpu,
             spare: mf::OutSample::default(),
         })
@@ -353,6 +369,17 @@ impl Encoder {
     }
 
     fn process_input(&mut self, f: &Nv12Frame) -> Result<()> {
+        let want = match self.stats.target_bps.load(Ordering::Relaxed) {
+            0 => self.ceiling,
+            t => t.min(self.ceiling),
+        };
+        if want != self.bitrate {
+            if let Some(api) = &self.api {
+                mf::set_codec_value(api, &CODECAPI_AVEncCommonMeanBitRate, mf::variant_u32(want));
+                mf::set_codec_value(api, &CODECAPI_AVEncCommonBufferSize, mf::variant_u32(vbv_bytes(want)));
+            }
+            self.bitrate = want;
+        }
         if self.force_key.swap(false, Ordering::Relaxed) {
             if let Some(api) = &self.api {
                 mf::set_codec_value(api, &CODECAPI_AVEncVideoForceKeyFrame, mf::variant_u32(1));
@@ -529,15 +556,28 @@ fn configure(t: &IMFTransform, params: &EncodeParams) -> Result<Option<ICodecAPI
         }
 
         if let Some(api) = &api {
-            mf::set_codec_value(
+            let vbr = mf::set_codec_value(
                 api,
                 &CODECAPI_AVEncCommonRateControlMode,
-                mf::variant_u32(eAVEncCommonRateControlMode_CBR.0 as u32),
+                mf::variant_u32(eAVEncCommonRateControlMode_LowDelayVBR.0 as u32),
             );
+            if !vbr {
+                mf::set_codec_value(
+                    api,
+                    &CODECAPI_AVEncCommonRateControlMode,
+                    mf::variant_u32(eAVEncCommonRateControlMode_CBR.0 as u32),
+                );
+            }
+            info!("encoder: controle de taxa {}", if vbr { "LowDelayVBR" } else { "CBR" });
             mf::set_codec_value(
                 api,
                 &CODECAPI_AVEncCommonMeanBitRate,
                 mf::variant_u32(params.bitrate_bps),
+            );
+            mf::set_codec_value(
+                api,
+                &CODECAPI_AVEncCommonBufferSize,
+                mf::variant_u32(vbv_bytes(params.bitrate_bps)),
             );
             mf::set_codec_value(
                 api,

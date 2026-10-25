@@ -6,7 +6,7 @@ use egui::RichText;
 use super::App;
 use super::prefs::ThemeChoice;
 use super::share_view::{MAX_ROOM, preset_hint};
-use super::theme::I_SETTINGS;
+use super::theme::{self, I_SETTINGS};
 use super::toast::ToastKind;
 use crate::preset::Preset;
 use crate::video::encoder::EncoderKind;
@@ -32,9 +32,7 @@ const TABS: [(Tab, &str); 5] = [
 
 /// Engrenagem; devolve true no clique (para telas que seguram `app` emprestado).
 pub fn icon_button(ui: &mut egui::Ui) -> bool {
-    ui.button(I_SETTINGS)
-        .on_hover_text("Configurações (Ctrl+,)")
-        .clicked()
+    theme::icon_button(ui, I_SETTINGS, "Configurações (Ctrl+,)").clicked()
 }
 
 pub fn button(app: &mut App, ui: &mut egui::Ui) {
@@ -60,7 +58,9 @@ pub(super) fn preset_name(p: Preset) -> &'static str {
 /// Checkbox; `forced` (config.json/env) mostra desmarcado e travado. Devolve true se mudou.
 fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str, forced: bool, enabled: bool) -> bool {
     let mut shown = *value && !forced;
-    let r = ui.add_enabled(enabled && !forced, egui::Checkbox::new(&mut shown, label));
+    let r = ui
+        .add_enabled_ui(enabled && !forced, |ui| theme::checkbox(ui, &mut shown, label))
+        .inner;
     let r = if forced {
         r.on_disabled_hover_text(FORCED)
     } else {
@@ -78,11 +78,16 @@ fn hint(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).small().weak());
 }
 
+/// Dica de um checkbox: recuada para alinhar com o rótulo, não com a caixa.
+fn toggle_hint(ui: &mut egui::Ui, text: &str) {
+    ui.indent(text, |ui| hint(ui, text));
+}
+
 pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut close = false;
-    let modal = egui::Modal::new(egui::Id::unique("settings")).show(ctx, |ui| {
+    let modal = theme::modal(ctx, "settings").show(ctx, |ui| {
         ui.set_width(560.0);
-        ui.heading("Configurações");
+        theme::heading(ui, "Configurações");
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             for (t, label) in TABS {
@@ -121,7 +126,7 @@ fn video(app: &mut App, ui: &mut egui::Ui) {
         forced.deny_hardware_decoder,
         true,
     );
-    hint(
+    toggle_hint(
         ui,
         "Vale na próxima vez que você assistir. Se falhar, o LiveScreen usa o processador.",
     );
@@ -137,8 +142,8 @@ fn video(app: &mut App, ui: &mut egui::Ui) {
     ) {
         app.detect_encoder();
     }
-    hint(ui, "Vale na próxima transmissão.");
-    hint(
+    toggle_hint(ui, "Vale na próxima transmissão.");
+    toggle_hint(
         ui,
         &match encoder {
             Some(EncoderKind::Hardware { name }) => format!("Em uso: {name}"),
@@ -148,8 +153,7 @@ fn video(app: &mut App, ui: &mut egui::Ui) {
     );
     ui.add_space(8.0);
 
-    ui.checkbox(
-        &mut app.prefs.show_stats,
+    theme::checkbox(ui, &mut app.prefs.show_stats,
         "Mostrar estatísticas de vídeo ao assistir",
     );
 }
@@ -171,12 +175,18 @@ fn share(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    if ui
-        .checkbox(&mut app.prefs.share_audio, "Transmitir áudio")
+    if theme::checkbox(ui, &mut app.prefs.share_audio, "Transmitir áudio")
         .changed()
         && let Some(p) = app.picker.as_mut()
     {
         p.audio = app.prefs.share_audio;
+    }
+
+    if theme::checkbox(ui, &mut app.prefs.share_mic, "Transmitir microfone")
+        .changed()
+        && let Some(p) = app.picker.as_mut()
+    {
+        p.mic = app.prefs.share_mic;
     }
 
     ui.horizontal(|ui| {
@@ -190,12 +200,13 @@ fn share(app: &mut App, ui: &mut egui::Ui) {
     });
 
     ui.label("Seu nome ao assistir");
-    ui.add(
+    ui.add(theme::field(
+        ui,
         egui::TextEdit::singleline(&mut app.prefs.name)
             .char_limit(32)
             .hint_text("Como você aparece para quem compartilha")
             .desired_width(f32::INFINITY),
-    );
+    ));
     hint(
         ui,
         "A qualidade e o áudio também mudam quando você escolhe ao iniciar uma transmissão.",
@@ -217,8 +228,7 @@ fn look(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
 }
 
 fn updates(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
-    if ui
-        .checkbox(
+    if theme::checkbox(ui, 
             &mut app.prefs.check_updates,
             "Procurar atualizações ao abrir o LiveScreen",
         )
@@ -267,5 +277,5 @@ fn diagnostics(app: &mut App, ui: &mut egui::Ui) {
         forced.deny_dxgi,
         dxgi_ok,
     );
-    hint(ui, "Vale na próxima transmissão.");
+    toggle_hint(ui, "Vale na próxima transmissão.");
 }
