@@ -6,15 +6,15 @@
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1792960997.8598614,
-    "seen": 1792963590.9964035,
-    "ast_hash": "0070cc3c556c6abe724686300533006a",
+    "mtime": 1792966793.221838,
+    "seen": 1792966836.6568036,
+    "ast_hash": "3a0299fcb89b42a0d9f5ae2d55cdb1fc",
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1792963297.7569606,
-    "seen": 1792963590.9964063,
-    "ast_hash": "1bc462bbc5b5334fe7bd7471c699196d",
+    "mtime": 1792964517.436202,
+    "seen": 1792966836.6568055,
+    "ast_hash": "d480c7d798334448cc31f2627f6cec75",
     "semantic_hash": ""
   },
   "build.rs": {
@@ -228,9 +228,9 @@
     "semantic_hash": ""
   },
   ".github/scripts/test-changelog.sh": {
-    "mtime": 1792904560.1211736,
-    "seen": 1792963590.9963927,
-    "ast_hash": "811564924979cbd3c113e1ea5f03df1d",
+    "mtime": 1792966793.2207644,
+    "seen": 1792966836.6567938,
+    "ast_hash": "a7450475d3e9b1252475d1f2bb15fd0e",
     "semantic_hash": ""
   },
   "docs/logo.svg": {
@@ -336,9 +336,9 @@
     "semantic_hash": ""
   },
   "android/rust/Cargo.toml": {
-    "mtime": 1792956844.230409,
-    "seen": 1792963590.9964283,
-    "ast_hash": "da1ff84845130ed201369f7d8c227f2e",
+    "mtime": 1792964517.7719984,
+    "seen": 1792966836.6568258,
+    "ast_hash": "6bd8beb168ac0088ef8c6bf4f8072a87",
     "semantic_hash": ""
   },
   "android/rust/src/lib.rs": {
@@ -354,9 +354,9 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/Cargo.toml": {
-    "mtime": 1792963425.1289525,
-    "seen": 1792963590.9964356,
-    "ast_hash": "14896fb2568eff6004541e5d4da011c0",
+    "mtime": 1792964517.6071558,
+    "seen": 1792966836.6568308,
+    "ast_hash": "24fbb80a8a43aed0ed4a8bf68f6aa899",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/lib.rs": {

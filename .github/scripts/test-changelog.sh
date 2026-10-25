@@ -34,6 +34,7 @@ Refs: #42
 EOF
 commit <<<'fix: trava ao fechar'
 commit <<<'atualiza coisas'
+commit <<<'feat(android): app novo'
 commit <<'EOF'
 chore(release): 0.2.0
 
@@ -48,7 +49,10 @@ fail=0
 has() { grep -qF -- "$1" <<<"$out" || { echo "FALTA: $1" >&2; fail=1; }; }
 lacks() { ! grep -qF -- "$1" <<<"$out" || { echo "SOBRA: $1" >&2; fail=1; }; }
 
-has '### Breaking Changes'
+has '## Breaking Changes'
+has '## LiveScreen'
+has '## Android'
+has '* **android:** app novo'
 has '* ui.json com formato novo'
 has '* **ui:** microfone na tela de assistir'
 has '  - interface: fonte Geist embutida, temas claro/escuro, anel de foco e checkboxes padronizados'
@@ -58,9 +62,9 @@ has '### Fixed'
 has '* trava ao fechar'
 has '### Other Changes'
 has '* atualiza coisas'
-has '/compare/v0.1.0...v0.2.0'
 lacks 'Parágrafo explicativo'
 lacks 'Refs: #42'
 lacks 'não deve aparecer'
 lacks '0.2.0 ('
+lacks 'Full Changelog'
 exit "$fail"
