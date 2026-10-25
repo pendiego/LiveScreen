@@ -150,6 +150,11 @@ impl Overload {
 }
 
 type SinkTx = Arc<Mutex<Option<std::sync::mpsc::SyncSender<Nv12Frame>>>>;
+struct Peer {
+    conn: Connection,
+    name: String,
+    decoders: Vec<Codec>,
+}
 
 struct Resources {
     capture: CaptureHandle,
@@ -159,6 +164,7 @@ struct Resources {
     pending: PendingReconf,
     device: windows::Win32::Graphics::Direct3D11::ID3D11Device,
     context: windows::Win32::Graphics::Direct3D11::ID3D11DeviceContext,
+    kinds: Vec<EncoderKind>,
     kind: EncoderKind,
     src_size: Arc<AtomicU64>,
     /// Hz do monitor da fonte, lido no início (a "Nativa (monitor)" segue ele).
@@ -183,7 +189,8 @@ pub struct ShareSession {
 struct Shared {
     status: Arc<Mutex<ShareStatus>>,
     viewers: AtomicUsize,
-    conns: Mutex<HashMap<String, (Connection, String)>>,
+    conns: Mutex<HashMap<String, Peer>>,
+    codec_dirty: AtomicBool,
     /// Teto de handshakes simultâneos; sem ele, uma enxurrada de conexões vira enxurrada de tasks.
     pending: Arc<Semaphore>,
     /// Desempata ids de espectadores que compartilham o mesmo prefixo.
@@ -232,6 +239,21 @@ impl Shared {
             self.status.lock().unwrap().ticket = Some(invite);
         }
     }
+}
+fn pick_encoder(kinds: &[EncoderKind], viewers: &[Vec<Codec>]) -> Option<EncoderKind> {
+    if viewers.is_empty() {
+        return None;
+    }
+    for k in kinds {
+        let codec = k.codec();
+        let accepted_by_all = viewers
+            .iter()
+            .all(|v| codec == Codec::H264 || v.contains(&codec));
+        if accepted_by_all {
+            return Some(k.clone());
+        }
+    }
+    None
 }
 
 struct Reconf {
@@ -347,7 +369,7 @@ fn start_encoder(
 ) -> Result<(
     EncoderHandle,
     std::sync::mpsc::SyncSender<Nv12Frame>,
-    String,
+    EncoderKind,
 )> {
     let (tx, rx) = std::sync::mpsc::sync_channel::<Nv12Frame>(2);
     match encoder::spawn(
@@ -359,13 +381,7 @@ fn start_encoder(
         force_key.clone(),
         stats.clone(),
     ) {
-        Ok(h) => {
-            let name = match &kind {
-                EncoderKind::Hardware { name } => name.clone(),
-                EncoderKind::Software => "software (Microsoft H.264)".into(),
-            };
-            Ok((h, tx, name))
-        }
+        Ok(h) => Ok((h, tx, kind)),
         Err(e) if matches!(kind, EncoderKind::Hardware { .. }) => {
             warn!("encoder de hardware falhou: {e:#}; fallback para software");
             let (tx, rx) = std::sync::mpsc::sync_channel::<Nv12Frame>(2);
@@ -378,7 +394,7 @@ fn start_encoder(
                 force_key,
                 stats,
             )?;
-            Ok((h, tx, "software (fallback para encoder software)".into()))
+            Ok((h, tx, EncoderKind::Software))
         }
         Err(e) => Err(e),
     }
@@ -391,7 +407,7 @@ impl ShareSession {
         preset: Preset,
         audio: bool,
         mic: Option<Mic>,
-        encoder_kind: EncoderKind,
+        encoders: Vec<EncoderKind>,
         overrides: Overrides,
         max_viewers: usize,
     ) -> Result<ShareSession> {
@@ -406,8 +422,13 @@ impl ShareSession {
         let force_key = Arc::new(AtomicBool::new(true));
         let stats = Arc::new(EncoderStats::default());
 
-        let (enc, tx, enc_name) = start_encoder(
-            encoder_kind.clone(),
+        let initial_kind = encoders
+            .iter()
+            .find(|k| k.codec() == Codec::H264)
+            .cloned()
+            .unwrap_or(EncoderKind::Software);
+        let (enc, tx, used_kind) = start_encoder(
+            initial_kind,
             &device,
             params,
             video_tx.clone(),
@@ -420,7 +441,7 @@ impl ShareSession {
             ticket: None,
             online_warning: false,
             backend: Backend::GraphicsCapture,
-            encoder: enc_name,
+            encoder: used_kind.label(),
             viewers: vec![],
             fps: 0.0,
             kbps: 0,
@@ -524,6 +545,7 @@ impl ShareSession {
             status: status.clone(),
             viewers: AtomicUsize::new(0),
             conns: Mutex::new(HashMap::new()),
+            codec_dirty: AtomicBool::new(false),
             pending: Arc::new(Semaphore::new(MAX_HANDSHAKES)),
             next_id: AtomicUsize::new(0),
             max_viewers: AtomicUsize::new(max_viewers.max(1)),
@@ -595,7 +617,8 @@ impl ShareSession {
                         .lock()
                         .unwrap()
                         .iter()
-                        .map(|(id, (c, name))| {
+                        .map(|(id, peer)| {
+                            let (c, name) = (&peer.conn, &peer.name);
                             let (mut path, mut rtt) = ("?".to_string(), 0u32);
                             for p in c.paths().iter() {
                                 if p.is_selected() {
@@ -701,7 +724,8 @@ impl ShareSession {
                 pending,
                 device,
                 context,
-                kind: encoder_kind,
+                kinds: encoders,
+                kind: used_kind,
                 src_size,
                 hz,
                 stats,
@@ -766,16 +790,9 @@ impl ShareSession {
 
     /// Troca a qualidade com a transmissão no ar. Bloqueia a thread chamadora (nunca chamar de
     /// dentro do runtime). Se o encoder novo falhar, volta ao anterior e devolve o erro.
-    pub fn set_preset(&self, preset: Preset) -> Result<()> {
-        let mut g = self.res.lock().unwrap();
-        let r = g.as_mut().ok_or_else(|| anyhow!("transmissão encerrada"))?;
-        // O retângulo da janela minimizada é minúsculo; o último quadro capturado não.
+    fn reconfigure(&self, r: &mut Resources, preset: Preset, kind: EncoderKind) -> Result<()> {
         let (sw, sh) = unpack_size(r.src_size.load(Ordering::Relaxed));
         let params = encode_params(preset, sw, sh, r.hz);
-        // mesma opção vale de novo se a fonte mudou de tamanho desde a última configuração
-        if r.preset == preset && r.params == params {
-            return Ok(());
-        }
         let conv = Converter::new(
             &r.device,
             &r.context,
@@ -783,15 +800,13 @@ impl ShareSession {
             params.height,
             params.fps,
         )?;
-        // Corta a alimentação e espera o encoder antigo esvaziar: o novo só publica depois,
-        // então nenhum quadro da resolução antiga aparece após o novo keyframe.
         cut_feed(&r.pending, &r.sink_tx);
         if let Some(e) = r.encoder.take() {
             e.stop();
         }
-        let start = |p| {
+        let start = |k: &EncoderKind, p: crate::preset::EncodeParams| {
             start_encoder(
-                r.kind.clone(),
+                k.clone(),
                 &r.device,
                 p,
                 self.shared.video_tx.clone(),
@@ -799,10 +814,10 @@ impl ShareSession {
                 r.stats.clone(),
             )
         };
-        let (enc, tx, name, applied, applied_preset, failed) = match start(params) {
-            Ok((h, tx, n)) => (h, tx, n, params, preset, None),
-            Err(e) => match start(r.params) {
-                Ok((h, tx, n)) => (h, tx, n, r.params, r.preset, Some(e)),
+        let (enc, tx, used_kind, applied, applied_preset, failed) = match start(&kind, params) {
+            Ok((h, tx, uk)) => (h, tx, uk, params, preset, None),
+            Err(e) => match start(&r.kind, r.params) {
+                Ok((h, tx, uk)) => (h, tx, uk, r.params, r.preset, Some(e)),
                 Err(e2) => {
                     self.status
                         .lock()
@@ -813,12 +828,12 @@ impl ShareSession {
                 }
             },
         };
-        // conversor e fila de entrada trocam juntos, na thread de captura
         let new_conv = failed
             .is_none()
             .then(|| (conv, Duration::from_secs_f64(1.0 / applied.fps as f64)));
         *r.pending.lock().unwrap() = Some(Reconf { conv: new_conv, tx });
         r.encoder = Some(enc);
+        r.kind = used_kind.clone();
         r.params = applied;
         r.preset = applied_preset;
         if failed.is_none() {
@@ -827,7 +842,7 @@ impl ShareSession {
         self.shared.force_key.store(true, Ordering::SeqCst);
         {
             let mut s = self.status.lock().unwrap();
-            s.encoder = name;
+            s.encoder = used_kind.label();
             s.width = applied.width;
             s.height = applied.height;
             s.target_fps = applied.fps;
@@ -841,6 +856,40 @@ impl ShareSession {
         failed.map_or(Ok(()), Err)
     }
 
+    pub fn set_preset(&self, preset: Preset) -> Result<()> {
+        let mut g = self.res.lock().unwrap();
+        let r = g.as_mut().ok_or_else(|| anyhow!("transmissão encerrada"))?;
+        let (sw, sh) = unpack_size(r.src_size.load(Ordering::Relaxed));
+        let params = encode_params(preset, sw, sh, r.hz);
+        if r.preset == preset && r.params == params {
+            return Ok(());
+        }
+        self.reconfigure(r, preset, r.kind.clone())
+    }
+
+    pub fn apply_codec(&self) -> Option<Result<Codec>> {
+        if !self.shared.codec_dirty.swap(false, Ordering::AcqRel) {
+            return None;
+        }
+        let mut g = self.res.lock().unwrap();
+        let r = g.as_mut()?;
+        let viewers_decoders: Vec<Vec<Codec>> = {
+            let conns = self.shared.conns.lock().unwrap();
+            conns.values().map(|p| p.decoders.clone()).collect()
+        };
+        let want = pick_encoder(&r.kinds, &viewers_decoders)?;
+        if want == r.kind {
+            return None;
+        }
+        let res = self.reconfigure(r, r.preset, want.clone());
+        if res.is_err() || r.kind != want {
+            r.kinds.retain(|k| k != &want);
+            let err = res.err().unwrap_or_else(|| anyhow!("encoder {} indisponível", want.label()));
+            return Some(Err(err));
+        }
+        Some(Ok(want.codec()))
+    }
+
     pub fn kick(&self, id_short: &str) {
         // Tira da lista de status na hora: sem isso o tick ainda listaria o espectador
         // por até 1 s e a UI repetiria o aviso "entrou". A entrada do mapa fica até a
@@ -851,7 +900,7 @@ impl ShareSession {
             .lock()
             .unwrap()
             .get(id_short)
-            .map(|(c, _)| c.clone());
+            .map(|p| p.conn.clone());
         let Some(c) = conn else { return };
         self.shared
             .status
@@ -902,6 +951,7 @@ impl Drop for CountGuard<'_> {
         self.0.viewers.fetch_sub(1, Ordering::SeqCst);
         if let Some(id) = &self.1 {
             self.0.conns.lock().unwrap().remove(id);
+            self.0.codec_dirty.store(true, Ordering::Release);
             self.0
                 .status
                 .lock()
@@ -927,6 +977,7 @@ async fn handle_viewer(
         protocol,
         name,
         room_proof,
+        decoders,
         ..
     } = hello else {
         conn.close(CLOSE_PROTOCOL.into(), b"protocol");
@@ -993,10 +1044,15 @@ async fn handle_viewer(
         }
     };
     let _guard = CountGuard(&sh, Some(id.clone()));
-    sh.conns
-        .lock()
-        .unwrap()
-        .insert(id.clone(), (conn.clone(), sanitize(&name, 32)));
+    sh.conns.lock().unwrap().insert(
+        id.clone(),
+        Peer {
+            conn: conn.clone(),
+            name: sanitize(&name, 32),
+            decoders,
+        },
+    );
+    sh.codec_dirty.store(true, Ordering::Release);
 
     let mut prx = sh.params.subscribe();
     let (w, h, fps, audio) = *prx.borrow_and_update();
@@ -1103,7 +1159,9 @@ async fn handle_viewer(
 
 #[cfg(test)]
 mod tests {
-    use super::{Abr, Overload, invite_addr, sanitize};
+    use super::*;
+    use crate::protocol::Codec;
+    use crate::video::encoder::EncoderKind;
 
     #[test]
     fn abr_backs_off_and_recovers_slowly() {
@@ -1174,5 +1232,38 @@ mod tests {
         let (id, _) = ids();
         let a = iroh::EndpointAddr::new(id).with_ip_addr("1.2.3.4:5".parse().unwrap());
         assert_eq!(invite_addr(a.clone()), a);
+    }
+    #[test]
+    fn pick_encoder_common_denominator() {
+        let hevc_hw = EncoderKind::Hardware {
+            name: "HEVC HW".into(),
+            codec: Codec::Hevc,
+        };
+        let h264_hw = EncoderKind::Hardware {
+            name: "H264 HW".into(),
+            codec: Codec::H264,
+        };
+        let av1 = EncoderKind::Hardware {
+            name: "AV1 HW".into(),
+            codec: Codec::Av1,
+        };
+        let sw = EncoderKind::Software;
+
+        let kinds1 = [hevc_hw.clone(), h264_hw.clone(), sw.clone()];
+        assert_eq!(
+            pick_encoder(&kinds1, &[vec![Codec::H264, Codec::Hevc], vec![Codec::H264]]),
+            Some(h264_hw)
+        );
+        assert_eq!(
+            pick_encoder(&kinds1, &[vec![Codec::Hevc]]),
+            Some(hevc_hw.clone())
+        );
+        assert_eq!(pick_encoder(&kinds1, &[]), None);
+
+        let kinds2 = [av1.clone(), hevc_hw, sw];
+        assert_eq!(
+            pick_encoder(&kinds2, &[vec![Codec::H264, Codec::Av1, Codec::Hevc]]),
+            Some(av1)
+        );
     }
 }

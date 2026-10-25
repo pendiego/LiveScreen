@@ -36,6 +36,7 @@ pub struct WatchStatus {
     pub decoder_hw: bool,
     pub decode_fps: f32,
     pub decode_ms: f32,
+    pub codec: String,
 }
 
 pub struct WatchSession {
@@ -98,6 +99,7 @@ impl WatchSession {
             decoder_hw: false,
             decode_fps: 0.0,
             decode_ms: 0.0,
+            codec: String::new(),
         }));
         let frame = Arc::new(Mutex::new(None));
         let gain = Arc::new(AtomicU32::new(gain.to_bits()));
@@ -201,7 +203,7 @@ async fn run(
             app_version: env!("CARGO_PKG_VERSION").into(),
             name,
             room_proof: room_proof(&key, &addr.id, &ep.id()),
-            decoders: vec![Codec::H264],
+            decoders: crate::video::decoder::supported_codecs(hardware_decode),
         },
     )
     .await?;
@@ -374,6 +376,9 @@ async fn run(
                 } else {
                     db as f32 / df as f32 / 1000.0
                 };
+                s.codec = Codec::from_wire(dstats.codec.load(Ordering::Relaxed))
+                    .map(|c| c.label().to_string())
+                    .unwrap_or_default();
             }
             prev = c;
             (acc_frames, acc_busy, ticks) = (acc_frames + df, acc_busy + db, ticks + 1);

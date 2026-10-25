@@ -291,8 +291,9 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
                         _ => "?",
                     };
                     let text = format!(
-                        "Decodificação: {} · {:.0} fps · {:.1} ms/quadro\nRede: {} · {} ms · {:.0} fps recebidos · {}×{}",
+                        "Decodificação: {} · {} · {:.0} fps · {:.1} ms/quadro\nRede: {} · {} ms · {:.0} fps recebidos · {}×{}",
                         if st.decoder_hw { "placa de vídeo" } else { "processador" },
+                        if st.codec.is_empty() { "—" } else { &st.codec },
                         st.decode_fps,
                         st.decode_ms,
                         path,

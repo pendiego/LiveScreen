@@ -9,6 +9,15 @@ use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree};
 use windows::Win32::System::Variant::{VARENUM, VARIANT, VARIANT_0, VARIANT_0_0, VT_BOOL, VT_UI4};
 use windows::core::GUID;
+use crate::protocol::Codec;
+
+pub fn subtype(c: Codec) -> GUID {
+    match c {
+        Codec::H264 => MFVideoFormat_H264,
+        Codec::Hevc => MFVideoFormat_HEVC,
+        Codec::Av1 => MFVideoFormat_AV1,
+    }
+}
 
 /// Inicializa COM (MTA) na thread atual e o Media Foundation uma única vez por processo.
 ///
@@ -27,20 +36,81 @@ pub fn startup() {
     });
 }
 
-/// Percorre start codes Annex B e verifica se algum NAL é SPS (tipo 7).
-pub fn has_sps(annexb: &[u8]) -> bool {
-    let mut i = 0;
-    while i + 3 < annexb.len() {
-        if annexb[i] == 0 && annexb[i + 1] == 0 && annexb[i + 2] == 1 {
-            if annexb[i + 3] & 0x1f == 7 {
-                return true;
+/// Verifica se o payload contém cabeçalhos de sequência / conjuntos de parâmetros
+/// (SPS no H.264, VPS no HEVC, OBU de sequência no AV1).
+pub fn has_param_sets(c: Codec, data: &[u8]) -> bool {
+    match c {
+        Codec::H264 => {
+            let mut i = 0;
+            while i + 3 < data.len() {
+                if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
+                    if data[i + 3] & 0x1f == 7 {
+                        return true;
+                    }
+                    i += 3;
+                } else {
+                    i += 1;
+                }
             }
-            i += 3;
-        } else {
-            i += 1;
+            false
+        }
+        Codec::Hevc => {
+            let mut i = 0;
+            while i + 3 < data.len() {
+                if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
+                    let b = data[i + 3];
+                    if (b >> 1) & 0x3f == 32 {
+                        return true;
+                    }
+                    i += 3;
+                } else {
+                    i += 1;
+                }
+            }
+            false
+        }
+        Codec::Av1 => {
+            let mut i = 0;
+            while i < data.len() {
+                let h = data[i];
+                let obu_type = (h >> 3) & 0xf;
+                let ext = (h >> 2) & 1;
+                let has_size = (h >> 1) & 1;
+                let header_len = 1 + ext as usize;
+                if i + header_len > data.len() {
+                    return false;
+                }
+                if obu_type == 1 {
+                    return true;
+                }
+                if has_size == 0 {
+                    return false;
+                }
+                let mut size: usize = 0;
+                let mut shift = 0;
+                let mut p = i + header_len;
+                let mut leb_bytes = 0;
+                loop {
+                    if p >= data.len() || leb_bytes >= 8 {
+                        return false;
+                    }
+                    let b = data[p];
+                    p += 1;
+                    leb_bytes += 1;
+                    size |= ((b & 0x7f) as usize) << shift;
+                    shift += 7;
+                    if b & 0x80 == 0 {
+                        break;
+                    }
+                }
+                if p + size > data.len() {
+                    return false;
+                }
+                i = p + size;
+            }
+            false
         }
     }
-    false
 }
 
 pub fn prepend_sequence_header(header: &[u8], frame: &[u8]) -> Vec<u8> {
@@ -272,10 +342,14 @@ mod tests {
     use super::*;
     #[test]
     fn sps() {
-        assert!(has_sps(&[0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3]));
-        assert!(has_sps(&[0, 0, 1, 0x27, 9]));
-        assert!(!has_sps(&[0, 0, 0, 1, 0x65, 1, 2, 0, 0, 1, 0x41, 3]));
-        assert!(!has_sps(&[]));
+        assert!(has_param_sets(Codec::H264, &[0, 0, 0, 1, 0x67, 1, 2, 0, 0, 1, 0x68, 3]));
+        assert!(has_param_sets(Codec::H264, &[0, 0, 1, 0x27, 9]));
+        assert!(!has_param_sets(Codec::H264, &[0, 0, 0, 1, 0x65, 1, 2, 0, 0, 1, 0x41, 3]));
+        assert!(!has_param_sets(Codec::H264, &[]));
+        assert!(has_param_sets(Codec::Hevc, &[0, 0, 0, 1, 0x40, 1]));
+        assert!(!has_param_sets(Codec::Hevc, &[0, 0, 0, 1, 0x26, 1]));
+        assert!(has_param_sets(Codec::Av1, &[0x12, 0x00, 0x0A, 0x01, 0x00]));
+        assert!(!has_param_sets(Codec::Av1, &[0x12, 0x00]));
     }
 
     #[test]

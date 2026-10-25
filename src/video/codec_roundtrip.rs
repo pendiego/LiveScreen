@@ -9,7 +9,6 @@ use anyhow::{Result, anyhow};
 use tokio::sync::broadcast;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
-use windows::Win32::Media::MediaFoundation::*;
 
 use crate::preset::{EncodeParams, Preset};
 use crate::protocol::EncodedFrame;
@@ -210,15 +209,23 @@ fn roundtrip(
             std::thread::sleep(Duration::from_millis(2));
         }
     }
-    let until = Instant::now() + Duration::from_millis(1000);
+    drop(tx);
+    enc.stop();
+    let until = Instant::now() + Duration::from_millis(2000);
     while Instant::now() < until {
         forward(&mut brx, &dtx, &mut rec);
         collect(&slot, &mut rec, pat);
+        if rec.decoded >= N {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(2));
     }
-    drop(tx);
-    enc.stop();
     drop(dtx);
+    while !dec.is_finished() {
+        collect(&slot, &mut rec, pat);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    collect(&slot, &mut rec, pat);
     let _ = dec.join();
     if hardware_decode && !dstats.hardware.load(Ordering::Relaxed) {
         return Err(anyhow!("decoder de hardware não ficou ativo"));
@@ -245,21 +252,6 @@ fn roundtrip(
     Ok((rec.decoded, mean, min))
 }
 
-fn hardware_kind() -> Option<EncoderKind> {
-    let info = MFT_REGISTER_TYPE_INFO {
-        guidMajorType: MFMediaType_Video,
-        guidSubtype: MFVideoFormat_H264,
-    };
-    let flags = MFT_ENUM_FLAG(
-        MFT_ENUM_FLAG_HARDWARE.0 | MFT_ENUM_FLAG_TRANSCODE_ONLY.0 | MFT_ENUM_FLAG_SORTANDFILTER.0,
-    );
-    mf::enumerate_mfts(MFT_CATEGORY_VIDEO_ENCODER, flags, None, Some(info))
-        .first()
-        .map(|a| EncoderKind::Hardware {
-            name: mf::friendly_name(a),
-        })
-}
-
 #[test]
 #[ignore = "usa GPU/encoder real: cargo test --release -- --ignored codec_roundtrip"]
 fn codec_roundtrip() {
@@ -269,25 +261,19 @@ fn codec_roundtrip() {
     assert_eq!((params.width, params.height, params.fps), (W, H, 30));
     let pat = patterns();
 
-    let mut kinds = Vec::new();
-    let hw = match crate::video::probe::detect(&crate::config::Overrides::default()) {
-        k @ EncoderKind::Hardware { .. } => Some(k),
-        EncoderKind::Software => hardware_kind(),
-    };
-    if let Some(k) = hw {
-        kinds.push(k);
-    }
-    kinds.push(EncoderKind::Software);
-
+    let kinds = crate::video::probe::hardware_kinds();
     let mut failures = Vec::new();
     for (kind, hardware_decode) in kinds
         .into_iter()
-        .flat_map(|k| [(k.clone(), true), (k, false)])
+        .flat_map(|k| {
+            if k.codec() == crate::protocol::Codec::H264 {
+                vec![(k.clone(), true), (k, false)]
+            } else {
+                vec![(k, true)]
+            }
+        })
     {
-        let name = match &kind {
-            EncoderKind::Hardware { name } => name.clone(),
-            EncoderKind::Software => "software".to_string(),
-        };
+        let name = kind.label();
         let name = format!(
             "{name} / decoder {}",
             if hardware_decode {
@@ -310,3 +296,4 @@ fn codec_roundtrip() {
     }
     assert!(failures.is_empty(), "falhas:\n{}", failures.join("\n"));
 }
+

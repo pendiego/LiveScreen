@@ -224,7 +224,7 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
         app.error = Some("A fonte selecionada não existe mais".into());
         return;
     };
-    let Some(kind) = app.encoder.lock().unwrap().clone() else {
+    let Some(encoders) = app.encoder.lock().unwrap().clone() else {
         return;
     };
     let (preset, audio) = (p.preset, p.audio);
@@ -245,7 +245,7 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
     let room = app.prefs.room_limit;
     let (title, source) = (info.title.clone(), info.id.clone());
     app.background.push(std::thread::spawn(move || {
-        let res = ShareSession::start(&rt, info, preset, audio, mic, kind, overrides, room);
+        let res = ShareSession::start(&rt, info, preset, audio, mic, encoders, overrides, room);
         ctx2.request_repaint();
         if let Err(std::sync::mpsc::SendError(Ok(s))) = tx.send(res) {
             s.stop();
@@ -400,9 +400,11 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
     }
     let busy = app.starting.is_some();
     let (ready, software) = match &*app.encoder.lock().unwrap() {
-        Some(k) => (
+        Some(kinds) => (
             true,
-            matches!(k, crate::video::encoder::EncoderKind::Software),
+            kinds
+                .iter()
+                .all(|k| matches!(k, crate::video::encoder::EncoderKind::Software)),
         ),
         None => (false, false),
     };
@@ -1436,6 +1438,20 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             ),
             Err(e) => app.toasts.push(
                 format!("{who} pediu {name}, mas não foi possível trocar: {e}"),
+                ToastKind::Warn,
+            ),
+        }
+    }
+    if let Some(share) = app.share.as_ref()
+        && let Some(res) = share.apply_codec()
+    {
+        match res {
+            Ok(c) => app.toasts.push(
+                format!("Codec da sala: {}", c.label()),
+                ToastKind::Info,
+            ),
+            Err(e) => app.toasts.push(
+                format!("Não foi possível trocar o codec: {e}"),
                 ToastKind::Warn,
             ),
         }

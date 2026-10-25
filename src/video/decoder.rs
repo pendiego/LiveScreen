@@ -3,7 +3,7 @@
 //! Hardware: o MFT recebe um `IMFDXGIDeviceManager`, entrega NV12 em textura D3D11 e o
 //! Video Processor converte para RGB na GPU; só o RGB final é lido de volta. Se a GPU não
 //! serve (ou falha 3 vezes seguidas), a thread troca por um MFT novo de software.
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -14,13 +14,13 @@ use eframe::egui::Color32;
 use tracing::{info, warn};
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC,
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::core::Interface;
 
-use crate::protocol::EncodedFrame;
+use crate::protocol::{Codec, EncodedFrame};
 use crate::video::convert::Converter;
 use crate::video::mf;
 
@@ -37,7 +37,6 @@ fn as_bytes(px: &mut [Color32]) -> &mut [u8] {
 }
 
 /// Contadores lidos pelo `stats_loop` do viewer.
-#[derive(Default)]
 pub struct DecodeStats {
     /// quadros publicados
     pub frames: AtomicU64,
@@ -45,6 +44,19 @@ pub struct DecodeStats {
     pub busy_us: AtomicU64,
     /// modo atual do decoder
     pub hardware: AtomicBool,
+    /// codec atualmente decodificado; u8::MAX = nenhum
+    pub codec: AtomicU8,
+}
+
+impl Default for DecodeStats {
+    fn default() -> Self {
+        Self {
+            frames: AtomicU64::new(0),
+            busy_us: AtomicU64::new(0),
+            hardware: AtomicBool::new(false),
+            codec: AtomicU8::new(u8::MAX),
+        }
+    }
 }
 
 pub fn spawn(
@@ -74,25 +86,111 @@ struct Gpu {
     staging: Option<(ID3D11Texture2D, u32, u32, DXGI_FORMAT)>,
 }
 
-fn create(hardware: bool) -> Result<(IMFTransform, Option<Gpu>)> {
-    if hardware {
-        match create_mft(true) {
-            Ok(r) => {
-                info!("decoder de vídeo: hardware");
-                return Ok(r);
+pub fn supported_codecs(hardware: bool) -> Vec<Codec> {
+    if !hardware {
+        return vec![Codec::H264];
+    }
+    mf::startup();
+    let Ok((device, _)) = crate::gpu::create_device() else {
+        return vec![Codec::H264];
+    };
+    let Ok(vdev) = device.cast::<ID3D11VideoDevice>() else {
+        return vec![Codec::H264];
+    };
+    let mut codecs = vec![Codec::H264];
+    for (codec, profile) in [
+        (Codec::Hevc, D3D11_DECODER_PROFILE_HEVC_VLD_MAIN),
+        (Codec::Av1, D3D11_DECODER_PROFILE_AV1_VLD_PROFILE0),
+    ] {
+        let fmt_ok = unsafe { vdev.CheckVideoDecoderFormat(&profile, DXGI_FORMAT_NV12) }
+            .map(|b| b.as_bool())
+            .unwrap_or(false);
+        if !fmt_ok {
+            continue;
+        }
+        let info = MFT_REGISTER_TYPE_INFO {
+            guidMajorType: MFMediaType_Video,
+            guidSubtype: mf::subtype(codec),
+        };
+        let flags = MFT_ENUM_FLAG(
+            MFT_ENUM_FLAG_SYNCMFT.0
+                | MFT_ENUM_FLAG_ASYNCMFT.0
+                | MFT_ENUM_FLAG_HARDWARE.0
+                | MFT_ENUM_FLAG_SORTANDFILTER.0,
+        );
+        let acts = mf::enumerate_mfts(MFT_CATEGORY_VIDEO_DECODER, flags, Some(info), None);
+        if acts.is_empty() {
+            continue;
+        }
+        let d3d11_aware = acts.iter().any(|a| {
+            if let Ok(t) = unsafe { a.ActivateObject::<IMFTransform>() } {
+                unsafe {
+                    t.GetAttributes()
+                        .ok()
+                        .and_then(|attrs| attrs.GetUINT32(&MF_SA_D3D11_AWARE).ok())
+                }
+                .unwrap_or(0)
+                    != 0
+            } else {
+                false
             }
-            Err(e) => warn!("decoder de hardware indisponível: {e:#}; usando software"),
+        });
+        if d3d11_aware {
+            codecs.push(codec);
         }
     }
-    let r = create_mft(false)?;
-    info!("decoder de vídeo: software");
+    codecs
+}
+
+fn create(hardware: bool, codec: Codec) -> Result<(IMFTransform, Option<Gpu>)> {
+    if hardware {
+        match create_mft(true, codec) {
+            Ok(r) => {
+                info!("decoder de vídeo: hardware ({})", codec.label());
+                return Ok(r);
+            }
+            Err(e) => warn!(
+                "decoder de hardware indisponível para {}: {e:#}; usando software",
+                codec.label()
+            ),
+        }
+    }
+    let r = create_mft(false, codec)?;
+    info!("decoder de vídeo: software ({})", codec.label());
     Ok(r)
 }
 
-fn create_mft(hardware: bool) -> Result<(IMFTransform, Option<Gpu>)> {
-    let t: IMFTransform =
-        unsafe { CoCreateInstance(&CLSID_MSH264DecoderMFT, None, CLSCTX_INPROC_SERVER)? };
-    // o decoder da Microsoft é assíncrono; desbloqueia para uso síncrono
+fn create_mft(hardware: bool, codec: Codec) -> Result<(IMFTransform, Option<Gpu>)> {
+    let t: IMFTransform = match codec {
+        Codec::H264 => {
+            unsafe { CoCreateInstance(&CLSID_MSH264DecoderMFT, None, CLSCTX_INPROC_SERVER)? }
+        }
+        Codec::Hevc | Codec::Av1 => {
+            let info = MFT_REGISTER_TYPE_INFO {
+                guidMajorType: MFMediaType_Video,
+                guidSubtype: mf::subtype(codec),
+            };
+            let flags = if hardware {
+                MFT_ENUM_FLAG(
+                    MFT_ENUM_FLAG_SYNCMFT.0
+                        | MFT_ENUM_FLAG_ASYNCMFT.0
+                        | MFT_ENUM_FLAG_HARDWARE.0
+                        | MFT_ENUM_FLAG_SORTANDFILTER.0,
+                )
+            } else {
+                MFT_ENUM_FLAG(
+                    MFT_ENUM_FLAG_SYNCMFT.0
+                        | MFT_ENUM_FLAG_ASYNCMFT.0
+                        | MFT_ENUM_FLAG_SORTANDFILTER.0,
+                )
+            };
+            let act = mf::enumerate_mfts(MFT_CATEGORY_VIDEO_DECODER, flags, Some(info), None)
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("decoder não encontrado para {}", codec.label()))?;
+            unsafe { act.ActivateObject()? }
+        }
+    };
     if mf::is_async(&t) {
         unsafe {
             if let Ok(attrs) = t.GetAttributes() {
@@ -100,7 +198,6 @@ fn create_mft(hardware: bool) -> Result<(IMFTransform, Option<Gpu>)> {
             }
         }
     }
-    // o manager precisa vir antes de qualquer tipo
     let gpu = if hardware {
         Some(attach_gpu(&t)?)
     } else {
@@ -112,7 +209,8 @@ fn create_mft(hardware: bool) -> Result<(IMFTransform, Option<Gpu>)> {
     unsafe {
         let mt = MFCreateMediaType()?;
         mt.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
-        mt.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
+        mt.SetGUID(&MF_MT_SUBTYPE, &mf::subtype(codec))?;
+        mt.SetUINT64(&MF_MT_FRAME_SIZE, mf::pack_pair(1920, 1080))?;
         t.SetInputType(0, &mt, 0)?;
     }
     set_nv12_output(&t)?;
@@ -122,7 +220,7 @@ fn create_mft(hardware: bool) -> Result<(IMFTransform, Option<Gpu>)> {
 fn attach_gpu(t: &IMFTransform) -> Result<Gpu> {
     let aware = unsafe { t.GetAttributes()?.GetUINT32(&MF_SA_D3D11_AWARE) }.unwrap_or(0);
     if aware == 0 {
-        bail!("decoder H.264 sem suporte a D3D11");
+        bail!("decoder sem suporte a D3D11");
     }
     let (device, context) = crate::gpu::create_device()?;
     let mgr = unsafe {
@@ -228,8 +326,9 @@ fn run(
     hardware: bool,
 ) -> Result<()> {
     mf::startup();
-    let (mut t, mut gpu) = create(hardware)?;
-    stats.hardware.store(gpu.is_some(), Ordering::Relaxed);
+    let mut active: Option<(Codec, IMFTransform, Option<Gpu>)> = None;
+    stats.codec.store(u8::MAX, Ordering::Relaxed);
+    stats.hardware.store(false, Ordering::Relaxed);
 
     let mut discarding = true;
     let mut spare = mf::OutSample::default();
@@ -239,15 +338,48 @@ fn run(
             Ok(f) => f,
             Err(_) => break,
         };
+        let need_recreate = match &active {
+            Some((c, _, _)) => *c != frame.codec,
+            None => true,
+        };
+        if need_recreate {
+            if !frame.keyframe {
+                continue;
+            }
+            match create(hardware, frame.codec) {
+                Ok((t, gpu)) => {
+                    stats.hardware.store(gpu.is_some(), Ordering::Relaxed);
+                    stats.codec.store(frame.codec.wire(), Ordering::Relaxed);
+                    active = Some((frame.codec, t, gpu));
+                    hw_failures = 0;
+                    spare = mf::OutSample::default();
+                    discarding = false;
+                }
+                Err(e) => {
+                    warn!(
+                        "decoder: falha ao criar para {}: {e:#}",
+                        frame.codec.label()
+                    );
+                    need_key.store(true, Ordering::Relaxed);
+                    active = None;
+                    stats.codec.store(u8::MAX, Ordering::Relaxed);
+                    stats.hardware.store(false, Ordering::Relaxed);
+                    continue;
+                }
+            }
+        }
         if discarding && !frame.keyframe {
             continue;
         }
+        let Some((codec, t, gpu)) = active.as_mut() else {
+            continue;
+        };
         let t0 = Instant::now();
         let mut ok = true;
-        if let Err(e) = push(&t, &frame) {
+        if let Err(e) = push(t, &frame) {
             warn!("decoder: entrada: {e:#}");
             ok = false;
-        } else if let Err(e) = drain(&t, &out, &ctx, &mut spare, gpu.as_mut()) {
+        } else if let Err(e) = drain(t, &out, &ctx, &mut spare, gpu.as_mut()) {
             warn!("decoder: saída: {e:#}");
             ok = false;
         }
@@ -258,11 +390,23 @@ fn run(
                 hw_failures += 1;
                 if hw_failures >= 3 {
                     warn!("decoder de hardware falhou 3 vezes seguidas; trocando para software");
-                    (t, gpu) = create(false)?;
-                    stats.hardware.store(false, Ordering::Relaxed);
-                    spare = mf::OutSample::default();
-                    hw_failures = 0;
-                    continue;
+                    match create(false, *codec) {
+                        Ok((new_t, new_gpu)) => {
+                            *t = new_t;
+                            *gpu = new_gpu;
+                            stats.hardware.store(false, Ordering::Relaxed);
+                            spare = mf::OutSample::default();
+                            hw_failures = 0;
+                            continue;
+                        }
+                        Err(e) => {
+                            warn!("decoder: falha ao trocar para software: {e:#}");
+                            active = None;
+                            stats.codec.store(u8::MAX, Ordering::Relaxed);
+                            stats.hardware.store(false, Ordering::Relaxed);
+                            continue;
+                        }
+                    }
                 }
             }
             unsafe {
@@ -277,8 +421,10 @@ fn run(
             .busy_us
             .fetch_add(t0.elapsed().as_micros() as u64, Ordering::Relaxed);
     }
-    unsafe {
-        let _ = t.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
+    if let Some((_, t, _)) = active.as_ref() {
+        unsafe {
+            let _ = t.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
+        }
     }
     Ok(())
 }
@@ -354,6 +500,26 @@ fn drain(
 
 fn frame_size(t: &IMFTransform) -> Result<(u32, u32)> {
     let ty = unsafe { t.GetOutputCurrentType(0)? };
+    unsafe {
+        if let Ok(len) = ty.GetBlobSize(&MF_MT_MINIMUM_DISPLAY_APERTURE) {
+            if len as usize >= std::mem::size_of::<MFVideoArea>() {
+                let mut area = MFVideoArea::default();
+                let mut got = 0u32;
+                let slice = std::slice::from_raw_parts_mut(
+                    &mut area as *mut _ as *mut u8,
+                    std::mem::size_of::<MFVideoArea>(),
+                );
+                if ty
+                    .GetBlob(&MF_MT_MINIMUM_DISPLAY_APERTURE, slice, Some(&mut got))
+                    .is_ok()
+                    && area.Area.cx > 0
+                    && area.Area.cy > 0
+                {
+                    return Ok((area.Area.cx as u32, area.Area.cy as u32));
+                }
+            }
+        }
+    }
     let (w, h) = mf::unpack_pair(unsafe { ty.GetUINT64(&MF_MT_FRAME_SIZE)? });
     if w == 0 || h == 0 {
         bail!("dimensões de saída desconhecidas");

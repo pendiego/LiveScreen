@@ -10,8 +10,8 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::capture::{SourceId, enumerate};
 use crate::preset::Preset;
 use crate::share::ShareSession;
-use crate::video::encoder::EncoderKind;
 use crate::watch::{Phase, WatchSession};
+use crate::protocol::Codec;
 
 const PY: &str = r#"
 import tkinter as tk
@@ -75,16 +75,14 @@ fn e2e_window() {
         .into_iter()
         .find(|s| matches!(&s.id, SourceId::Window { hwnd: x, .. } if *x == hwnd))
         .unwrap();
-    let kind = EncoderKind::Hardware {
-        name: "NVIDIA H.264 Encoder MFT".into(),
-    };
+    let kinds = crate::video::probe::hardware_kinds();
     let share = ShareSession::start(
         &h,
         info,
         Preset::P720p30,
         false,
         None,
-        kind,
+        kinds.clone(),
         Default::default(),
         4,
     )
@@ -112,6 +110,13 @@ fn e2e_window() {
             s.phase, s.fps, f, s.width, s.height, hs.audio, hs.ended, s.decoder_hw, s.decode_fps, s.decode_ms
         );
     };
+    let _ = share.apply_codec();
+    std::thread::sleep(Duration::from_secs(2));
+    let expect_hevc = kinds.iter().any(|k| k.codec() == Codec::Hevc)
+        && crate::video::decoder::supported_codecs(true).contains(&Codec::Hevc);
+    if expect_hevc {
+        assert_eq!(w.status.lock().unwrap().codec, "HEVC");
+    }
     snap("start");
     w.request_quality(Preset::P480p30);
     std::thread::sleep(Duration::from_secs(1));

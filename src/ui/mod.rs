@@ -69,7 +69,7 @@ pub struct App {
     pub rt: Handle,
     pub screen: Screen,
     pub overrides: Overrides,
-    pub encoder: Arc<Mutex<Option<EncoderKind>>>,
+    pub encoder: Arc<Mutex<Option<Vec<EncoderKind>>>>,
     pub picker: Option<share_view::Picker>,
     pub share: Option<ShareSession>,
     pub share_title: String,

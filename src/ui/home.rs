@@ -61,23 +61,32 @@ pub fn home(app: &mut App, ui: &mut egui::Ui) {
                             .color(weak),
                     );
                 }
-                Some(EncoderKind::Hardware { name }) => {
-                    ui.label(
-                        RichText::new(format!(
-                            "{I_CHECK}  Encoder: {name} (aceleração por hardware)"
-                        ))
-                        .small()
-                        .color(weak),
-                    );
-                }
-                Some(EncoderKind::Software) => {
-                    ui.label(
-                        RichText::new(format!(
-                            "{I_INFO}  Encoder: software (Microsoft H.264) — pode usar mais CPU"
-                        ))
-                        .small()
-                        .color(weak),
-                    );
+                Some(kinds) => {
+                    let hw_labels: Vec<_> = kinds
+                        .iter()
+                        .filter_map(|k| match k {
+                            EncoderKind::Hardware { .. } => Some(k.label()),
+                            EncoderKind::Software => None,
+                        })
+                        .collect();
+                    if !hw_labels.is_empty() {
+                        ui.label(
+                            RichText::new(format!(
+                                "{I_CHECK}  Encoder: {} (aceleração por hardware)",
+                                hw_labels.join(", ")
+                            ))
+                            .small()
+                            .color(weak),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new(format!(
+                                "{I_INFO}  Encoder: software (Microsoft H.264) — pode usar mais CPU"
+                            ))
+                            .small()
+                            .color(weak),
+                        );
+                    }
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
