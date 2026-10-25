@@ -1,8 +1,10 @@
-//! Decoder H.264 (MFT da Microsoft) em thread própria; publica o quadro mais novo.
+//! Decoder (MFT da Microsoft: H.264, HEVC, AV1) em thread própria; publica o quadro mais novo.
 //!
 //! Hardware: o MFT recebe um `IMFDXGIDeviceManager`, entrega NV12 em textura D3D11 e o
-//! Video Processor converte para RGB na GPU; só o RGB final é lido de volta. Se a GPU não
-//! serve (ou falha 3 vezes seguidas), a thread troca por um MFT novo de software.
+//! Video Processor converte para RGBA na GPU. Com `target` (adaptador do egui em DX12) o RGBA
+//! vai para texturas compartilhadas (`present`) e nada passa pela CPU; senão, ou se a UI não
+//! consegue importar, só o RGBA final é lido de volta. Se a GPU não serve (ou falha 3 vezes
+//! seguidas), a thread troca por um MFT novo de software.
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -22,12 +24,27 @@ use windows::core::Interface;
 
 use crate::protocol::{Codec, EncodedFrame};
 use crate::video::convert::Converter;
-use crate::video::mf;
+use crate::video::{mf, present};
 
 pub struct RgbaFrame {
     pub width: u32,
     pub height: u32,
     pub pixels: Vec<Color32>,
+}
+
+/// Quadro pronto para a UI: pixels na CPU, ou textura compartilhada na GPU.
+pub enum VideoFrame {
+    Cpu(RgbaFrame),
+    Gpu(present::GpuFrame),
+}
+
+impl VideoFrame {
+    pub fn size(&self) -> (u32, u32) {
+        match self {
+            VideoFrame::Cpu(f) => (f.width, f.height),
+            VideoFrame::Gpu(g) => g.size(),
+        }
+    }
 }
 
 // Color32 é [u8; 4] RGBA; com alfa 255 premultiplicado == não premultiplicado
@@ -46,6 +63,8 @@ pub struct DecodeStats {
     pub hardware: AtomicBool,
     /// codec atualmente decodificado; u8::MAX = nenhum
     pub codec: AtomicU8,
+    /// o quadro vai à UI por textura compartilhada, sem readback
+    pub zero_copy: AtomicBool,
 }
 
 impl Default for DecodeStats {
@@ -55,27 +74,38 @@ impl Default for DecodeStats {
             busy_us: AtomicU64::new(0),
             hardware: AtomicBool::new(false),
             codec: AtomicU8::new(u8::MAX),
+            zero_copy: AtomicBool::new(false),
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn(
     input: Receiver<EncodedFrame>,
-    out: Arc<Mutex<Option<RgbaFrame>>>,
+    out: Arc<Mutex<Option<VideoFrame>>>,
     ctx: eframe::egui::Context,
     need_key: Arc<AtomicBool>,
     stats: Arc<DecodeStats>,
     hardware: bool,
+    target: Option<present::Target>,
+    readback_only: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("decoder".into())
         .spawn(move || {
             let _mmcss = crate::gpu::Mmcss::new(windows::core::w!("Playback"));
-            if let Err(e) = run(input, out, ctx, need_key, stats, hardware) {
+            if let Err(e) = run(input, out, ctx, need_key, stats, hardware, target, readback_only) {
                 warn!("decoder: {e:#}");
             }
         })
         .expect("thread do decoder")
+}
+
+enum GpuOut {
+    Readback {
+        staging: Option<(ID3D11Texture2D, u32, u32, DXGI_FORMAT)>,
+    },
+    Shared(present::Producer),
 }
 
 struct Gpu {
@@ -83,7 +113,7 @@ struct Gpu {
     _device: ID3D11Device,
     context: ID3D11DeviceContext,
     conv: Converter,
-    staging: Option<(ID3D11Texture2D, u32, u32, DXGI_FORMAT)>,
+    out: GpuOut,
 }
 
 pub fn supported_codecs(hardware: bool) -> Vec<Codec> {
@@ -91,7 +121,7 @@ pub fn supported_codecs(hardware: bool) -> Vec<Codec> {
         return vec![Codec::H264];
     }
     mf::startup();
-    let Ok((device, _)) = crate::gpu::create_device() else {
+    let Ok((device, _)) = crate::gpu::create_device(None) else {
         return vec![Codec::H264];
     };
     let Ok(vdev) = device.cast::<ID3D11VideoDevice>() else {
@@ -142,9 +172,9 @@ pub fn supported_codecs(hardware: bool) -> Vec<Codec> {
     codecs
 }
 
-fn create(hardware: bool, codec: Codec) -> Result<(IMFTransform, Option<Gpu>)> {
+fn create(hardware: bool, codec: Codec, target: Option<present::Target>) -> Result<(IMFTransform, Option<Gpu>)> {
     if hardware {
-        match create_mft(true, codec) {
+        match create_mft(true, codec, target) {
             Ok(r) => {
                 info!("decoder de vídeo: hardware ({})", codec.label());
                 return Ok(r);
@@ -155,12 +185,12 @@ fn create(hardware: bool, codec: Codec) -> Result<(IMFTransform, Option<Gpu>)> {
             ),
         }
     }
-    let r = create_mft(false, codec)?;
+    let r = create_mft(false, codec, None)?;
     info!("decoder de vídeo: software ({})", codec.label());
     Ok(r)
 }
 
-fn create_mft(hardware: bool, codec: Codec) -> Result<(IMFTransform, Option<Gpu>)> {
+fn create_mft(hardware: bool, codec: Codec, target: Option<present::Target>) -> Result<(IMFTransform, Option<Gpu>)> {
     let t: IMFTransform = match codec {
         Codec::H264 => {
             unsafe { CoCreateInstance(&CLSID_MSH264DecoderMFT, None, CLSCTX_INPROC_SERVER)? }
@@ -199,7 +229,7 @@ fn create_mft(hardware: bool, codec: Codec) -> Result<(IMFTransform, Option<Gpu>
         }
     }
     let gpu = if hardware {
-        Some(attach_gpu(&t)?)
+        Some(attach_gpu(&t, target)?)
     } else {
         None
     };
@@ -217,12 +247,12 @@ fn create_mft(hardware: bool, codec: Codec) -> Result<(IMFTransform, Option<Gpu>
     Ok((t, gpu))
 }
 
-fn attach_gpu(t: &IMFTransform) -> Result<Gpu> {
+fn attach_gpu(t: &IMFTransform, target: Option<present::Target>) -> Result<Gpu> {
     let aware = unsafe { t.GetAttributes()?.GetUINT32(&MF_SA_D3D11_AWARE) }.unwrap_or(0);
     if aware == 0 {
         bail!("decoder sem suporte a D3D11");
     }
-    let (device, context) = crate::gpu::create_device()?;
+    let (device, context) = crate::gpu::create_device(target.map(|t| t.luid))?;
     let mgr = unsafe {
         let mut token = 0u32;
         let mut mgr: Option<IMFDXGIDeviceManager> = None;
@@ -232,18 +262,39 @@ fn attach_gpu(t: &IMFTransform) -> Result<Gpu> {
         t.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, mgr.as_raw() as usize)?;
         mgr
     };
-    let conv = Converter::new_rgb(&device, &context)?;
+    let shared = target.and_then(|_| {
+        let r = Converter::new_rgb_shared(&device, &context, present::SLOTS)
+            .and_then(|c| present::Producer::new(&device, &context).map(|p| (c, p)));
+        r.map_err(|e| warn!("zero-copy indisponível: {e:#}")).ok()
+    });
+    let (conv, out) = match shared {
+        Some((conv, p)) => (conv, GpuOut::Shared(p)),
+        None => (
+            Converter::new_rgb(&device, &context)?,
+            GpuOut::Readback { staging: None },
+        ),
+    };
     Ok(Gpu {
         _mgr: mgr,
         _device: device,
         context,
         conv,
-        staging: None,
+        out,
     })
 }
 
 impl Gpu {
-    fn read(&mut self, t: &IMFTransform, sample: &IMFSample) -> Result<RgbaFrame> {
+    fn zero_copy(&self) -> bool {
+        matches!(self.out, GpuOut::Shared(_))
+    }
+
+    /// `None`: modo compartilhado sem slot livre (quadro descartado).
+    fn output(&mut self, t: &IMFTransform, sample: &IMFSample, readback_only: bool) -> Result<Option<VideoFrame>> {
+        if readback_only && self.zero_copy() {
+            // a UI não conseguiu importar a textura: volta ao caminho com readback
+            self.conv = Converter::new_rgb(&self._device, &self.context)?;
+            self.out = GpuOut::Readback { staging: None };
+        }
         let (w, h) = frame_size(t)?;
         unsafe {
             let buf: IMFDXGIBuffer = sample.GetBufferByIndex(0)?.cast()?;
@@ -254,12 +305,18 @@ impl Gpu {
             }
             let tex = ID3D11Texture2D::from_raw(raw);
             let slice = buf.GetSubresourceIndex()?;
+            let cache = match &mut self.out {
+                GpuOut::Shared(p) => {
+                    return Ok(p.publish(&mut self.conv, &tex, slice, (w, h))?.map(VideoFrame::Gpu));
+                }
+                GpuOut::Readback { staging } => staging,
+            };
             let rgb = self.conv.convert_slice(&tex, slice, (w, h))?;
 
             let mut desc = D3D11_TEXTURE2D_DESC::default();
             rgb.GetDesc(&mut desc);
             let (fw, fh, format) = (desc.Width, desc.Height, desc.Format);
-            let staging = match &self.staging {
+            let staging = match &*cache {
                 Some((s, sw, sh, sf)) if (*sw, *sh, *sf) == (fw, fh, format) => s.clone(),
                 _ => {
                     let sd = D3D11_TEXTURE2D_DESC {
@@ -280,7 +337,7 @@ impl Gpu {
                     let mut s = None;
                     self._device.CreateTexture2D(&sd, None, Some(&mut s))?;
                     let s = s.ok_or_else(|| anyhow!("staging nula"))?;
-                    self.staging = Some((s.clone(), fw, fh, format));
+                    *cache = Some((s.clone(), fw, fh, format));
                     s
                 }
             };
@@ -308,22 +365,24 @@ impl Gpu {
                     px.swap(0, 2);
                 }
             }
-            Ok(RgbaFrame {
+            Ok(Some(VideoFrame::Cpu(RgbaFrame {
                 width: fw,
                 height: fh,
                 pixels,
-            })
+            })))
         }
     }
 }
 
 fn run(
     input: Receiver<EncodedFrame>,
-    out: Arc<Mutex<Option<RgbaFrame>>>,
+    out: Arc<Mutex<Option<VideoFrame>>>,
     ctx: eframe::egui::Context,
     need_key: Arc<AtomicBool>,
     stats: Arc<DecodeStats>,
     hardware: bool,
+    target: Option<present::Target>,
+    readback_only: Arc<AtomicBool>,
 ) -> Result<()> {
     mf::startup();
     let mut active: Option<(Codec, IMFTransform, Option<Gpu>)> = None;
@@ -346,7 +405,7 @@ fn run(
             if !frame.keyframe {
                 continue;
             }
-            match create(hardware, frame.codec) {
+            match create(hardware, frame.codec, target) {
                 Ok((t, gpu)) => {
                     stats.hardware.store(gpu.is_some(), Ordering::Relaxed);
                     stats.codec.store(frame.codec.wire(), Ordering::Relaxed);
@@ -379,7 +438,7 @@ fn run(
         if let Err(e) = push(t, &frame) {
             warn!("decoder: entrada: {e:#}");
             ok = false;
-        } else if let Err(e) = drain(t, &out, &ctx, &mut spare, gpu.as_mut()) {
+        } else if let Err(e) = drain(t, &out, &ctx, &mut spare, gpu.as_mut(), readback_only.load(Ordering::Relaxed), &stats) {
             warn!("decoder: saída: {e:#}");
             ok = false;
         }
@@ -390,11 +449,12 @@ fn run(
                 hw_failures += 1;
                 if hw_failures >= 3 {
                     warn!("decoder de hardware falhou 3 vezes seguidas; trocando para software");
-                    match create(false, *codec) {
+                    match create(false, *codec, target) {
                         Ok((new_t, new_gpu)) => {
                             *t = new_t;
                             *gpu = new_gpu;
                             stats.hardware.store(false, Ordering::Relaxed);
+                            stats.zero_copy.store(false, Ordering::Relaxed);
                             spare = mf::OutSample::default();
                             hw_failures = 0;
                             continue;
@@ -471,21 +531,30 @@ fn push(t: &IMFTransform, frame: &EncodedFrame) -> Result<()> {
 
 fn drain(
     t: &IMFTransform,
-    out: &Arc<Mutex<Option<RgbaFrame>>>,
+    out: &Arc<Mutex<Option<VideoFrame>>>,
     ctx: &eframe::egui::Context,
     spare: &mut mf::OutSample,
     mut gpu: Option<&mut Gpu>,
+    readback_only: bool,
+    stats: &DecodeStats,
 ) -> Result<()> {
     loop {
         let r = mf::process_output(t, spare)?;
         match r {
             mf::OutputResult::Sample(s) => {
                 let frame = match gpu.as_deref_mut() {
-                    Some(g) => g.read(t, &s)?,
-                    None => to_rgba(t, &s)?,
+                    Some(g) => {
+                        let f = g.output(t, &s, readback_only)?;
+                        stats.zero_copy.store(g.zero_copy(), Ordering::Relaxed);
+                        f
+                    }
+                    None => Some(VideoFrame::Cpu(to_rgba(t, &s)?)),
                 };
-                *out.lock().unwrap() = Some(frame);
-                ctx.request_repaint();
+                // sem quadro: a UI está atrasada e não há slot livre; o quadro é só descartado
+                if let Some(frame) = frame {
+                    *out.lock().unwrap() = Some(frame);
+                    ctx.request_repaint();
+                }
             }
             mf::OutputResult::NeedMoreInput => return Ok(()),
             mf::OutputResult::StreamChange => {

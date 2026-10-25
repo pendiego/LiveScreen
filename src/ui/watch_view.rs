@@ -5,12 +5,15 @@ use egui::{Align, Align2, Color32, CursorIcon, Layout, Margin, Order, RichText, 
 use super::theme::{self, I_BACK, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_MUTE, I_PASTE, I_VOLUME};
 use super::toast::ToastKind;
 use super::{App, Screen};
+use crate::video::decoder::VideoFrame;
+use crate::video::present::Display;
 use crate::watch::{Phase, WatchSession, WatchStatus, is_valid_invite};
 
 const OVERLAY_TIMEOUT: Duration = Duration::from_millis(2500);
 
 pub struct WatchView {
-    texture: Option<egui::TextureHandle>,
+    cpu_tex: Option<egui::TextureHandle>,
+    shown: Option<(egui::TextureId, egui::Vec2)>,
     fullscreen: bool,
     last_activity: Instant,
     started: Instant,
@@ -20,7 +23,8 @@ pub struct WatchView {
 impl Default for WatchView {
     fn default() -> Self {
         WatchView {
-            texture: None,
+            cpu_tex: None,
+            shown: None,
             fullscreen: false,
             last_activity: Instant::now(),
             started: Instant::now(),
@@ -38,12 +42,23 @@ enum ControlAction {
 
 pub fn connect(app: &mut App, ctx: &egui::Context) {
     app.save_prefs();
+    let hw_decode = !app.effective_overrides().deny_hardware_decoder;
+    let zero_copy = hw_decode && !app.effective_overrides().deny_zero_copy;
+    let target = if zero_copy {
+        app.display.as_ref().map(Display::target)
+    } else {
+        None
+    };
+    if let Some(d) = app.display.as_mut() {
+        d.reset();
+    }
     match WatchSession::start(
         &app.rt,
         &app.ticket_input,
         &app.prefs.name,
         app.prefs.gain(),
-        !app.effective_overrides().deny_hardware_decoder,
+        hw_decode,
+        target,
         ctx.clone(),
     ) {
         Ok(w) => {
@@ -249,13 +264,32 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
         app.watch_view.sent_visible = Some(visible);
     }
     if let Some(f) = w.frame.lock().unwrap().take() {
-        let img = egui::ColorImage::new([f.width as usize, f.height as usize], f.pixels);
-        match &mut app.watch_view.texture {
-            Some(t) => t.set(img, egui::TextureOptions::LINEAR),
-            None => {
-                app.watch_view.texture =
-                    Some(ctx.load_texture("video", img, egui::TextureOptions::LINEAR))
+        match f {
+            VideoFrame::Cpu(f) => {
+                let img = egui::ColorImage::new([f.width as usize, f.height as usize], f.pixels);
+                let t = match &mut app.watch_view.cpu_tex {
+                    Some(t) => {
+                        t.set(img, egui::TextureOptions::LINEAR);
+                        t
+                    }
+                    None => app
+                        .watch_view
+                        .cpu_tex
+                        .insert(ctx.load_texture("video", img, egui::TextureOptions::LINEAR)),
+                };
+                app.watch_view.shown = Some((t.id(), t.size_vec2()));
             }
+            VideoFrame::Gpu(g) => match app.display.as_mut().map(|d| d.show(&g)) {
+                Some(Ok(s)) => app.watch_view.shown = Some(s),
+                other => {
+                    let why = match other {
+                        Some(Err(e)) => format!("{e:#}"),
+                        _ => "sem exibição DX12".into(),
+                    };
+                    tracing::warn!("zero-copy: {why}");
+                    w.disable_zero_copy();
+                }
+            },
         }
     }
 
@@ -278,8 +312,8 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
         .frame(egui::Frame::NONE.fill(Color32::BLACK))
         .show(ui, |ui| {
             let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click());
-            if let Some(t) = &app.watch_view.texture {
-                let (fw, fh) = (t.size_vec2().x, t.size_vec2().y);
+            if let Some((tex_id, tex_size)) = app.watch_view.shown {
+                let (fw, fh) = (tex_size.x, tex_size.y);
                 // o decoder devolve altura alinhada (ex.: 1088); recorta ao tamanho anunciado no Welcome
                 let (vw, vh) = if st.width > 0 && st.width as f32 <= fw && st.height as f32 <= fh {
                     (st.width as f32, st.height as f32)
@@ -290,7 +324,7 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
                 let r = egui::Rect::from_center_size(rect.center(), vec2(vw, vh) * scale);
                 let uv =
                     egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(vw / fw, vh / fh));
-                ui.painter().image(t.id(), r, uv, Color32::WHITE);
+                ui.painter().image(tex_id, r, uv, Color32::WHITE);
                 if app.prefs.show_stats {
                     let path = match st.path.as_str() {
                         "Direto" => "Direto",
@@ -298,11 +332,12 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
                         _ => "?",
                     };
                     let text = format!(
-                        "Decodificação: {} · {} · {:.0} fps · {:.1} ms/quadro\nRede: {} · {} ms · {:.0} fps recebidos · {}×{}",
+                        "Decodificação: {} · {} · {:.0} fps · {:.1} ms/quadro · {}\nRede: {} · {} ms · {:.0} fps recebidos · {}×{}",
                         if st.decoder_hw { "placa de vídeo" } else { "processador" },
                         if st.codec.is_empty() { "—" } else { &st.codec },
                         st.decode_fps,
                         st.decode_ms,
+                        if st.zero_copy { "sem cópia" } else { "cópia via CPU" },
                         path,
                         st.rtt_ms,
                         st.fps,

@@ -178,7 +178,7 @@ fn candidates(codec: Codec) -> Vec<String> {
 /// `--probe-encoder`: testa cada MFT de hardware e imprime uma linha JSON.
 pub fn run_child() -> Result<()> {
     mf::startup();
-    let (device, _ctx) = crate::gpu::create_device()?;
+    let (device, _ctx) = crate::gpu::create_device(None)?;
     let params = EncodeParams {
         width: 1280,
         height: 720,

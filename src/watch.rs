@@ -10,7 +10,8 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use crate::protocol::*;
-use crate::video::decoder::{self, RgbaFrame};
+use crate::video::decoder::{self, VideoFrame};
+use crate::video::present;
 
 pub fn is_valid_invite(s: &str) -> bool {
     parse_invite(s).is_some()
@@ -37,16 +38,18 @@ pub struct WatchStatus {
     pub decode_fps: f32,
     pub decode_ms: f32,
     pub codec: String,
+    pub zero_copy: bool,
 }
 
 pub struct WatchSession {
     rt: Handle,
     pub status: Arc<Mutex<WatchStatus>>,
-    pub frame: Arc<Mutex<Option<RgbaFrame>>>,
+    pub frame: Arc<Mutex<Option<VideoFrame>>>,
     ep: Endpoint,
     task: JoinHandle<()>,
     gain: Arc<AtomicU32>,
     ctl_tx: tokio::sync::mpsc::UnboundedSender<ViewerMsg>,
+    readback_only: Arc<AtomicBool>,
     stopped: AtomicBool,
 }
 
@@ -74,6 +77,7 @@ impl WatchSession {
         name: &str,
         gain: f32,
         hardware_decode: bool,
+        target: Option<present::Target>,
         ctx: egui::Context,
     ) -> Result<WatchSession> {
         let (t, key) = parse_invite(ticket).ok_or_else(|| anyhow!("Código de convite inválido"))?;
@@ -100,12 +104,15 @@ impl WatchSession {
             decode_fps: 0.0,
             decode_ms: 0.0,
             codec: String::new(),
+            zero_copy: false,
         }));
         let frame = Arc::new(Mutex::new(None));
+        let readback_only = Arc::new(AtomicBool::new(false));
         let gain = Arc::new(AtomicU32::new(gain.to_bits()));
         let (ctl_tx, ctl_rx) = tokio::sync::mpsc::unbounded_channel();
         let task = {
             let (ep, status, frame) = (ep.clone(), status.clone(), frame.clone());
+            let readback_only2 = readback_only.clone();
             let (name, gain2) = (name.to_string(), gain.clone());
             let addr = t.endpoint_addr().clone();
             rt.spawn(async move {
@@ -126,6 +133,8 @@ impl WatchSession {
                     name,
                     gain2,
                     hardware_decode,
+                    target,
+                    readback_only2,
                     ctl_rx,
                 )
                 .await
@@ -146,6 +155,7 @@ impl WatchSession {
             task,
             gain,
             ctl_tx,
+            readback_only,
             stopped: AtomicBool::new(false),
         })
     }
@@ -159,6 +169,11 @@ impl WatchSession {
     /// Avisa o host que a janela foi minimizada/restaurada: escondido, ele para de mandar vídeo.
     pub fn set_visible(&self, v: bool) {
         let _ = self.ctl_tx.send(ViewerMsg::SetVisible { visible: v });
+    }
+
+    /// A UI não conseguiu importar a textura compartilhada: o decoder passa ao readback.
+    pub fn disable_zero_copy(&self) {
+        self.readback_only.store(true, Ordering::Relaxed);
     }
 
     pub fn set_gain(&self, g: f32) {
@@ -189,11 +204,13 @@ async fn run(
     addr: iroh::EndpointAddr,
     key: [u8; ROOM_KEY_LEN],
     status: &Arc<Mutex<WatchStatus>>,
-    frame: Arc<Mutex<Option<RgbaFrame>>>,
+    frame: Arc<Mutex<Option<VideoFrame>>>,
     ctx: egui::Context,
     name: String,
     gain: Arc<AtomicU32>,
     hardware_decode: bool,
+    target: Option<present::Target>,
+    readback_only: Arc<AtomicBool>,
     mut ctl_rx: tokio::sync::mpsc::UnboundedReceiver<ViewerMsg>,
 ) -> Result<String> {
     let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr.clone(), ALPN))
@@ -257,6 +274,8 @@ async fn run(
         need_key.clone(),
         dstats.clone(),
         hardware_decode,
+        target,
+        readback_only,
     );
     let count = Arc::new(AtomicU64::new(0));
 
@@ -384,14 +403,16 @@ async fn run(
                 s.codec = Codec::from_wire(dstats.codec.load(Ordering::Relaxed))
                     .map(|c| c.label().to_string())
                     .unwrap_or_default();
+                s.zero_copy = dstats.zero_copy.load(Ordering::Relaxed);
             }
             prev = c;
             (acc_frames, acc_busy, ticks) = (acc_frames + df, acc_busy + db, ticks + 1);
             if ticks >= 10 {
                 if acc_frames > 0 {
                     info!(
-                        "decoder {}: {:.0} quadros/s, {:.1} ms por quadro",
+                        "decoder {}{}: {:.0} quadros/s, {:.1} ms por quadro",
                         if hw { "hardware" } else { "software" },
+                        if dstats.zero_copy.load(Ordering::Relaxed) { " (sem cópia)" } else { "" },
                         acc_frames as f32 / ticks as f32,
                         acc_busy as f32 / acc_frames as f32 / 1000.0
                     );

@@ -114,6 +114,7 @@ impl Prefs {
             deny_dxgi: o.deny_dxgi || !self.dxgi_capture,
             deny_hardware_encoder: o.deny_hardware_encoder || !self.hardware_encoder,
             deny_hardware_decoder: o.deny_hardware_decoder || !self.hardware_decode,
+            deny_zero_copy: o.deny_zero_copy,
         }
     }
 }

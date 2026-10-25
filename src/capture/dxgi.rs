@@ -378,7 +378,7 @@ mod tests {
         let _ = unsafe {
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
         };
-        let (device, context) = crate::gpu::create_device().unwrap();
+        let (device, context) = crate::gpu::create_device(None).unwrap();
         let source = crate::capture::sources::primary_monitor().unwrap();
         let last: Grab = Arc::new(Mutex::new(None));
         let sink = GrabSink {

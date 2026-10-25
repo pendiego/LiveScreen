@@ -411,7 +411,7 @@ impl ShareSession {
         overrides: Overrides,
         max_viewers: usize,
     ) -> Result<ShareSession> {
-        let (device, context) = crate::gpu::create_device()?;
+        let (device, context) = crate::gpu::create_device(None)?;
         let (sw, sh) = capture::source_size(&source.id)?;
         let hz = capture::refresh_rate(&source.id);
         let params = encode_params(preset, sw, sh, hz);

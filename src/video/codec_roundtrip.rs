@@ -13,7 +13,7 @@ use windows::Win32::Graphics::Dxgi::Common::*;
 use crate::preset::{EncodeParams, Preset};
 use crate::protocol::EncodedFrame;
 use crate::video::convert::Converter;
-use crate::video::decoder::{self, RgbaFrame};
+use crate::video::decoder::{self, RgbaFrame, VideoFrame};
 use crate::video::encoder::{self, EncoderKind, EncoderStats, Nv12Frame};
 use crate::video::mf;
 
@@ -138,9 +138,9 @@ fn forward(
     }
 }
 
-fn collect(slot: &Arc<Mutex<Option<RgbaFrame>>>, rec: &mut Rec, pat: &[Vec<f32>]) {
+fn collect(slot: &Arc<Mutex<Option<VideoFrame>>>, rec: &mut Rec, pat: &[Vec<f32>]) {
     let guard = slot.lock().unwrap();
-    let Some(frame) = guard.as_ref() else {
+    let Some(VideoFrame::Cpu(frame)) = guard.as_ref() else {
         return;
     };
     let fp = fingerprint(frame);
@@ -178,7 +178,7 @@ fn roundtrip(
         Arc::new(AtomicBool::new(false)),
         Arc::new(EncoderStats::default()),
     )?;
-    let slot: Arc<Mutex<Option<RgbaFrame>>> = Arc::default();
+    let slot: Arc<Mutex<Option<VideoFrame>>> = Arc::default();
     let (dtx, drx) = std::sync::mpsc::channel::<EncodedFrame>();
     let dstats = Arc::new(decoder::DecodeStats::default());
     let dec = decoder::spawn(
@@ -188,6 +188,8 @@ fn roundtrip(
         Arc::new(AtomicBool::new(false)),
         dstats.clone(),
         hardware_decode,
+        None,
+        Arc::new(AtomicBool::new(false)),
     );
 
     let mut rec = Rec::default();
@@ -256,7 +258,7 @@ fn roundtrip(
 #[ignore = "usa GPU/encoder real: cargo test --release -- --ignored codec_roundtrip"]
 fn codec_roundtrip() {
     mf::startup();
-    let (device, ctx) = crate::gpu::create_device().expect("dispositivo D3D11");
+    let (device, ctx) = crate::gpu::create_device(None).expect("dispositivo D3D11");
     let params = crate::preset::encode_params(Preset::P720p30, W, H, 60);
     assert_eq!((params.width, params.height, params.fps), (W, H, 30));
     let pat = patterns();

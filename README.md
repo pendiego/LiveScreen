@@ -150,7 +150,7 @@ Ao abrir, o app verifica se há versão nova. Se houver, aparece o botão **Atua
   { "capture_overrides": ["deny-hardware-encoder"] }
   ```
 
-  Os valores aceitos são `deny-graphics-capture`, `deny-dxgi`, `deny-hardware-encoder` e `deny-hardware-decoder`. A variável de ambiente `LIVESCREEN_CAPTURE_OVERRIDES` (valores separados por vírgula) substitui o arquivo. O que o arquivo ou a variável desligam não pode ser religado em Configurações.
+  Os valores aceitos são `deny-graphics-capture`, `deny-dxgi`, `deny-hardware-encoder`, `deny-hardware-decoder` e `deny-zero-copy` (o viewer volta a ler o quadro pela CPU em vez de compartilhar a textura com a placa de vídeo; o overlay de estatísticas mostra `sem cópia` ou `cópia via CPU`). A variável de ambiente `LIVESCREEN_CAPTURE_OVERRIDES` (valores separados por vírgula) substitui o arquivo. O que o arquivo ou a variável desligam não pode ser religado em Configurações. A janela usa o backend DX12 do wgpu; `WGPU_BACKEND` troca o backend e, fora do DX12, o viewer usa a cópia via CPU.
 
 </details>
 
