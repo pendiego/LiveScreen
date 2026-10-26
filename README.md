@@ -114,9 +114,9 @@ Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar p
 
 ## Requisitos
 
-- Windows 10 versão 2004 ou superior, 64 bits, para quem transmite e para quem assiste.
-- Android 8.0 (API 26) ou superior para assistir pelo celular; o Android não transmite.
-- Todos precisam estar na mesma versão do LiveScreen. Versões com protocolos diferentes recusam a conexão com "versão incompatível".
+- **Host (quem transmite):** Windows 10 versão 2004 ou superior, 64 bits.
+- **Viewer (quem assiste):** Windows 10 2004+ x64 ou Android 8.0 (API 26) ou superior. O Android não transmite.
+- **Versões:** o host 0.5 só aceita viewers 0.5 (protocolo 5). Viewers 0.5.x conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com "versão incompatível".
 
 ## Download e atualização
 
@@ -133,9 +133,9 @@ Ao abrir, o app verifica se há versão nova. Se houver, aparece o botão **Atua
 
 ### Android (só para assistir)
 
-O app Android só **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases). Cole o código de convite e toque em **Assistir**. Ele aceita convites de hosts 0.4 e 0.5.
+O app Android só **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases). Cole o código de convite e toque em **Assistir**. Ele conecta a hosts 0.5 e também a hosts 0.4 (convite sem chave de sala).
 
-- **Bateria:** com o app em segundo plano o host para de enviar vídeo e o áudio pausa; tudo volta ao reabrir, sem reconectar. Mudo também pausa a decodificação do áudio.
+- **Bateria:** com o app em segundo plano o áudio pausa e, em hosts 0.5, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar. Hosts 0.4 não entendem esse pedido e continuam enviando vídeo. Mudo também pausa a decodificação do áudio.
 - **Atualização:** o app confere a release pelo GitHub e baixa o APK novo.
 
 ## Conexões que o app faz
