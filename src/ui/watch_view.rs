@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Align, Align2, Color32, CursorIcon, Layout, Margin, Order, RichText, Sense, vec2};
 
-use super::theme::{self, I_BACK, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_MUTE, I_PASTE, I_VOLUME};
+use super::theme::{self, I_ADD_FRIEND, I_BACK, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_MUTE, I_PASTE, I_VOLUME};
 use super::toast::ToastKind;
 use super::{App, Screen};
 use livescreen_core::protocol::{find_invite, parse_invite};
@@ -42,11 +42,16 @@ enum ControlAction {
     ToggleFullscreen,
 }
 
-pub fn connect(app: &mut App, ctx: &egui::Context) {
+pub fn connect(app: &mut App, ctx: &egui::Context, target: String) {
+    if let Some(p) = app.take_prober() {
+        p.stop();
+    }
+    app.join_background();
+    app.watch_target = target.clone();
     app.save_prefs();
     let hw_decode = !app.effective_overrides().deny_hardware_decoder;
     let zero_copy = hw_decode && !app.effective_overrides().deny_zero_copy;
-    let target = if zero_copy {
+    let display_target = if zero_copy {
         app.display.as_ref().map(Display::target)
     } else {
         None
@@ -56,11 +61,12 @@ pub fn connect(app: &mut App, ctx: &egui::Context) {
     }
     match WatchSession::start(
         &app.rt,
-        &app.ticket_input,
+        &target,
+        app.identity.clone(),
         &app.prefs.name,
         app.prefs.gain(),
         hw_decode,
-        target,
+        display_target,
         ctx.clone(),
     ) {
         Ok(w) => {
@@ -74,7 +80,7 @@ pub fn connect(app: &mut App, ctx: &egui::Context) {
 }
 
 /// Deixa só o convite quando o texto tem um; senão só tira os espaços (código quebrado em linhas).
-fn normalize_ticket(s: &mut String) {
+pub(super) fn normalize_ticket(s: &mut String) {
     match find_invite(s) {
         Some(inv) => *s = inv,
         None => s.retain(|c| !c.is_whitespace()),
@@ -222,7 +228,7 @@ pub fn input(app: &mut App, ui: &mut egui::Ui) {
         app.save_prefs();
         app.screen = Screen::Home;
     } else if go {
-        connect(app, &ctx);
+        connect(app, &ctx, app.ticket_input.clone());
     }
 }
 
@@ -293,6 +299,21 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
             })
             .response
             .on_hover_text("Pedir ao host outra qualidade (resolução e fps)");
+            if matches!(st.phase, Phase::Playing) && !app.identity_temporary {
+                if let Some(id) = livescreen_core::friends::parse_friend_code(&st.host_id) {
+                    let is_friend = app.friends.iter().filter_map(|f| f.id()).any(|fid| fid == id);
+                    if !is_friend
+                        && theme::icon_button(ui, I_ADD_FRIEND, "Adicionar quem transmite aos amigos")
+                            .clicked()
+                    {
+                        app.add_friend = Some(super::friends::Draft {
+                            name: st.host_name.clone(),
+                            code: st.host_id.clone(),
+                            error: None,
+                        });
+                    }
+                }
+            }
             if !st.title.is_empty() {
                 ui.add(egui::Label::new(RichText::new(&st.title).strong()).truncate());
             }

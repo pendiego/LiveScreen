@@ -28,6 +28,7 @@ pub const I_COPY: &str = "\u{E8C8}";
 pub const I_PASTE: &str = "\u{E77F}";
 pub const I_PERSON: &str = "\u{E77B}";
 pub const I_PEOPLE: &str = "\u{E716}";
+pub const I_ADD_FRIEND: &str = "\u{E8FA}";
 pub const I_REMOVE: &str = "\u{E711}";
 pub const I_FULLSCREEN: &str = "\u{E740}";
 pub const I_EXIT_FULLSCREEN: &str = "\u{E73F}";
@@ -42,6 +43,7 @@ pub const I_INFO: &str = "\u{E946}";
 pub const I_SEARCH: &str = "\u{E721}";
 pub const I_UPDATE: &str = "\u{E896}";
 pub const I_SETTINGS: &str = "\u{E713}";
+pub const I_CHEVRON: &str = "\u{E76C}";
 
 #[derive(Clone, Copy)]
 pub struct Palette {
@@ -302,6 +304,28 @@ pub fn heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
     ui.label(RichText::new(text).heading().extra_letter_spacing(-0.5))
 }
 
+/// Título de seção dentro de cartão: um nível abaixo do título da tela.
+pub fn section_title(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+    ui.label(
+        RichText::new(text)
+            .size(16.0)
+            .family(egui::FontFamily::Name("semibold".into())),
+    )
+}
+
+/// `icon_button` sem moldura em repouso: ação secundária que não disputa atenção.
+pub fn ghost_icon_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
+    ui.scope(|ui| {
+        let weak = ui.visuals().weak_text_color();
+        let w = &mut ui.visuals_mut().widgets.inactive;
+        w.weak_bg_fill = Color32::TRANSPARENT;
+        w.bg_stroke = Stroke::NONE;
+        w.fg_stroke.color = weak;
+        icon_button(ui, icon, label)
+    })
+    .inner
+}
+
 /// Botão só com ícone: dica no hover e nome acessível (o leitor de tela não lê o glifo).
 pub fn icon_button(ui: &mut egui::Ui, icon: &str, label: &str) -> egui::Response {
     let enabled = ui.is_enabled();
@@ -414,6 +438,8 @@ fn chip(
     ui.painter().rect_filled(rect, 4, bg);
     ui.painter()
         .galley(rect.center() - galley.size() / 2.0, galley, fg);
+    let enabled = ui.is_enabled();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, enabled, text));
     resp
 }
 
