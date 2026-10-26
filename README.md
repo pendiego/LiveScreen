@@ -96,6 +96,7 @@ Para ajudar na escolha:
 | **Conexão** | Direta entre os PCs via [iroh](https://iroh.computer), com servidor de retransmissão quando a conexão direta não é possível. A conexão é criptografada de ponta a ponta. |
 | **Rede** | Controle de congestionamento BBR e bitrate adaptativo: quando a fila de algum espectador cresce, o bitrate cai na hora e volta aos poucos até o teto da qualidade. Vídeo atrasado é descartado em vez de acumular. |
 | **Atualização** | Pelo próprio app, com conferência do arquivo baixado. |
+| **Android** | Visual Material 3 e decodificação H.264 por hardware (com fallback para software). |
 | **Interface** | Visual no estilo Vercel/Geist, com fonte Geist embutida, tema claro e escuro (ou seguindo o Windows), anel de foco azul para navegar pelo teclado e nomes acessíveis nos botões só com ícone. Quando as animações estão desligadas no Windows, o app desativa as animações de transição e de rolagem; os indicadores de carregamento continuam girando. |
 
 ## Configurações
@@ -114,6 +115,7 @@ Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar p
 ## Requisitos
 
 - Windows 10 versão 2004 ou superior, 64 bits, para quem transmite e para quem assiste.
+- Android 8.0 (API 26) ou superior para assistir pelo celular; o Android não transmite.
 - Todos precisam estar na mesma versão do LiveScreen. Versões com protocolos diferentes recusam a conexão com "versão incompatível".
 
 ## Download e atualização
@@ -129,12 +131,19 @@ Ao abrir, o app verifica se há versão nova. Se houver, aparece o botão **Atua
 > [!NOTE]
 > Para atualizar, o executável precisa estar numa pasta com permissão de escrita (fora de `Program Files`, por exemplo).
 
+### Android (só para assistir)
+
+O app Android só **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases). Cole o código de convite e toque em **Assistir**. Ele aceita convites de hosts 0.4 e 0.5.
+
+- **Bateria:** com o app em segundo plano o host para de enviar vídeo e o áudio pausa; tudo volta ao reabrir, sem reconectar. Mudo também pausa a decodificação do áudio.
+- **Atualização:** o app confere a release pelo GitHub e baixa o APK novo.
+
 ## Conexões que o app faz
 
 | Destino | Quando | Para quê |
 |---|---|---|
 | Servidores públicos da n0 (equipe do iroh) | ao transmitir e ao assistir | Encontrar o outro PC e retransmitir quando não há conexão direta. Os servidores repassam pacotes criptografados e não veem o vídeo. |
-| `api.github.com` / `github.com` | ao abrir o app; ao clicar em Atualizar | Verificar e baixar versões novas |
+| `api.github.com` / `github.com` | ao abrir o app; ao clicar em Atualizar (desktop e Android) | Verificar e baixar versões novas |
 | `speed.cloudflare.com` | ao abrir a escolha de tela, uma vez por execução, e ao clicar em "Medir de novo" | Medir o upload. O teste dura ~5 s e envia dados de teste: cerca de 60 MB numa fibra de 100 Mbps, com teto de 150 MB. |
 
 ## Avançado
