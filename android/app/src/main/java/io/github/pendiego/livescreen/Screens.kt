@@ -1,6 +1,8 @@
 package io.github.pendiego.livescreen
 
 import android.app.Activity
+import android.content.ClipData
+import android.widget.Toast
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.ActivityInfo
@@ -38,6 +40,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -85,6 +90,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.lifecycle.compose.LifecycleStartEffect
 
 private const val LEGACY_MSG = "Código sem chave de sala: só conecta em quem transmite com o LiveScreen 0.4. Se veio de uma versão mais nova, falta o final do código (a parte depois do ponto)."
 
@@ -107,6 +113,15 @@ private fun clipboardText(context: Context): String? {
 @Composable
 fun HomeScreen(vm: ViewerModel) {
     val context = LocalContext.current
+    LifecycleStartEffect(Unit) {
+        vm.startPresence()
+        onStopOrDispose {
+            vm.stopPresence()
+        }
+    }
+
+    var showAddDialog by remember { mutableStateOf(false) }
+    var friendToRemove by remember { mutableStateOf<Friend?>(null) }
     val isTicketValid = remember(vm.ticket) { Native.isValidTicket(vm.ticket) }
     val isLegacy = remember(vm.ticket) { Native.isLegacyInvite(vm.ticket) }
     val isTicketNotEmpty = vm.ticket.isNotEmpty()
@@ -128,7 +143,7 @@ fun HomeScreen(vm: ViewerModel) {
             scope.launch { snackbar.showSnackbar("O texto colado não tem um código de convite") }
         } else {
             vm.ticket = inv
-            if (!Native.isLegacyInvite(inv)) vm.connect()
+            if (!Native.isLegacyInvite(inv) && !vm.starting) vm.connect()
         }
     }
 
@@ -137,13 +152,13 @@ fun HomeScreen(vm: ViewerModel) {
         bottomBar = {
             Button(
                 onClick = { vm.connect() },
-                enabled = isTicketValid,
+                enabled = isTicketValid && !vm.starting,
                 modifier = Modifier
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                     .padding(16.dp)
                     .height(56.dp)
-            ) { Text("Assistir", style = type.titleMedium) }
+            ) { Text(if (vm.starting) "Conectando…" else "Assistir pelo convite", style = type.titleMedium) }
         }
     ) { inner ->
         Box(
@@ -179,6 +194,14 @@ fun HomeScreen(vm: ViewerModel) {
                 }
                 Spacer(Modifier.height(8.dp))
                 UpdateBanner(vm)
+                if (vm.friends.isNotEmpty()) {
+                    FriendsSection(
+                        vm = vm,
+                        onAddClick = { showAddDialog = true },
+                        onRemoveFriend = { friendToRemove = it },
+                        onCopied = { scope.launch { snackbar.showSnackbar("Código de amigo copiado") } }
+                    )
+                }
                 OutlinedTextField(
                     value = vm.ticket,
                     onValueChange = { vm.ticket = Native.findInvite(it) ?: it.filterNot(Char::isWhitespace) },
@@ -200,7 +223,7 @@ fun HomeScreen(vm: ViewerModel) {
                     keyboardOptions = KeyboardOptions(
                         autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Go
                     ),
-                    keyboardActions = KeyboardActions(onGo = { if (isTicketValid) vm.connect() }),
+                    keyboardActions = KeyboardActions(onGo = { if (isTicketValid && !vm.starting) vm.connect() }),
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
@@ -229,8 +252,52 @@ fun HomeScreen(vm: ViewerModel) {
                         }
                     }
                 }
+                if (vm.friends.isEmpty()) {
+                    FriendsSection(
+                        vm = vm,
+                        onAddClick = { showAddDialog = true },
+                        onRemoveFriend = { friendToRemove = it },
+                        onCopied = { scope.launch { snackbar.showSnackbar("Código de amigo copiado") } }
+                    )
+                }
             }
         }
+    }
+
+    if (showAddDialog) {
+        AddFriendDialog(
+            vm = vm,
+            initialName = "",
+            initialCode = "",
+            onDismiss = { showAddDialog = false },
+            onAdded = { addedName ->
+                showAddDialog = false
+                scope.launch {
+                    snackbar.showSnackbar("$addedName adicionado aos amigos. Peça para ele adicionar você também.")
+                }
+            }
+        )
+    }
+
+    friendToRemove?.let { friend ->
+        AlertDialog(
+            onDismissRequest = { friendToRemove = null },
+            title = { Text("Remover ${friend.name}?") },
+            text = { Text("Você deixará de ver quando esse amigo estiver transmitindo.") },
+            confirmButton = {
+                Button(onClick = {
+                    vm.removeFriend(friend.code)
+                    friendToRemove = null
+                }) {
+                    Text("Remover")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { friendToRemove = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
@@ -247,6 +314,7 @@ private const val OVERLAY_TIMEOUT_MS = 2500L
 @Composable
 private fun WatchContent(vm: ViewerModel) {
     val view = LocalView.current
+    val context = LocalContext.current
     DisposableEffect(Unit) {
         val window = (view.context as? Activity)?.window
         if (window != null) {
@@ -273,6 +341,7 @@ private fun WatchContent(vm: ViewerModel) {
     }
 
     val status = vm.status
+    val hostId = status?.hostId.orEmpty()
     val videoSize = vm.videoSize
     val (w, h) = when {
         videoSize != null && videoSize.first > 0 && videoSize.second > 0 -> videoSize
@@ -285,6 +354,7 @@ private fun WatchContent(vm: ViewerModel) {
     val sc = LocalStatusColors.current
 
     var showOverlay by remember { mutableStateOf(true) }
+    var addHost by remember { mutableStateOf(false) }
     var qualitySheet by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
     var landscape by remember { mutableStateOf(false) }
@@ -408,6 +478,15 @@ private fun WatchContent(vm: ViewerModel) {
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (hostId.isNotEmpty() && status?.connecting == false && vm.friends.none { it.code == hostId }) {
+                            IconButton(onClick = { addHost = true; bump() }) {
+                                Icon(
+                                    painterResource(R.drawable.ic_person_add),
+                                    contentDescription = "Adicionar aos amigos",
+                                    tint = Color.White
+                                )
+                            }
+                        }
                         if (status?.audio == true) IconButton(onClick = { vm.muted = !vm.muted; bump() }) {
                             Icon(
                                 painterResource(if (vm.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_up),
@@ -453,6 +532,24 @@ private fun WatchContent(vm: ViewerModel) {
                 Spacer(Modifier.height(16.dp))
             }
         }
+
+        if (addHost) {
+            AddFriendDialog(
+                vm = vm,
+                initialName = status?.hostName.orEmpty(),
+                initialCode = hostId,
+                onDismiss = { addHost = false; bump() },
+                onAdded = { addedName ->
+                    addHost = false
+                    Toast.makeText(
+                        context,
+                        "$addedName adicionado aos amigos. Peça para ele adicionar você também.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    bump()
+                }
+            )
+        }
     }
 }
 
@@ -496,4 +593,208 @@ private fun UpdateBanner(vm: ViewerModel) {
             )
         }
     }
+}
+
+@Composable
+private fun FriendsSection(
+    vm: ViewerModel,
+    onAddClick: () -> Unit,
+    onRemoveFriend: (Friend) -> Unit,
+    onCopied: () -> Unit,
+) {
+    val context = LocalContext.current
+    val sc = LocalStatusColors.current
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+
+    Spacer(Modifier.height(8.dp))
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Amigos", style = type.titleMedium)
+        OutlinedButton(onClick = onAddClick) {
+            Icon(painterResource(R.drawable.ic_person_add), null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(8.dp))
+            Text("Adicionar amigo")
+        }
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = colors.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Seu código de amigo", style = type.labelMedium, color = colors.onSurfaceVariant)
+                Text(
+                    vm.myCode,
+                    style = type.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                cm?.setPrimaryClip(ClipData.newPlainText("LiveScreen", vm.myCode))
+                onCopied()
+            }) {
+                Icon(painterResource(R.drawable.ic_content_copy), contentDescription = "Copiar")
+            }
+        }
+    }
+
+    if (vm.friends.isEmpty()) {
+        Text(
+            "Adicione o código de um amigo que transmite pelo Windows. Ele também precisa adicionar o seu.",
+            style = type.bodyMedium,
+            color = colors.onSurfaceVariant
+        )
+    } else {
+        Column(
+            Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            for (friend in vm.friends) {
+                val pres = vm.presence[friend.code]
+                val state = pres?.state ?: "unknown"
+                val isLive = state == "live"
+                val subtitle = when (state) {
+                    "live" -> if (pres?.title.isNullOrBlank()) "Transmitindo agora" else "Transmitindo: ${pres?.title}"
+                    "offline" -> "Offline"
+                    "not_friend" -> "Ainda não te adicionou"
+                    "removed" -> "Você foi removido desta transmissão"
+                    else -> "Verificando…"
+                }
+                val subtitleColor = when (state) {
+                    "live" -> sc.success
+                    "not_friend" -> sc.warn
+                    "removed" -> colors.error
+                    else -> colors.onSurfaceVariant
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = colors.surfaceVariant.copy(alpha = 0.35f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(friend.name, style = type.titleMedium)
+                            Text(subtitle, style = type.bodySmall, color = subtitleColor)
+                        }
+                        FilledTonalButton(
+                            onClick = { vm.watchFriend(friend.code) },
+                            enabled = isLive && !vm.starting,
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            Text("Assistir")
+                        }
+                        IconButton(onClick = { onRemoveFriend(friend) }) {
+                            Icon(
+                                painterResource(R.drawable.ic_delete),
+                                contentDescription = "Remover ${friend.name}",
+                                tint = colors.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddFriendDialog(
+    vm: ViewerModel,
+    initialName: String,
+    initialCode: String,
+    onDismiss: () -> Unit,
+    onAdded: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val colors = MaterialTheme.colorScheme
+    var name by remember { mutableStateOf(initialName) }
+    var code by remember { mutableStateOf(initialCode) }
+    var nameError by remember { mutableStateOf<String?>(null) }
+    var codeError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Adicionar amigo") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it.take(32)
+                        nameError = null
+                    },
+                    label = { Text("Nome") },
+                    singleLine = true,
+                    isError = nameError != null,
+                    supportingText = nameError?.let { { Text(it, color = colors.error) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = {
+                        code = it
+                        codeError = null
+                    },
+                    label = { Text("Código de amigo") },
+                    placeholder = { Text("Cole o código de 64 caracteres") },
+                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 3,
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            clipboardText(context)?.let { code = it.filterNot(Char::isWhitespace) }
+                            codeError = null
+                        }) {
+                            Icon(painterResource(R.drawable.ic_content_paste), contentDescription = "Colar")
+                        }
+                    },
+                    isError = codeError != null,
+                    supportingText = codeError?.let { { Text(it, color = colors.error) } },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                if (name.isBlank()) {
+                    nameError = "Dê um nome para reconhecer o amigo."
+                } else {
+                    val err = vm.addFriend(name, code)
+                    if (err != null) {
+                        codeError = err
+                    } else {
+                        onAdded(name.trim())
+                    }
+                }
+            }) {
+                Text("Adicionar")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
 }

@@ -9,6 +9,7 @@
 //!
 //! Contrato: o Kotlin só chama `stop` depois de dar join nas threads de vídeo e áudio,
 //! e não chama nada após `stop`.
+//! `presenceStop` só é chamado pela mesma corrotina que usa o handle; nada mais o usa depois.
 
 use std::ffi::{CString, c_char, c_int};
 use std::io::Write;
@@ -22,6 +23,7 @@ use iroh::endpoint::Connection;
 use jni::JNIEnv;
 use jni::objects::{JClass, JLongArray, JString};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring};
+use livescreen_core::friends::{Prober, friend_code, parse_friend_code, parse_secret_key};
 use livescreen_core::preset::Preset;
 use livescreen_core::protocol::{EncodedFrame, audio_gap, find_invite, parse_audio_datagram, parse_invite};
 use livescreen_core::viewer::{DecodeStats, StartOutputs, ViewerSession, is_valid_invite};
@@ -179,6 +181,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_start(
     _class: JClass,
     ticket: JString,
     name: JString,
+    identity: JString,
 ) -> jlong {
     init_logging();
     let ticket_str: String = match env.get_string(&ticket) {
@@ -192,6 +195,20 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_start(
         Ok(s) => s.into(),
         Err(e) => {
             let _ = env.throw_new("java/lang/IllegalArgumentException", e.to_string());
+            return 0;
+        }
+    };
+    let identity_str: String = match env.get_string(&identity) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", e.to_string());
+            return 0;
+        }
+    };
+    let secret_key = match parse_secret_key(&identity_str) {
+        Some(k) => k,
+        None => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", "Identidade inválida");
             return 0;
         }
     };
@@ -216,6 +233,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_start(
     match ViewerSession::start(
         RT.handle(),
         &ticket_str,
+        secret_key,
         &name_str,
         env!("CARGO_PKG_VERSION"),
         // o MediaCodec do app só decodifica video/avc
@@ -239,6 +257,171 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_start(
             let _ = env.throw_new("java/lang/IllegalArgumentException", e.to_string());
             0
         }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_friendCode(
+    mut env: JNIEnv,
+    _class: JClass,
+    identity: JString,
+) -> jstring {
+    let Ok(identity) = env.get_string(&identity) else {
+        return std::ptr::null_mut();
+    };
+    let identity_str: String = identity.into();
+    match parse_secret_key(&identity_str) {
+        Some(key) => {
+            let code = friend_code(&key.public());
+            match env.new_string(code) {
+                Ok(js) => js.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            }
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_isValidFriendCode(
+    mut env: JNIEnv,
+    _class: JClass,
+    code: JString,
+) -> jboolean {
+    let Ok(code) = env.get_string(&code) else {
+        return JNI_FALSE;
+    };
+    let s: String = code.into();
+    if parse_friend_code(&s).is_some() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_init(
+    env: JNIEnv,
+    _class: JClass,
+    context: jni::objects::JObject,
+) {
+    init_logging();
+    let vm = match env.get_java_vm() {
+        Ok(vm) => vm,
+        Err(_) => return,
+    };
+    let vm_ptr = vm.get_java_vm_pointer() as *mut std::ffi::c_void;
+    let ctx_ref = match env.new_global_ref(context) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let ctx_ptr = ctx_ref.as_raw() as *mut std::ffi::c_void;
+    std::mem::forget(ctx_ref);
+    unsafe {
+        ndk_context::initialize_android_context(vm_ptr, ctx_ptr);
+    }
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_presenceStart(
+    mut env: JNIEnv,
+    _class: JClass,
+    identity: JString,
+    codes: JString,
+) -> jlong {
+    init_logging();
+    let identity_str: String = match env.get_string(&identity) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", e.to_string());
+            return 0;
+        }
+    };
+    let key = match parse_secret_key(&identity_str) {
+        Some(k) => k,
+        None => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", "Identidade inválida");
+            return 0;
+        }
+    };
+    let codes_str: String = match env.get_string(&codes) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", e.to_string());
+            return 0;
+        }
+    };
+    let ids: Vec<_> = codes_str
+        .split(',')
+        .filter_map(parse_friend_code)
+        .collect();
+
+    match Prober::start(RT.handle(), key, ids, Arc::new(|| {})) {
+        Ok(prober) => Box::into_raw(Box::new(prober)) as jlong,
+        Err(e) => {
+            let _ = env.throw_new("java/lang/IllegalArgumentException", e.to_string());
+            0
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_presenceSetIds(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    codes: JString,
+) {
+    if handle == 0 {
+        return;
+    }
+    let Ok(codes) = env.get_string(&codes) else {
+        return;
+    };
+    let codes_str: String = codes.into();
+    let ids: Vec<_> = codes_str
+        .split(',')
+        .filter_map(parse_friend_code)
+        .collect();
+    unsafe {
+        let prober = &*(handle as *const Prober);
+        prober.set_ids(ids);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_presenceStatus(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jstring {
+    if handle == 0 {
+        return match env.new_string("{}") {
+            Ok(js) => js.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        };
+    }
+    let json = unsafe {
+        let prober = &*(handle as *const Prober);
+        prober.states_json()
+    };
+    match env.new_string(json) {
+        Ok(js) => js.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_presenceStop(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) {
+    if handle == 0 {
+        return;
+    }
+    unsafe {
+        let prober = Box::from_raw(handle as *mut Prober);
+        drop(prober);
     }
 }
 

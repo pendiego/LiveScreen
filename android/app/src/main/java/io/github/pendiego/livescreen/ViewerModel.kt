@@ -15,12 +15,16 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
+data class Friend(val name: String, val code: String)
+data class Presence(val state: String, val title: String = "")
 
 data class Status(
     val connecting: Boolean = false,
@@ -34,7 +38,9 @@ data class Status(
     val title: String = "",
     val decoderHw: Boolean = false,
     val decodeFps: Int = 0,
-    val decodeMs: Double = 0.0
+    val decodeMs: Double = 0.0,
+    val hostId: String = "",
+    val hostName: String = ""
 )
 
 sealed interface UpdateState {
@@ -54,6 +60,151 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     var status: Status? by mutableStateOf(null)
     var videoSize: Pair<Int, Int>? by mutableStateOf(null)
 
+
+    val identity: String = run {
+        val existing = prefs.getString("identity_key", null)
+        if (existing != null && Native.friendCode(existing) != null) {
+            existing
+        } else {
+            val bytes = ByteArray(32)
+            java.security.SecureRandom().nextBytes(bytes)
+            val hex = bytes.joinToString("") { "%02x".format(it) }
+            prefs.edit().putString("identity_key", hex).commit()
+            hex
+        }
+    }
+    val myCode: String = Native.friendCode(identity) ?: ""
+
+    var friends: List<Friend> by mutableStateOf(run {
+        val raw = prefs.getString("friends", "[]") ?: "[]"
+        try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.getJSONObject(i)
+                val code = obj.optString("code", "")
+                val fName = obj.optString("name", "")
+                if (Native.isValidFriendCode(code)) {
+                    Friend(fName, code)
+                } else null
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    })
+
+    private fun saveFriends() {
+        val arr = JSONArray()
+        for (f in friends) {
+            val obj = JSONObject()
+            obj.put("name", f.name)
+            obj.put("code", f.code)
+            arr.put(obj)
+        }
+        prefs.edit().putString("friends", arr.toString()).apply()
+    }
+
+    fun addFriend(name: String, code: String): String? {
+        val cleanName = name.trim()
+        if (cleanName.isEmpty()) {
+            return "Dê um nome para reconhecer o amigo."
+        }
+        val cleanCode = code.filterNot(Char::isWhitespace).lowercase()
+        if (!Native.isValidFriendCode(cleanCode)) {
+            return "Código de amigo inválido: confira se copiou os 64 caracteres."
+        }
+        if (cleanCode == myCode) {
+            return "Esse é o seu próprio código de amigo"
+        }
+        val existing = friends.find { it.code == cleanCode }
+        if (existing != null) {
+            return "${existing.name} já está nos seus amigos"
+        }
+        val newFriend = Friend(name = cleanName.take(32), code = cleanCode)
+        friends = friends + newFriend
+        saveFriends()
+        syncPresenceIds()
+        return null
+    }
+
+    fun removeFriend(code: String) {
+        friends = friends.filterNot { it.code == code }
+        saveFriends()
+        syncPresenceIds()
+    }
+
+    var presence: Map<String, Presence> by mutableStateOf(emptyMap())
+    private var presenceJob: Job? = null
+    @Volatile private var viewerStop: Thread? = null
+    var starting: Boolean by mutableStateOf(false)
+
+    fun startPresence() {
+        if (friends.isEmpty() || handle != 0L || pollingJob?.isActive == true || presenceJob?.isActive == true) return
+        val prev = presenceJob
+        presenceJob = viewModelScope.launch(Dispatchers.IO) {
+            prev?.join()
+            viewerStop?.join()
+            val codes = friends.joinToString(",") { it.code }
+            val ph = try {
+                Native.presenceStart(identity, codes)
+            } catch (e: IllegalArgumentException) {
+                Log.w("LiveScreen", "falha ao iniciar presença", e)
+                return@launch
+            }
+            if (ph == 0L) return@launch
+            try {
+                var sent = codes
+                while (isActive) {
+                    val now = friends.joinToString(",") { it.code }
+                    if (now != sent) {
+                        Native.presenceSetIds(ph, now)
+                        sent = now
+                    }
+                    val jsonStr = Native.presenceStatus(ph)
+                    val map = try {
+                        val root = JSONObject(jsonStr)
+                        val m = mutableMapOf<String, Presence>()
+                        val keys = root.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            val obj = root.getJSONObject(k)
+                            m[k] = Presence(
+                                state = obj.optString("state", "unknown"),
+                                title = obj.optString("title", "")
+                            )
+                        }
+                        m
+                    } catch (e: JSONException) {
+                        Log.w("LiveScreen", "erro ao ler presença", e)
+                        null
+                    }
+                    if (map != null) {
+                        withContext(Dispatchers.Main) {
+                            presence = presence + map
+                        }
+                    }
+                    delay(1000)
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    Native.presenceStop(ph)
+                }
+            }
+        }
+    }
+
+    fun stopPresence() {
+        presenceJob?.cancel()
+    }
+
+    fun syncPresenceIds() {
+        if (friends.isEmpty()) {
+            stopPresence()
+        } else {
+            startPresence()
+        }
+    }
+
+    fun watchFriend(code: String) = connect(code)
     private val _muted = mutableStateOf(false)
     var muted: Boolean
         get() = _muted.value
@@ -130,27 +281,44 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         ctx.startActivity(Updater.installIntent(ctx, apk))
     }
 
-    fun connect() {
-        if (handle != 0L) return
+    fun connect(target: String = ticket.trim()) {
+        if (handle != 0L || pollingJob?.isActive == true) return
+        starting = true
         prefs.edit().putString("name", name).apply()
         lastEnd = null
         hidden = false
 
+        val pj = presenceJob
+        pj?.cancel()
+
         pollingJob = viewModelScope.launch {
+            pj?.join()
             val h = try {
-                withContext(Dispatchers.IO) {
-                    Native.start(ticket.trim(), name)
+                withContext(Dispatchers.IO + NonCancellable) {
+                    viewerStop?.join()
+                    Native.start(target, name, identity)
                 }
             } catch (e: IllegalArgumentException) {
+                starting = false
                 lastEnd = e.message
                 return@launch
             }
 
+            if (!isActive) {
+                if (h != 0L) {
+                    viewerStop = Thread { Native.stop(h) }.also { it.start() }
+                }
+                starting = false
+                return@launch
+            }
+
             if (h == 0L) {
+                starting = false
                 lastEnd = "Falha ao iniciar conexão"
                 return@launch
             }
             handle = h
+            starting = false
             startVideo()
 
             while (isActive) {
@@ -232,6 +400,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     fun leave(reason: String? = null) {
         pollingJob?.cancel()
         pollingJob = null
+        starting = false
 
         decoder?.stop()
         decoder = null
@@ -242,7 +411,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         val h = handle
         handle = 0L
         if (h != 0L) {
-            Thread { Native.stop(h) }.start()
+            viewerStop = Thread { Native.stop(h) }.also { it.start() }
         }
 
         status = null
@@ -252,6 +421,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         super.onCleared()
+        stopPresence()
         if (handle != 0L) {
             leave()
         }
@@ -284,7 +454,9 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             title = obj.optString("title", ""),
             decoderHw = obj.optBoolean("decoder_hw", false),
             decodeFps = obj.optInt("decode_fps", 0),
-            decodeMs = obj.optDouble("decode_ms", 0.0)
+            decodeMs = obj.optDouble("decode_ms", 0.0),
+            hostId = obj.optString("host_id", ""),
+            hostName = obj.optString("host_name", "")
         )
     }
 }
