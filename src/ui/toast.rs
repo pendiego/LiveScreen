@@ -1,4 +1,4 @@
-//! Avisos temporários no canto inferior direito.
+//! Avisos temporários no centro inferior, acima da barra de status.
 
 use std::time::{Duration, Instant};
 
@@ -33,10 +33,11 @@ impl Toasts {
         };
         let skip = self.items.len().saturating_sub(MAX_VISIBLE);
         egui::Area::new(egui::Id::unique("toasts"))
-            .anchor(Align2::RIGHT_BOTTOM, [-16.0, -16.0])
+            .anchor(Align2::CENTER_BOTTOM, [0.0, -56.0])
             .order(Order::Foreground)
             .show(ctx, |ui| {
                 let p = theme::palette(ui);
+                ui.vertical_centered(|ui| {
                 for (text, kind, _) in &self.items[skip..] {
                     let (icon, color) = match kind {
                         ToastKind::Info => (I_INFO, p.accent),
@@ -56,6 +57,7 @@ impl Toasts {
                             });
                         });
                 }
+                });
             });
         ctx.request_repaint_after(LIFETIME.saturating_sub(oldest.elapsed()));
     }

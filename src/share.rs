@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -60,8 +60,10 @@ fn retire(mut s: iroh::endpoint::SendStream) {
 
 #[derive(Clone, Debug)]
 pub struct ViewerInfo {
+    pub id: iroh::EndpointId,
     pub id_short: String,
     pub name: String,
+    pub friend: bool,
     pub path: String,
     pub rtt_ms: u32,
 }
@@ -202,6 +204,9 @@ struct Shared {
     room_key: Mutex<[u8; ROOM_KEY_LEN]>,
     ticket: Mutex<Option<EndpointTicket>>,
     host_id: iroh::EndpointId,
+    friends: Mutex<HashSet<iroh::EndpointId>>,
+    banned: Mutex<HashSet<iroh::EndpointId>>,
+    host_name: String,
 }
 
 impl Shared {
@@ -401,6 +406,9 @@ impl ShareSession {
         encoders: Vec<EncoderKind>,
         overrides: Overrides,
         max_viewers: usize,
+        identity: iroh::SecretKey,
+        host_name: String,
+        friends: HashSet<iroh::EndpointId>,
     ) -> Result<ShareSession> {
         let (device, context) = crate::gpu::create_device(None)?;
         let (sw, sh) = capture::source_size(&source.id)?;
@@ -526,7 +534,8 @@ impl ShareSession {
                 .datagram_receive_buffer_size(None)
                 .build();
             Endpoint::builder(presets::N0)
-                .alpns(vec![ALPN.to_vec()])
+                .secret_key(identity)
+                .alpns(vec![ALPN.to_vec(), livescreen_core::friends::PRESENCE_ALPN.to_vec()])
                 .transport_config(transport)
                 .bind()
                 .await
@@ -553,6 +562,9 @@ impl ShareSession {
             room_key: Mutex::new(new_room_key()),
             ticket: Mutex::new(None),
             host_id: ep.id(),
+            friends: Mutex::new(friends),
+            banned: Mutex::new(HashSet::new()),
+            host_name,
         });
         {
             let (ep, shared, status) = (ep.clone(), shared.clone(), status.clone());
@@ -577,7 +589,9 @@ impl ShareSession {
                     tokio::spawn(async move {
                         match incoming.await {
                             Ok(conn) => {
-                                if let Err(e) = handle_viewer(conn, shared, permit).await {
+                                if conn.alpn() == livescreen_core::friends::PRESENCE_ALPN {
+                                    answer_presence(conn, shared).await;
+                                } else if let Err(e) = handle_viewer(conn, shared, permit).await {
                                     info!("espectador encerrado: {e:#}");
                                 }
                             }
@@ -603,6 +617,7 @@ impl ShareSession {
                     let f = stats.frames.load(Ordering::Relaxed);
                     let b = stats.bytes.load(Ordering::Relaxed);
                     let mut samples: Vec<(String, iroh::endpoint::PathId, Duration)> = Vec::new();
+                    let friends_snap = shared.friends.lock().unwrap().clone();
                     let viewers = shared
                         .conns
                         .lock()
@@ -610,6 +625,8 @@ impl ShareSession {
                         .iter()
                         .map(|(id, peer)| {
                             let (c, name) = (&peer.conn, &peer.name);
+                            let peer_id = c.remote_id();
+                            let friend = friends_snap.contains(&peer_id);
                             let (mut path, mut rtt) = ("?".to_string(), 0u32);
                             for p in c.paths().iter() {
                                 if p.is_selected() {
@@ -626,8 +643,10 @@ impl ShareSession {
                                 }
                             }
                             ViewerInfo {
+                                id: peer_id,
                                 id_short: id.clone(),
                                 name: name.clone(),
+                                friend,
                                 path,
                                 rtt_ms: rtt,
                             }
@@ -893,6 +912,7 @@ impl ShareSession {
             .get(id_short)
             .map(|p| p.conn.clone());
         let Some(c) = conn else { return };
+        self.shared.banned.lock().unwrap().insert(c.remote_id());
         self.shared
             .status
             .lock()
@@ -904,6 +924,10 @@ impl ShareSession {
 
     pub fn new_invite(&self) {
         self.shared.new_invite();
+    }
+
+    pub fn set_friends(&self, ids: HashSet<iroh::EndpointId>) {
+        *self.shared.friends.lock().unwrap() = ids;
     }
     /// Idempotente. Bloqueia a thread chamadora (nunca chamar de dentro do runtime).
     pub fn stop(&self) {
@@ -953,6 +977,53 @@ impl Drop for CountGuard<'_> {
     }
 }
 
+async fn answer_presence(conn: Connection, sh: Arc<Shared>) {
+    let remote_id = conn.remote_id();
+    let is_friend = sh.friends.lock().unwrap().contains(&remote_id);
+    let is_banned = sh.banned.lock().unwrap().contains(&remote_id);
+    if is_banned {
+        conn.close(CLOSE_DENIED.into(), livescreen_core::friends::REMOVED_REASON);
+        return;
+    }
+    if !is_friend {
+        conn.close(CLOSE_DENIED.into(), b"denied");
+        return;
+    }
+    let res = async {
+        let mut send = conn.open_uni().await?;
+        write_msg(
+            &mut send,
+            &livescreen_core::friends::Presence {
+                title: sh.title.clone(),
+            },
+        )
+        .await?;
+        send.finish()?;
+        let _ = tokio::time::timeout(Duration::from_secs(3), conn.closed()).await;
+        conn.close(CLOSE_NORMAL.into(), b"bye");
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if let Err(e) = res {
+        info!("presença encerrada: {e:#}");
+    }
+}
+
+/// Removido nesta transmissão nunca entra; amigo entra sem convite; o resto precisa da prova da sala.
+fn admit(banned: bool, friend: bool, proof: &str, proof_ok: bool) -> Result<(), &'static str> {
+    if banned {
+        return Err("você foi removido desta transmissão");
+    }
+    if friend || proof_ok {
+        return Ok(());
+    }
+    if proof.is_empty() {
+        Err("você ainda não está na lista de amigos de quem transmite: peça um convite")
+    } else {
+        Err("convite inválido ou substituído")
+    }
+}
+
 async fn handle_viewer(
     conn: Connection,
     sh: Arc<Shared>,
@@ -992,12 +1063,20 @@ async fn handle_viewer(
         conn.close(CLOSE_PROTOCOL.into(), b"protocol");
         return Ok(());
     }
-    let key = *sh.room_key.lock().unwrap();
-    if !verify_room_proof(&key, &sh.host_id, &conn.remote_id(), &room_proof) {
+    let remote_id = conn.remote_id();
+    let is_banned = sh.banned.lock().unwrap().contains(&remote_id);
+    let is_friend = sh.friends.lock().unwrap().contains(&remote_id);
+    let proof_ok = if is_friend {
+        false
+    } else {
+        let key = *sh.room_key.lock().unwrap();
+        verify_room_proof(&key, &sh.host_id, &remote_id, &room_proof)
+    };
+    if let Err(reason) = admit(is_banned, is_friend, &room_proof, proof_ok) {
         let _ = write_msg(
             &mut send,
             &HostMsg::Rejected {
-                reason: "convite inválido ou substituído".into(),
+                reason: reason.into(),
             },
         )
         .await;
@@ -1062,6 +1141,7 @@ async fn handle_viewer(
                 fps,
                 audio,
                 title: sh.title.clone(),
+                host_name: sh.host_name.clone(),
             },
         ),
     )
@@ -1259,6 +1339,36 @@ mod tests {
         assert_eq!(
             pick_encoder(&kinds2, &[vec![Codec::H264, Codec::Av1, Codec::Hevc]]),
             Some(av1)
+        );
+    }
+
+    #[test]
+    fn test_admit_precedence() {
+        // banido vence amigo
+        assert_eq!(
+            admit(true, true, "", false),
+            Err("você foi removido desta transmissão")
+        );
+        assert_eq!(
+            admit(true, false, "proof", true),
+            Err("você foi removido desta transmissão")
+        );
+
+        // amigo dispensa prova
+        assert_eq!(admit(false, true, "", false), Ok(()));
+        assert_eq!(admit(false, true, "bad_proof", false), Ok(()));
+
+        // não amigo, com prova ok
+        assert_eq!(admit(false, false, "valid_proof", true), Ok(()));
+
+        // prova vazia vs. errada dão mensagens diferentes
+        assert_eq!(
+            admit(false, false, "", false),
+            Err("você ainda não está na lista de amigos de quem transmite: peça um convite")
+        );
+        assert_eq!(
+            admit(false, false, "wrong_proof", false),
+            Err("convite inválido ou substituído")
         );
     }
 }

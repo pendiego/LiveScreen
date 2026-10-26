@@ -187,7 +187,7 @@ fn share(app: &mut App, ui: &mut egui::Ui) {
         }
     });
 
-    ui.label("Seu nome ao assistir");
+    ui.label("Seu nome");
     ui.add(theme::field(
         ui,
         egui::TextEdit::singleline(&mut app.prefs.name)
