@@ -4,7 +4,7 @@ default-members = [".", "crates/livescreen-core"]
 
 [package]
 name = "livescreen"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 description = "Compartilhamento de tela P2P para Windows"
 readme = "README.md"
