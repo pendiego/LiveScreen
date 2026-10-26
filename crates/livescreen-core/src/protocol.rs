@@ -92,6 +92,8 @@ pub enum HostMsg {
         audio: bool,
         #[serde(default)]
         title: String,
+        #[serde(default)]
+        host_name: String,
     },
     /// Qualidade trocada com a transmissão no ar; o próximo keyframe já vem no novo tamanho.
     StreamParams {
@@ -269,6 +271,30 @@ pub fn parse_invite(s: &str) -> Option<(EndpointTicket, Option<[u8; ROOM_KEY_LEN
     hex::decode_to_slice(hex_str, &mut key).ok()?;
     let ticket: EndpointTicket = ticket_str.parse().ok()?;
     Some((ticket, Some(key)))
+}
+
+#[derive(Clone, Debug)]
+pub enum Target {
+    /// Convite: ticket do host e chave da sala (`None` = convite 0.4).
+    Invite(EndpointTicket, Option<[u8; ROOM_KEY_LEN]>),
+    /// Amigo: só o id; o endereço vem do pkarr/DNS da n0 e o host autoriza pelo id.
+    Friend(iroh::EndpointId),
+}
+
+impl Target {
+    pub fn parse(s: &str) -> Option<Target> {
+        if let Some((ticket, key)) = parse_invite(s) {
+            return Some(Target::Invite(ticket, key));
+        }
+        crate::friends::parse_friend_code(s).map(Target::Friend)
+    }
+
+    pub fn addr(&self) -> iroh::EndpointAddr {
+        match self {
+            Target::Invite(ticket, _) => ticket.endpoint_addr().clone(),
+            Target::Friend(id) => iroh::EndpointAddr::new(*id),
+        }
+    }
 }
 
 /// Acha o convite em texto colado: o código puro (quebras de linha e espaços somem) ou no meio
