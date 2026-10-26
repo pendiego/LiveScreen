@@ -102,6 +102,9 @@ fn e2e_window() {
         kinds.clone(),
         Default::default(),
         4,
+        livescreen_core::friends::new_secret_key(),
+        String::new(),
+        std::collections::HashSet::new(),
     )
     .unwrap();
     let ticket = loop {
@@ -111,7 +114,17 @@ fn e2e_window() {
         std::thread::sleep(Duration::from_millis(100));
     };
     let ctx = egui::Context::default();
-    let w = WatchSession::start(&h, &ticket, "", 1.0, true, None, ctx).unwrap();
+    let w = WatchSession::start(
+        &h,
+        &ticket,
+        livescreen_core::friends::new_secret_key(),
+        "",
+        1.0,
+        true,
+        None,
+        ctx,
+    )
+    .unwrap();
     std::thread::sleep(Duration::from_secs(4));
     let snap = |tag: &str| {
         let s = w.status.lock().unwrap().clone();
@@ -210,7 +223,17 @@ fn e2e_window() {
     within("troca 2 minimizada", || {
         share.set_preset(Preset::P720p30).unwrap()
     });
-    let late = WatchSession::start(&h, &ticket, "", 1.0, true, None, egui::Context::default()).unwrap();
+    let late = WatchSession::start(
+        &h,
+        &ticket,
+        livescreen_core::friends::new_secret_key(),
+        "",
+        1.0,
+        true,
+        None,
+        egui::Context::default(),
+    )
+    .unwrap();
     std::thread::sleep(Duration::from_secs(4));
     println!(
         "late viewer while minimized: {:?} frame={:?}",
@@ -282,6 +305,9 @@ fn e2e_android() {
         kinds,
         Default::default(),
         4,
+        livescreen_core::friends::new_secret_key(),
+        String::new(),
+        std::collections::HashSet::new(),
     )
     .unwrap();
     let ticket = loop {
@@ -429,4 +455,189 @@ fn tap_text(adb: &str, target_text: &str) -> bool {
         }
         None => false,
     }
+}
+
+/// Teste ponta a ponta de amigos com rede real e publicação no pkarr/DNS da n0.
+/// Rodar: `cargo test --release e2e_friends -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn e2e_friends() {
+    use livescreen_core::friends::{dial_endpoint, friend_code, new_secret_key, probe, PresenceState};
+    use std::collections::HashSet;
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let h = rt.handle().clone();
+
+    let info = enumerate()
+        .into_iter()
+        .find(|s| matches!(&s.id, SourceId::Monitor { .. }))
+        .expect("ao menos um monitor");
+    let kinds = crate::video::probe::hardware_kinds();
+
+    let host_key = new_secret_key();
+    let host_id = host_key.public();
+    let amigo_key = new_secret_key();
+    let amigo_id = amigo_key.public();
+    let estranho_key = new_secret_key();
+
+    let mut friends = HashSet::new();
+    friends.insert(amigo_id);
+
+    let share = ShareSession::start(
+        &h,
+        info,
+        Preset::P480p30,
+        false,
+        None,
+        kinds,
+        Default::default(),
+        4,
+        host_key,
+        "Host".into(),
+        friends,
+    )
+    .unwrap();
+
+    // Espera o ticket aparecer + 3 s (publicação no pkarr)
+    loop {
+        if share.status.lock().unwrap().ticket.is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    std::thread::sleep(Duration::from_secs(3));
+
+    let (probe_amigo, probe_estranho) = rt.block_on(async {
+        let ep_amigo = dial_endpoint(amigo_key.clone()).await.unwrap();
+        let res_amigo = probe(&ep_amigo, host_id).await;
+        ep_amigo.close().await;
+
+        let ep_estranho = dial_endpoint(estranho_key.clone()).await.unwrap();
+        let res_estranho = probe(&ep_estranho, host_id).await;
+        ep_estranho.close().await;
+
+        (res_amigo, res_estranho)
+    });
+    assert!(
+        matches!(probe_amigo, PresenceState::Live { .. }),
+        "esperava Live para amigo, veio {probe_amigo:?}"
+    );
+    assert_eq!(probe_estranho, PresenceState::NotFriend);
+
+    let host_code = friend_code(&host_id);
+    let w_amigo = WatchSession::start(
+        &h,
+        &host_code,
+        amigo_key.clone(),
+        "Amigo",
+        1.0,
+        true,
+        None,
+        egui::Context::default(),
+    )
+    .unwrap();
+
+    let start_wait = std::time::Instant::now();
+    let mut playing = false;
+    while start_wait.elapsed() < Duration::from_secs(20) {
+        if matches!(w_amigo.status.lock().unwrap().phase, Phase::Playing) {
+            playing = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(playing, "amigo não chegou a Phase::Playing em 20 s");
+    assert_eq!(w_amigo.status.lock().unwrap().host_name, "Host");
+
+    let (mut id_short_amigo, mut has_friend_viewer) = (None, false);
+    for _ in 0..50 {
+        {
+            let s = share.status.lock().unwrap();
+            let fv = s.viewers.iter().find(|v| v.friend);
+            id_short_amigo = fv.map(|v| v.id_short.clone());
+            has_friend_viewer = fv.is_some();
+        }
+        if has_friend_viewer {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(has_friend_viewer, "esperava espectador com friend == true na lista do host");
+    let id_short_amigo = id_short_amigo.expect("id_short do amigo");
+
+    let w_estranho = WatchSession::start(
+        &h,
+        &host_code,
+        estranho_key,
+        "Estranho",
+        1.0,
+        true,
+        None,
+        egui::Context::default(),
+    )
+    .unwrap();
+
+    let start_wait_estranho = std::time::Instant::now();
+    let mut ended_estranho = None;
+    while start_wait_estranho.elapsed() < Duration::from_secs(20) {
+        if let Phase::Ended(ref m) = w_estranho.status.lock().unwrap().phase {
+            ended_estranho = Some(m.clone());
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let m = ended_estranho.expect("estranho deve terminar com Phase::Ended");
+    assert!(
+        m.starts_with("Recusado: você ainda não está na lista de amigos"),
+        "mensagem inesperada para estranho: {m}"
+    );
+
+    share.kick(&id_short_amigo);
+    let start_wait_kick = std::time::Instant::now();
+    let mut kicked = false;
+    while start_wait_kick.elapsed() < Duration::from_secs(5) {
+        if let Phase::Ended(ref m) = w_amigo.status.lock().unwrap().phase {
+            if m == "Removido pelo host" {
+                kicked = true;
+                break;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(kicked, "amigo não foi desconectado com 'Removido pelo host'");
+
+    w_amigo.stop();
+    let w_amigo_banned = WatchSession::start(
+        &h,
+        &host_code,
+        amigo_key.clone(),
+        "Amigo",
+        1.0,
+        true,
+        None,
+        egui::Context::default(),
+    )
+    .unwrap();
+
+    let start_wait_banned = std::time::Instant::now();
+    let mut banned_ended = None;
+    while start_wait_banned.elapsed() < Duration::from_secs(10) {
+        if let Phase::Ended(ref m) = w_amigo_banned.status.lock().unwrap().phase {
+            banned_ended = Some(m.clone());
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let bm = banned_ended.expect("amigo banido deve terminar com Phase::Ended");
+    assert_eq!(bm, "Recusado: você foi removido desta transmissão");
+    w_amigo_banned.stop();
+    let probe_removed = rt.block_on(async {
+        let ep = dial_endpoint(amigo_key.clone()).await.unwrap();
+        let res = probe(&ep, host_id).await;
+        ep.close().await;
+        res
+    });
+    assert_eq!(probe_removed, PresenceState::Removed);
+
+    share.stop();
 }

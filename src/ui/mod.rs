@@ -1,3 +1,4 @@
+mod friends;
 mod home;
 mod prefs;
 mod settings;
@@ -111,6 +112,16 @@ pub struct App {
     pub settings_open: bool,
     pub settings_tab: settings::Tab,
     update_check: Option<tokio::task::AbortHandle>,
+    pub identity: iroh::SecretKey,
+    pub identity_temporary: bool,
+    _identity_lock: Option<std::fs::File>,
+    pub presence_cache: HashMap<iroh::EndpointId, livescreen_core::friends::PresenceState>,
+    pub friends: Vec<friends::Friend>,
+    pub prober: Option<livescreen_core::friends::Prober>,
+    prober_retry: Option<Instant>,
+    pub add_friend: Option<friends::Draft>,
+    pub friend_remove_pending: Option<(String, Instant)>,
+    pub watch_target: String,
 }
 
 impl App {
@@ -119,6 +130,8 @@ impl App {
         let overrides = crate::config::overrides();
         let encoder = Arc::new(Mutex::new(None));
         let update = Arc::new(Mutex::new(None));
+        let (id_key, identity_temporary, _identity_lock) = crate::config::identity().into_parts();
+        let friends = friends::load();
         let mut app = App {
             rt,
             screen: Screen::Home,
@@ -157,6 +170,16 @@ impl App {
             settings_open: false,
             settings_tab: settings::Tab::Video,
             update_check: None,
+            identity: id_key,
+            identity_temporary,
+            _identity_lock,
+            friends,
+            prober: None,
+            prober_retry: None,
+            add_friend: None,
+            presence_cache: HashMap::new(),
+            friend_remove_pending: None,
+            watch_target: String::new(),
         };
         app.detect_encoder();
         if app.prefs.check_updates {
@@ -251,6 +274,7 @@ impl App {
             d.reset();
         }
         self.kick_pending = None;
+        self.friend_remove_pending = None;
         self.copied_at = None;
         self.quality_open = false;
         self.confirm_stop = false;
@@ -261,7 +285,11 @@ impl App {
     pub fn end(&mut self, message: String, from_watch: bool) {
         self.stop_all();
         let kind = classify(&message);
-        let retry = from_watch && kind != EndKind::Info && message != "Você foi removido";
+        let retry = from_watch
+            && kind != EndKind::Info
+            && message != "Você foi removido"
+            && message != "Removido pelo host"
+            && !message.starts_with("Recusado: você foi removido");
         self.screen = Screen::Ended {
             message,
             kind,
@@ -394,6 +422,11 @@ impl eframe::App for App {
         {
             self.settings_open = false;
         }
+        if self.add_friend.is_some()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.add_friend = None;
+        }
         match self.screen {
             Screen::Home => home::home(self, ui),
             Screen::SharePicker => share_view::picker(self, ui),
@@ -401,6 +434,10 @@ impl eframe::App for App {
             Screen::WatchInput => watch_view::input(self, ui),
             Screen::Watching => watch_view::watching(self, ui),
             Screen::Ended { .. } => home::ended(self, ui),
+        }
+        self.sync_prober(&ctx);
+        if self.add_friend.is_some() {
+            friends::add_friend_modal(self, &ctx);
         }
         // único acesso às configurações em tela cheia
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Comma)) {

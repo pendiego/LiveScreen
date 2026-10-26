@@ -15,7 +15,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        Native.init(applicationContext)
         val ticketExtra = intent.getStringExtra("ticket")
         if (!ticketExtra.isNullOrEmpty() && vm.ticket.isEmpty()) {
             vm.ticket = ticketExtra

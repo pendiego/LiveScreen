@@ -5,10 +5,11 @@ object Native {
         System.loadLibrary("livescreen_android")
     }
 
+    @JvmStatic external fun init(context: android.content.Context)
     @JvmStatic external fun isValidTicket(ticket: String): Boolean
     @JvmStatic external fun isLegacyInvite(ticket: String): Boolean
     @JvmStatic external fun findInvite(text: String): String?
-    @JvmStatic external fun start(ticket: String, name: String): Long
+    @JvmStatic external fun start(ticket: String, name: String, identity: String): Long
     @JvmStatic external fun status(handle: Long): String
     @JvmStatic external fun presets(): String
     @JvmStatic external fun nextVideo(handle: Long, timeoutMs: Int, meta: LongArray): ByteArray?
@@ -19,4 +20,11 @@ object Native {
     @JvmStatic external fun requestQuality(handle: Long, id: String)
     @JvmStatic external fun setVisible(handle: Long, visible: Boolean)
     @JvmStatic external fun stop(handle: Long)
+
+    @JvmStatic external fun friendCode(identity: String): String?
+    @JvmStatic external fun isValidFriendCode(code: String): Boolean
+    @JvmStatic external fun presenceStart(identity: String, codes: String): Long
+    @JvmStatic external fun presenceSetIds(handle: Long, codes: String)
+    @JvmStatic external fun presenceStatus(handle: Long): String
+    @JvmStatic external fun presenceStop(handle: Long)
 }

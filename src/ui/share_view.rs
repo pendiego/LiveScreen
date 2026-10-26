@@ -8,7 +8,7 @@ use egui::{
 };
 
 use super::theme::{
-    self, I_BACK, I_CHECK, I_COPY, I_MONITOR, I_PEOPLE, I_PERSON, I_PLAY, I_REFRESH, I_REMOVE,
+    self, I_ADD_FRIEND, I_BACK, I_CHECK, I_COPY, I_MONITOR, I_PEOPLE, I_PERSON, I_PLAY, I_REFRESH, I_REMOVE,
     I_MIC, I_MIC_OFF, I_SEARCH, I_STOP, I_VOLUME, I_WARN, I_WINDOW,
 };
 use super::toast::ToastKind;
@@ -244,8 +244,23 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
     let (rt, overrides, ctx2) = (app.rt.clone(), app.effective_overrides(), ctx.clone());
     let room = app.prefs.room_limit;
     let (title, source) = (info.title.clone(), info.id.clone());
+    let prober = app.take_prober();
+    let pending = std::mem::take(&mut app.background);
+    let identity = app.identity.clone();
+    let host_name = livescreen_core::protocol::sanitize(&app.prefs.name, 32);
+    let friends: std::collections::HashSet<iroh::EndpointId> =
+        app.friend_ids().into_iter().collect();
     app.background.push(std::thread::spawn(move || {
-        let res = ShareSession::start(&rt, info, preset, audio, mic, encoders, overrides, room);
+        if let Some(p) = prober {
+            p.stop();
+        }
+        for h in pending {
+            let _ = h.join();
+        }
+        let res = ShareSession::start(
+            &rt, info, preset, audio, mic, encoders, overrides, room, identity, host_name,
+            friends,
+        );
         ctx2.request_repaint();
         if let Err(std::sync::mpsc::SendError(Ok(s))) = tx.send(res) {
             s.stop();
@@ -1024,6 +1039,8 @@ fn viewers_card(
     room: &mut usize,
     upload: Upload,
     people_now: Option<usize>,
+    add_friend: &mut Option<(String, iroh::EndpointId)>,
+    can_add_friend: bool,
 ) {
     if let Some((_, t)) = kick_pending {
         if t.elapsed() >= Duration::from_secs(3) {
@@ -1076,6 +1093,15 @@ fn viewers_card(
             ui.horizontal(|ui| {
                 ui.label(format!("{I_PERSON}  {}", v.label()));
                 ui.label(RichText::new(format!("#{}", v.id_short)).small().weak());
+                if v.friend {
+                    theme::badge(ui, "Amigo", p.accent);
+                } else if can_add_friend
+                    && theme::small_button(ui, format!("{I_ADD_FRIEND}  Amigo"))
+                        .on_hover_text("Adicionar aos amigos")
+                        .clicked()
+                {
+                    *add_friend = Some((v.name.clone(), v.id));
+                }
                 let (text, color) = match v.path.as_str() {
                     "Direto" => ("Direto", p.success),
                     "Relay" => ("Via servidor", p.warn),
@@ -1246,6 +1272,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     let mut kick: Option<String> = None;
     let mut toggle_mic = false;
     let mut new_invite = false;
+    let mut add_friend: Option<(String, iroh::EndpointId)> = None;
     egui::Panel::top("share_top").show(ui, |ui| {
         ui.horizontal(|ui| {
             theme::live_pill(ui);
@@ -1325,6 +1352,8 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                             &mut room,
                             upload,
                             people_now,
+                            &mut add_friend,
+                            !app.identity_temporary,
                         );
                     });
                 } else {
@@ -1338,6 +1367,8 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                         &mut room,
                         upload,
                         people_now,
+                        &mut add_friend,
+                        !app.identity_temporary,
                     );
                 }
             });
@@ -1462,9 +1493,16 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         }
         let label = app.known_viewers.remove(&id).unwrap_or_else(|| id.clone());
         app.toasts.push(
-            format!("{label} foi removido. Para impedir a volta, gere um novo convite."),
+            format!("{label} foi removido e não pode voltar nesta transmissão."),
             ToastKind::Warn,
         );
+    }
+    if let Some((name, id)) = add_friend {
+        app.add_friend = Some(super::friends::Draft {
+            name,
+            code: livescreen_core::friends::friend_code(&id),
+            error: None,
+        });
     }
     if new_invite {
         if let Some(share) = app.share.as_ref() {

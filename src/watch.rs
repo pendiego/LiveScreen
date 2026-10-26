@@ -25,6 +25,7 @@ impl WatchSession {
     pub fn start(
         rt: &Handle,
         ticket: &str,
+        identity: iroh::SecretKey,
         name: &str,
         gain: f32,
         hardware_decode: bool,
@@ -78,6 +79,7 @@ impl WatchSession {
         let inner = ViewerSession::start(
             rt,
             ticket,
+            identity,
             name,
             env!("CARGO_PKG_VERSION"),
             decoder::supported_codecs(hardware_decode),
