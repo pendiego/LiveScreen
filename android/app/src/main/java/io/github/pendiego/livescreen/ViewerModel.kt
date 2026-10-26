@@ -77,6 +77,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     private var decoder: VideoDecoder? = null
     private var player: AudioPlayer? = null
     private var currentSurface: Surface? = null
+    private var hidden = false
 
     var update: UpdateState by mutableStateOf(UpdateState.Idle)
 
@@ -133,6 +134,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         if (handle != 0L) return
         prefs.edit().putString("name", name).apply()
         lastEnd = null
+        hidden = false
 
         pollingJob = viewModelScope.launch {
             val h = try {
@@ -152,7 +154,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             startVideo()
 
             while (isActive) {
-                delay(500)
+                delay(if (status?.connecting != false) 500 else 1000)
                 val s = withContext(Dispatchers.IO) {
                     Native.status(h)
                 }
@@ -161,6 +163,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
 
                 if (parsed.audio && !parsed.connecting && player == null) {
                     player = AudioPlayer(h).apply {
+                        this.paused = hidden
                         this.muted = this@ViewerModel.muted
                         start()
                     }
@@ -178,8 +181,18 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // A SurfaceView destrói a surface quando a janela some (Home, tela apagada): é o sinal de visibilidade.
+    private fun setVisible(v: Boolean) {
+        if (hidden == !v) return
+        hidden = !v
+        player?.paused = !v
+        if (handle != 0L) Native.setVisible(handle, v)
+        Log.i("LiveScreen", if (v) "viewer: visível" else "viewer: em segundo plano")
+    }
+
     fun attachSurface(surface: Surface) {
         currentSurface = surface
+        setVisible(true) // esvazia o canal de vídeo: o decoder não pode estar rodando
         if (handle != 0L && decoder == null) {
             startVideo()
         }
@@ -189,6 +202,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         currentSurface = null
         decoder?.stop()
         decoder = null
+        setVisible(false)
     }
 
     private fun startVideo() {

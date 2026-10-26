@@ -12,19 +12,13 @@ import android.util.Log
 class AudioPlayer(private val handle: Long) {
     @Volatile
     var muted: Boolean = false
-        set(value) {
-            field = value
-            try {
-                track?.setVolume(if (value) 0f else 1f)
-            } catch (_: Exception) {}
-        }
+
+    @Volatile
+    var paused: Boolean = false
 
     @Volatile
     private var running = false
     private var thread: Thread? = null
-
-    @Volatile
-    private var track: AudioTrack? = null
 
     fun start() {
         running = true
@@ -76,45 +70,23 @@ class AudioPlayer(private val handle: Long) {
         val bufSize = maxOf(minBuf, 38400) // 200 ms: 48000 * 2 * 2 * 0.2
 
         val audioTrack = try {
-            try {
-                AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setSampleRate(48000)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(bufSize)
-                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
-            } catch (e: Exception) {
-                Log.w("LiveScreen", "AudioPlayer: AudioTrack com PERFORMANCE_MODE_LOW_LATENCY falhou, tentando padrão: ${e.message}")
-                AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setSampleRate(48000)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(bufSize)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
-            }
+            AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(48000)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
         } catch (e: Exception) {
             Log.e("LiveScreen", "AudioPlayer: falha ao criar AudioTrack", e)
             try { codec.stop() } catch (_: Exception) {}
@@ -122,8 +94,6 @@ class AudioPlayer(private val handle: Long) {
             return
         }
 
-        track = audioTrack
-        audioTrack.setVolume(if (muted) 0f else 1f)
         audioTrack.play()
         Log.i("LiveScreen", "AudioPlayer: áudio iniciado (bufSize=$bufSize, minBuf=$minBuf)")
         var packetsReceived = 0L
@@ -135,7 +105,26 @@ class AudioPlayer(private val handle: Long) {
         val info = MediaCodec.BufferInfo()
 
         try {
+            var silent = false
             while (running) {
+                if (muted || paused) {
+                    if (!silent) {
+                        silent = true
+                        audioTrack.pause()
+                        audioTrack.flush() // zera playbackHeadPosition
+                        codec.flush()
+                        written = 0
+                        Log.i("LiveScreen", "AudioPlayer: pausado")
+                    }
+                    Thread.sleep(200)
+                    continue
+                }
+                if (silent) {
+                    silent = false
+                    while (Native.nextAudio(handle, 0) != null) {} // pacotes acumulados ficaram velhos
+                    audioTrack.play()
+                    Log.i("LiveScreen", "AudioPlayer: retomado")
+                }
                 val data = Native.nextAudio(handle, 50)
                 if (data != null) {
                     val inIdx = codec.dequeueInputBuffer(10_000)
@@ -187,7 +176,6 @@ class AudioPlayer(private val handle: Long) {
             Log.w("LiveScreen", "AudioPlayer: erro no loop de áudio: ${e.message}", e)
         } finally {
             Log.i("LiveScreen", "AudioPlayer: finalizado, total de quadros escritos=$written ($totalBytesWritten bytes)")
-            track = null
             try {
                 audioTrack.stop()
             } catch (_: Exception) {}

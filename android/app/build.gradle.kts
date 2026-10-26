@@ -10,14 +10,6 @@ val cargoVersion = rootProject.projectDir.parentFile.resolve("Cargo.toml").readL
 val appVersion = (findProperty("appVersion") as String?) ?: cargoVersion
 val (vMaj, vMin, vPatch) = appVersion.split('.').map { it.toInt() }
 
-// Fonte única das fontes Geist: assets/fonts (a mesma que o desktop embute em theme.rs).
-val geistFontsDir = layout.buildDirectory.dir("generated/geistRes")
-val copyGeistFonts by tasks.registering(Copy::class) {
-    from(rootProject.projectDir.parentFile.resolve("assets/fonts")) { include("*.ttf") }
-    into(geistFontsDir.map { it.dir("font") })
-    rename { it.lowercase().replace('-', '_') }
-}
-
 android {
     namespace = "io.github.pendiego.livescreen"
     compileSdk = 35
@@ -61,10 +53,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    sourceSets {
-        getByName("main") { res.srcDir(geistFontsDir) }
-    }
 }
 
 kotlin {
@@ -102,5 +90,5 @@ val cargoBuild by tasks.registering(Exec::class) {
 }
 
 tasks.named("preBuild") {
-    dependsOn(cargoBuild, copyGeistFonts)
+    dependsOn(cargoBuild)
 }

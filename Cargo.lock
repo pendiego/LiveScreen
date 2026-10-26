@@ -2921,7 +2921,7 @@ checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 
 [[package]]
 name = "livescreen"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "livescreen-android"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2967,7 +2967,7 @@ dependencies = [
 
 [[package]]
 name = "livescreen-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "bytes",
