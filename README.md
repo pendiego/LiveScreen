@@ -40,8 +40,10 @@ Sem cadastro e sem servidor de vídeo no meio: quem assiste só precisa do LiveS
 <td valign="top">
 
 1. Copie o código que recebeu.
-2. Clique em **Assistir**: o código já entra preenchido.
-3. Clique em **Conectar**.
+2. Cole no campo **Assistir** da tela inicial e clique em **Assistir** (ou Enter): conecta direto.
+3. Com o campo vazio, **Assistir** abre a tela de convite com o código da área de transferência já preenchido; clique em **Conectar**.
+
+Amigos na lista entram sem convite: o botão **Assistir** aparece na linha do amigo só enquanto ele está transmitindo.
 
 </td>
 </tr>
@@ -142,7 +144,7 @@ O app Android só **assiste**: baixe o `livescreen-android.apk` em [Releases](ht
 
 | Destino | Quando | Para quê |
 |---|---|---|
-| Servidores públicos da n0 (equipe do iroh) | ao transmitir e ao assistir | Encontrar o outro PC e retransmitir quando não há conexão direta. Os servidores repassam pacotes criptografados e não veem o vídeo. |
+| Servidores públicos da n0 (equipe do iroh) | ao transmitir, ao assistir e com o app aberto fora de uma transmissão quando há amigos na lista | Encontrar o outro PC e retransmitir quando não há conexão direta, e ver quais amigos estão transmitindo (uma conexão curta por amigo a cada 15 s). Os servidores repassam pacotes criptografados e não veem o vídeo. |
 | `api.github.com` / `github.com` | ao abrir o app; ao clicar em Atualizar (desktop e Android) | Verificar e baixar versões novas |
 | `speed.cloudflare.com` | ao abrir a escolha de tela, uma vez por execução, e ao clicar em "Medir de novo" | Medir o upload. O teste dura ~5 s e envia dados de teste: cerca de 60 MB numa fibra de 100 Mbps, com teto de 150 MB. |
 
