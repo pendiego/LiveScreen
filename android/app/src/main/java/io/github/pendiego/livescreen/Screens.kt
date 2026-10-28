@@ -10,6 +10,7 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -36,6 +37,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -47,8 +49,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalTextStyle
@@ -310,6 +315,59 @@ fun WatchScreen(vm: ViewerModel) {
 // Mesmo `OVERLAY_TIMEOUT` do desktop (watch_view.rs).
 private const val OVERLAY_TIMEOUT_MS = 2500L
 
+private enum class CallTone { Neutral, Active, Alert }
+
+/** Botão da barra no padrão do Meet: círculo em repouso, quadrado arredondado quando ligado. */
+@Composable
+private fun CallToggle(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    icon: Int,
+    description: String,
+    checkedTone: CallTone = CallTone.Active
+) {
+    val colors = MaterialTheme.colorScheme
+    val radius by animateDpAsState(if (checked) 16.dp else 24.dp, label = "corner")
+    val (checkedContainer, checkedContent) = when (checkedTone) {
+        CallTone.Alert -> colors.errorContainer to colors.onErrorContainer
+        else -> colors.primaryContainer to colors.onPrimaryContainer
+    }
+    FilledIconToggleButton(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = Modifier.size(48.dp),
+        shape = RoundedCornerShape(radius),
+        colors = IconButtonDefaults.filledIconToggleButtonColors(
+            containerColor = colors.surfaceContainerHighest,
+            contentColor = colors.onSurface,
+            checkedContainerColor = checkedContainer,
+            checkedContentColor = checkedContent
+        )
+    ) {
+        Icon(painterResource(icon), description)
+    }
+}
+
+@Composable
+private fun CallButton(
+    onClick: () -> Unit,
+    icon: Int,
+    description: String
+) {
+    val colors = MaterialTheme.colorScheme
+    FilledIconButton(
+        onClick = onClick,
+        modifier = Modifier.size(48.dp),
+        shape = CircleShape,
+        colors = IconButtonDefaults.filledIconButtonColors(
+            containerColor = colors.surfaceContainerHighest,
+            contentColor = colors.onSurface
+        )
+    ) {
+        Icon(painterResource(icon), description)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WatchContent(vm: ViewerModel) {
@@ -443,12 +501,9 @@ private fun WatchContent(vm: ViewerModel) {
                         .fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
                         .windowInsetsPadding(WindowInsets.displayCutout)
-                        .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
+                        .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { vm.leave() }) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), "Sair", tint = Color.White)
-                    }
                     Text(
                         status?.title?.takeIf { it.isNotEmpty() } ?: "LiveScreen",
                         style = type.titleMedium, color = Color.White,
@@ -469,45 +524,79 @@ private fun WatchContent(vm: ViewerModel) {
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
                         .windowInsetsPadding(WindowInsets.displayCutout)
-                        .padding(start = 4.dp, end = 4.dp, top = 24.dp, bottom = 8.dp)
+                        .padding(bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (showStats) Text(
-                        infoText, style = type.bodySmall, color = Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        infoText,
+                        style = type.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (hostId.isNotEmpty() && status?.connecting == false && vm.friends.none { it.code == hostId }) {
-                            IconButton(onClick = { addHost = true; bump() }) {
-                                Icon(
-                                    painterResource(R.drawable.ic_person_add),
-                                    contentDescription = "Adicionar aos amigos",
-                                    tint = Color.White
+                    Surface(
+                        shape = CircleShape,
+                        color = colors.surfaceContainerHigh,
+                        shadowElevation = 3.dp
+                    ) {
+                        Row(
+                            Modifier.padding(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (hostId.isNotEmpty() && status?.connecting == false && vm.friends.none { it.code == hostId }) {
+                                CallButton(
+                                    onClick = { addHost = true; bump() },
+                                    icon = R.drawable.ic_person_add,
+                                    description = "Adicionar aos amigos"
                                 )
                             }
-                        }
-                        if (status?.audio == true) IconButton(onClick = { vm.muted = !vm.muted; bump() }) {
-                            Icon(
-                                painterResource(if (vm.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_up),
-                                if (vm.muted) "Ativar som" else "Silenciar", tint = Color.White
+                            if (status?.audio == true) {
+                                CallToggle(
+                                    checked = vm.muted,
+                                    onCheckedChange = { vm.muted = it; bump() },
+                                    icon = if (vm.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_up,
+                                    description = if (vm.muted) "Ativar som" else "Silenciar",
+                                    checkedTone = CallTone.Alert
+                                )
+                            }
+                            CallButton(
+                                onClick = { qualitySheet = true; bump() },
+                                icon = R.drawable.ic_tune,
+                                description = "Qualidade"
                             )
-                        }
-                        IconButton(onClick = { qualitySheet = true }) {
-                            Icon(painterResource(R.drawable.ic_tune), "Qualidade", tint = Color.White)
-                        }
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { showStats = !showStats; bump() }) {
-                            Icon(painterResource(R.drawable.ic_info), "Estatísticas", tint = Color.White)
-                        }
-                        IconButton(onClick = {
-                            landscape = !landscape
-                            activity?.requestedOrientation =
-                                if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                            bump()
-                        }) {
-                            Icon(painterResource(R.drawable.ic_screen_rotation), "Girar tela", tint = Color.White)
+                            CallToggle(
+                                checked = showStats,
+                                onCheckedChange = { showStats = it; bump() },
+                                icon = R.drawable.ic_info,
+                                description = "Estatísticas"
+                            )
+                            CallToggle(
+                                checked = landscape,
+                                onCheckedChange = {
+                                    landscape = it
+                                    activity?.requestedOrientation =
+                                        if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                        else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                    bump()
+                                },
+                                icon = R.drawable.ic_screen_rotation,
+                                description = "Girar tela"
+                            )
+                            FilledIconButton(
+                                onClick = { vm.leave() },
+                                modifier = Modifier.size(width = 64.dp, height = 48.dp),
+                                shape = CircleShape,
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = colors.error,
+                                    contentColor = colors.onError
+                                )
+                            ) {
+                                Icon(painterResource(R.drawable.ic_call_end), "Sair")
+                            }
                         }
                     }
                 }
