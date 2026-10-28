@@ -37,3 +37,16 @@ jobs:
         with:
           tool: git-cliff@2.14.2
       - run: bash .github/scripts/test-changelog.sh
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - working-directory: web
+        run: |
+          npm ci
+          npm run check
