@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0B0D10">
+  <title>LiveScreen: compartilhe a tela do Windows com seus amigos</title>
+  <meta name="description" content="Compartilhamento de tela P2P para Windows, direto de um PC para o outro. Sem cadastro e sem servidor de vídeo: quem assiste só precisa de um código de convite.">
+  <link rel="canonical" href="https://pendiego.github.io/LiveScreen/">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="preload" as="font" type="font/woff2" href="assets/fonts/inter-400.woff2" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="assets/fonts/space-grotesk-700.woff2" crossorigin>
+  <link rel="stylesheet" href="assets/sinal.css">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="LiveScreen: compartilhe a tela do Windows com seus amigos">
+  <meta property="og:description" content="Compartilhamento de tela P2P para Windows, direto de um PC para o outro. Sem cadastro e sem servidor de vídeo: quem assiste só precisa de um código de convite.">
+  <meta property="og:url" content="https://pendiego.github.io/LiveScreen/">
+  <meta property="og:image" content="https://pendiego.github.io/LiveScreen/assets/img/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+  <a class="skip" href="#main">Pular para o conteúdo</a>
+
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="./">LiveScreen</a>
+      <nav class="nav">
+        <a href="#como-usar">Como usar</a>
+        <a href="#como-funciona">Como funciona</a>
+        <a class="hide-sm" href="#recursos">Recursos</a>
+        <a class="hide-sm" href="#android">Android</a>
+        <a href="ajuda/">Ajuda</a>
+        <a class="hide-sm" href="https://github.com/pendiego/LiveScreen">GitHub</a>
+      </nav>
+      <a class="btn btn-primary" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe">
+        <svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg>
+        <span>Baixar</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="main">
+    <section style="border-top: none; padding-top: 72px; text-align: center;">
+      <div class="wrap" style="display: flex; flex-direction: column; align-items: center;">
+        <span class="badge">P2P · sem servidor de vídeo</span>
+        <h1 class="display" style="margin-top: var(--s4);">Compartilhe a tela do Windows com seus amigos.</h1>
+        <p class="lead" style="max-width: 640px; margin-inline: auto; margin-bottom: var(--s5);">Direto de um PC para o outro, sem cadastro e sem servidor de vídeo no meio. Quem assiste só precisa do LiveScreen e de um código de convite.</p>
+        <div style="display: flex; gap: var(--s3); justify-content: center; flex-wrap: wrap; margin-bottom: var(--s4);">
+          <a class="btn btn-primary btn-lg" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe">
+            <svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg>
+            <span>Baixar para Windows</span>
+          </a>
+          <a class="btn btn-secondary btn-lg" href="#android">
+            <svg aria-hidden="true" focusable="false" class="lucide lucide-smartphone" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="20" height="20" x="5" y="2" rx="2" ry="2" /> <path d="M12 18h.01" /> </svg>
+            <span>Android: só para assistir</span>
+          </a>
+        </div>
+        <p class="small">Windows 10 2004+ x64 · não precisa instalar · código aberto (MIT ou Apache-2.0) · <a href="https://github.com/pendiego/LiveScreen/releases">todas as versões</a></p>
+        <img class="shot" src="assets/img/home.webp" width="2080" height="1440" alt="Tela inicial do LiveScreen, com Compartilhar tela, Assistir e a lista de amigos" style="max-width: 1040px; width: 100%; margin-top: var(--s7);">
+      </div>
+    </section>
+
+    <section id="como-usar">
+      <div class="wrap">
+        <h2>Como usar</h2>
+        <div class="grid-2" style="margin-bottom: var(--s5);">
+          <div class="card">
+            <h3 style="display: flex; align-items: center; gap: 10px;">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-screen-share" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M13 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-3" /> <path d="M8 21h8" /> <path d="M12 17v4" /> <path d="m17 8 5-5" /> <path d="M17 3h5v5" /> </svg>
+              <span>Para compartilhar</span>
+            </h3>
+            <ol class="steps">
+              <li>Clique em <strong>Compartilhar tela</strong>.</li>
+              <li>Clique na tela ou janela que quer mostrar.</li>
+              <li>Confira a qualidade e o áudio no popup e clique em <strong>Iniciar transmissão</strong>.</li>
+              <li>O código de convite já vai para a área de transferência: cole (Ctrl+V) no chat para quem vai assistir.</li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3 style="display: flex; align-items: center; gap: 10px;">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-tv" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="m17 2-5 5-5-5" /> <rect width="20" height="20" x="2" y="7" rx="2" /> </svg>
+              <span>Para assistir</span>
+            </h3>
+            <ol class="steps">
+              <li>Copie o código que recebeu.</li>
+              <li>Cole no campo <strong>Assistir</strong> da tela inicial e clique em <strong>Assistir</strong> (ou Enter): conecta direto.</li>
+              <li>Com o campo vazio, <strong>Assistir</strong> abre a tela de convite com o código da área de transferência já preenchido; clique em <strong>Conectar</strong>.</li>
+            </ol>
+            <p class="small" style="margin-top: var(--s4); margin-bottom: 0;">Amigos na lista entram sem convite: o botão <strong>Assistir</strong> aparece na linha do amigo só enquanto ele está transmitindo.</p>
+          </div>
+        </div>
+        <p style="margin-bottom: var(--s5);">Durante a transmissão dá para trocar a qualidade, mudar o limite de pessoas da sala e remover alguém sem derrubar os outros. A janela do LiveScreen some da própria transmissão, então ela não aparece para quem assiste.</p>
+        <div class="grid-2">
+          <figure>
+            <img class="shot" src="assets/img/confirm.webp" width="1376" height="1403" loading="lazy" alt="Janela Confirmar transmissão com as opções de qualidade e o upload medido">
+            <figcaption class="small">Antes de transmitir: qualidade recomendada e upload medido</figcaption>
+          </figure>
+          <figure>
+            <img class="shot" src="assets/img/watch.webp" width="2080" height="1440" loading="lazy" alt="Transmissão sendo assistida no LiveScreen, com a barra de controles">
+            <figcaption class="small">Assistindo, com a barra de controles</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="como-funciona">
+      <div class="wrap">
+        <h2>Como funciona</h2>
+        <p style="margin-bottom: var(--s5);">Cada pessoa que assiste recebe do seu PC a própria cópia do vídeo e do áudio. Quando a conexão direta não é possível, os pacotes passam por um servidor de retransmissão, que só repassa dados criptografados de ponta a ponta.</p>
+        <div style="text-align: center; margin-bottom: var(--s5);">
+          <svg role="img" aria-label="Seu PC envia direto para os amigos 1 e 2 e, pelo servidor de retransmissão, para o amigo 3" viewBox="0 0 720 280" width="100%" style="max-width: 720px; height: auto; display: inline-block;">
+            <rect x="24" y="100" width="200" height="80" rx="12" style="fill:var(--surface);stroke:var(--border);stroke-width:1"/>
+            <text x="124" y="136" text-anchor="middle" style="font-family:var(--font-display);font-weight:700;font-size:16px;fill:var(--text)">Seu PC</text>
+            <text x="124" y="158" text-anchor="middle" style="font-family:var(--font-body);font-size:12px;fill:var(--text-muted)">captura, codifica e envia</text>
+
+            <rect x="496" y="24" width="200" height="56" rx="12" style="fill:var(--surface);stroke:var(--border);stroke-width:1"/>
+            <text x="596" y="57" text-anchor="middle" style="font-family:var(--font-body);font-size:14px;fill:var(--text)">Amigo 1</text>
+
+            <rect x="496" y="112" width="200" height="56" rx="12" style="fill:var(--surface);stroke:var(--border);stroke-width:1"/>
+            <text x="596" y="145" text-anchor="middle" style="font-family:var(--font-body);font-size:14px;fill:var(--text)">Amigo 2</text>
+
+            <rect x="496" y="200" width="200" height="56" rx="12" style="fill:var(--surface);stroke:var(--border);stroke-width:1"/>
+            <text x="596" y="233" text-anchor="middle" style="font-family:var(--font-body);font-size:14px;fill:var(--text)">Amigo 3</text>
+
+            <path d="M224 130 L496 52" style="stroke:var(--accent);stroke-width:2;fill:none"/>
+            <path d="M224 140 L496 140" style="stroke:var(--accent);stroke-width:2;fill:none"/>
+            <text x="360" y="84" text-anchor="middle" style="font-family:var(--font-body);font-size:12px;fill:var(--text-muted)">conexão direta criptografada</text>
+
+            <rect x="272" y="212" width="176" height="48" rx="12" style="fill:var(--raised);stroke:var(--border-strong);stroke-width:1;stroke-dasharray:4 4"/>
+            <text x="360" y="232" text-anchor="middle" style="font-family:var(--font-body);font-size:13px;fill:var(--text)">Retransmissão</text>
+            <text x="360" y="249" text-anchor="middle" style="font-family:var(--font-body);font-size:11px;fill:var(--text-muted)">só sem conexão direta</text>
+
+            <path d="M224 160 L272 236" style="stroke:var(--text-muted);stroke-width:1.5;stroke-dasharray:6 6;fill:none"/>
+            <path d="M448 236 L496 228" style="stroke:var(--text-muted);stroke-width:1.5;stroke-dasharray:6 6;fill:none"/>
+          </svg>
+        </div>
+        <div class="note note-warn">
+          O servidor de retransmissão padrão é a infraestrutura pública e gratuita da n0 (equipe do iroh). Ela é compartilhada com outros apps, <a href="https://docs.iroh.computer/add-a-relay">feita para desenvolvimento e testes e tem limite de taxa</a>. Com conexão direta, nada passa por ela. Quando alguém aparece como <strong>Via servidor</strong>, qualidades altas podem travar: baixe a qualidade da transmissão ou peça uma mais leve no menu <strong>Qualidade</strong> de quem assiste.
+        </div>
+      </div>
+    </section>
+
+    <section id="qualidade">
+      <div class="wrap">
+        <h2>Quem limita a sala é o seu upload</h2>
+        <div class="table" style="margin-bottom: var(--s3);">
+          <table>
+            <thead>
+              <tr>
+                <th>Qualidade</th>
+                <th>Upload por pessoa (máximo, com muito movimento)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>480p 30fps</td>
+                <td>1,5 Mbps</td>
+              </tr>
+              <tr>
+                <td>720p 30fps</td>
+                <td>4 Mbps</td>
+              </tr>
+              <tr>
+                <td>1080p 60fps</td>
+                <td>8 Mbps</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small" style="margin-bottom: var(--s5);">Telas paradas (slides, código, navegador) gastam bem menos que isso.</p>
+        <div class="grid-2" style="margin-bottom: var(--s5);">
+          <div>
+            <h3>Upload medido</h3>
+            <p>ao abrir a escolha de tela, o app mede o seu upload (~5 s) e mostra quantas pessoas cada qualidade aguenta.</p>
+          </div>
+          <div>
+            <h3>Qualidade recomendada</h3>
+            <p>o app marca a mais pesada que o seu PC e a sua internet sustentam para o tamanho da sala, até 1080p 60fps.</p>
+          </div>
+          <div>
+            <h3>Limite da sala</h3>
+            <p>começa em 4 pessoas e pode ser aumentado durante a transmissão. Se o limite passar do que a internet aguenta, aparece um aviso. Quem tenta entrar com a sala cheia recebe &quot;Recusado: sala cheia&quot;.</p>
+          </div>
+          <div>
+            <h3>PC sobrecarregado</h3>
+            <p>se o computador não der conta da qualidade, o app avisa e, com &quot;Baixar a qualidade sozinho&quot; ligado (padrão), reduz uma faixa sozinho, no máximo a cada 10 s. Só reduz, e só por sobrecarga do PC; a rede continua só com o bitrate adaptativo.</p>
+          </div>
+        </div>
+        <p><a href="ajuda/#qualidade-pelo-espectador">Qualidade pedida por quem assiste e outros detalhes na ajuda</a></p>
+      </div>
+    </section>
+
+    <section id="recursos">
+      <div class="wrap">
+        <h2>Recursos</h2>
+        <div class="grid-3">
+          <div class="card">
+            <div class="icon-ring" style="margin-bottom: var(--s4);">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-monitor" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="24" height="24" x="2" y="3" rx="2" /> <line x1="8" x2="16" y1="21" y2="21" /> <line x1="12" x2="12" y1="17" y2="21" /> </svg>
+            </div>
+            <h3>Captura</h3>
+            <p class="small">Tela inteira ou uma janela só, pelo Windows Graphics Capture, com Desktop Duplication de reserva. A janela do LiveScreen some da própria transmissão.</p>
+          </div>
+          <div class="card">
+            <div class="icon-ring" style="margin-bottom: var(--s4);">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-sliders-horizontal" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M10 5H3" /> <path d="M12 19H3" /> <path d="M14 3v4" /> <path d="M16 17v4" /> <path d="M21 12h-9" /> <path d="M21 19h-5" /> <path d="M21 5h-7" /> <path d="M8 10v4" /> <path d="M8 12H3" /> </svg>
+            </div>
+            <h3>Vídeo</h3>
+            <p class="small">H.264, HEVC e AV1 pela placa de vídeo (NVIDIA, AMD ou Intel), negociados entre todos na sala, com H.264 por software de reserva.</p>
+          </div>
+          <div class="card">
+            <div class="icon-ring" style="margin-bottom: var(--s4);">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-volume-2" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" /> <path d="M16 9a5 5 0 0 1 0 6" /> <path d="M19.364 18.364a9 9 0 0 0 0-12.728" /> </svg>
+            </div>
+            <h3>Áudio</h3>
+            <p class="small">Opus com todo o som do PC ou só o da janela, e o microfone opcional, desligado por padrão.</p>
+          </div>
+          <div class="card">
+            <div class="icon-ring" style="margin-bottom: var(--s4);">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-lock" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="24" height="24" x="3" y="11" rx="2" ry="2" /> <path d="M7 11V7a5 5 0 0 1 10 0v4" /> </svg>
+            </div>
+            <h3>Conexão</h3>
+            <p class="small">Direta entre os PCs via iroh e criptografada de ponta a ponta. Sem conexão direta, um servidor de retransmissão só repassa os pacotes.</p>
+          </div>
+          <div class="card">
+            <div class="icon-ring" style="margin-bottom: var(--s4);">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-users" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <path d="M16 3.128a4 4 0 0 1 0 7.744" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <circle cx="9" cy="7" r="4" /> </svg>
+            </div>
+            <h3>Amigos</h3>
+            <p class="small">Amigos na lista veem quando você transmite e entram sem convite. Dá para remover alguém da sala sem derrubar os outros.</p>
+          </div>
+          <div class="card">
+            <div class="icon-ring" style="margin-bottom: var(--s4);">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg>
+            </div>
+            <h3>Atualização</h3>
+            <p class="small">O app avisa quando há versão nova, baixa e confere o arquivo pelo sha256 antes de trocar.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="android">
+      <div class="wrap">
+        <div style="max-width: 640px;">
+          <h2>No celular, só para assistir</h2>
+          <p>Cole o código de convite e toque em Assistir. O app Android conecta a hosts 0.5 e também a hosts 0.4.</p>
+          <p class="small">Com o app em segundo plano o áudio pausa e, em hosts 0.5, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar.</p>
+          <div style="margin-block: var(--s4);">
+            <a class="btn btn-primary" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen-android.apk">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg>
+              <span>Baixar o APK</span>
+            </a>
+          </div>
+          <p class="small">Android 8.0 ou superior. O Android não transmite.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="privacidade">
+      <div class="wrap">
+        <h2>Conexões que o app faz</h2>
+        <p style="margin-bottom: var(--s4);">Sem conta e sem servidor de vídeo: estas são todas as conexões que o app abre.</p>
+        <div class="table">
+          <table>
+            <thead>
+              <tr>
+                <th>Destino</th>
+                <th>Quando</th>
+                <th>Para quê</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Servidores públicos da n0 (equipe do iroh)</td>
+                <td>ao transmitir, ao assistir e com o app aberto fora de uma transmissão quando há amigos na lista</td>
+                <td>Encontrar o outro PC e retransmitir quando não há conexão direta, e ver quais amigos estão transmitindo (uma conexão curta por amigo a cada 15 s). Os servidores repassam pacotes criptografados e não veem o vídeo. É infraestrutura pública compartilhada, para testes e com limite de taxa: não há garantia de banda quando o vídeo passa por ela.</td>
+              </tr>
+              <tr>
+                <td><code>api.github.com</code> / <code>github.com</code></td>
+                <td>ao abrir o app; ao clicar em Atualizar (desktop e Android)</td>
+                <td>Verificar e baixar versões novas</td>
+              </tr>
+              <tr>
+                <td><code>speed.cloudflare.com</code></td>
+                <td>ao abrir a escolha de tela, uma vez por execução, e ao clicar em &quot;Medir de novo&quot;</td>
+                <td>Medir o upload. O teste dura ~5 s e envia dados de teste: cerca de 60 MB numa fibra de 100 Mbps, com teto de 150 MB.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="baixar">
+      <div class="wrap">
+        <div class="card" style="text-align: center; padding: 48px; max-width: 800px; margin-inline: auto;">
+          <h2>Pronto para transmitir?</h2>
+          <p class="lead" style="margin-bottom: var(--s5);">Baixe, abra e mande o convite. Não precisa instalar nem criar conta.</p>
+          <div style="display: flex; gap: var(--s3); justify-content: center; flex-wrap: wrap;">
+            <a class="btn btn-primary btn-lg" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe">
+              <svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg>
+              <span>Baixar para Windows</span>
+            </a>
+            <a class="btn btn-secondary btn-lg" href="ajuda/">Ler a ajuda</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <div class="foot-row">
+        <a class="brand" href="./">LiveScreen</a>
+        <div class="foot-links">
+          <a href="ajuda/">Ajuda</a>
+          <a href="https://github.com/pendiego/LiveScreen/releases">Versões</a>
+          <a href="https://github.com/pendiego/LiveScreen">
+            <span>Código no GitHub</span>
+            <svg aria-hidden="true" focusable="false" class="lucide lucide-external-link" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M15 3h6v6" /> <path d="M10 14 21 3" /> <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /> </svg>
+          </a>
+          <a href="https://github.com/pendiego/LiveScreen/issues">Problemas</a>
+        </div>
+      </div>
+      <div class="small">
+        Licença MIT ou Apache-2.0. Fontes Inter, Space Grotesk e JetBrains Mono sob a <a href="assets/fonts/OFL-Inter.txt">SIL OFL 1.1</a>; ícones <a href="assets/fonts/LICENSE-Lucide.txt">Lucide</a> (ISC).
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
