@@ -150,20 +150,18 @@ fn e2e_window() {
     snap("start");
     w.request_quality(Preset::P480p30);
     std::thread::sleep(Duration::from_secs(1));
-    let (_who, asked, res) = share
-        .apply_quality_request()
-        .expect("pedido de qualidade não chegou ao host");
+    let (asked, _) = share.take_quality_request().expect("pedido de qualidade não chegou ao host");
     assert_eq!(asked, Preset::P480p30);
-    res.unwrap();
+    share.apply_quality_request(asked).unwrap();
     std::thread::sleep(Duration::from_secs(2));
     snap("após pedido do viewer (480p)");
     // mais pesado que o atual (480p) é recusado; o intervalo mínimo entre pedidos é 5 s
     std::thread::sleep(Duration::from_secs(5));
     w.request_quality(Preset::P1080p60);
     std::thread::sleep(Duration::from_secs(1));
-    let (_, heavier, res) = share.apply_quality_request().expect("pedido não chegou");
+    let (heavier, _) = share.take_quality_request().expect("pedido não chegou");
     assert_eq!(heavier, Preset::P1080p60);
-    assert!(res.is_err(), "pedido mais pesado deveria ser recusado");
+    assert!(share.apply_quality_request(heavier).is_err(), "pedido mais pesado deveria ser recusado");
     assert_eq!(share.current().0, Preset::P480p30);
     let hw = HWND(hwnd as *mut _);
     unsafe {
@@ -383,7 +381,8 @@ fn e2e_android() {
     // Host applies the quality request
     let mut applied_quality = None;
     for _ in 0..20 {
-        if let Some((who, preset, res)) = share.apply_quality_request() {
+        if let Some((preset, who)) = share.take_quality_request() {
+            let res = share.apply_quality_request(preset);
             println!("HOST APPLIED QUALITY: who='{who}', preset={preset:?}, res={res:?}");
             assert_eq!(preset, Preset::P480p30);
             res.unwrap();

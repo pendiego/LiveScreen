@@ -266,15 +266,16 @@ async fn run(
     let welcome: HostMsg = tokio::time::timeout(Duration::from_secs(15), read_msg(&mut recv))
         .await
         .map_err(|_| anyhow!("Sem resposta do host"))??;
-    let (w, h, audio, title, host_name) = match welcome {
+    let (w, h, audio, title, host_name, light_presets) = match welcome {
         HostMsg::Welcome {
             width,
             height,
             audio,
             title,
             host_name,
+            light_presets,
             ..
-        } => (width, height, audio, title, host_name),
+        } => (width, height, audio, title, host_name, light_presets),
         HostMsg::Rejected { reason } => return Ok(format!("Recusado: {reason}")),
         HostMsg::StreamEnded => return Ok("Transmissão encerrada".into()),
         HostMsg::StreamParams { .. } => return Ok("Resposta inesperada do host".into()),
@@ -371,6 +372,10 @@ async fn run(
                     if matches!(target, Target::Invite(_, None)) && matches!(msg, ViewerMsg::SetVisible { .. }) {
                         continue;
                     }
+                    let msg = match msg {
+                        ViewerMsg::SetQuality { preset } if !light_presets => ViewerMsg::SetQuality { preset: preset.for_old_host() },
+                        m => m,
+                    };
                     if write_msg(&mut send, &msg).await.is_err() {
                         return;
                     }

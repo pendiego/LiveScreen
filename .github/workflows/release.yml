@@ -67,3 +67,5 @@ jobs:
           body_path: CHANGES.md
           # o GitHub acrescenta "What's Changed" (PRs), "New Contributors" e "Full Changelog"
           generate_release_notes: true
+          # tags com sufixo (v0.6.0-beta.1) saem como pré-lançamento: o /releases/latest dos updaters as ignora
+          prerelease: ${{ contains(github.ref_name, '-') }}

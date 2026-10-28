@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0B0D10">
+  <title>Ajuda: LiveScreen</title>
+  <meta name="description" content="Requisitos, versões, configurações, Android, arquivos e solução de problemas do LiveScreen.">
+  <link rel="canonical" href="https://pendiego.github.io/LiveScreen/ajuda/">
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
+  <link rel="preload" as="font" type="font/woff2" href="../assets/fonts/inter-400.woff2" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="../assets/fonts/space-grotesk-700.woff2" crossorigin>
+  <link rel="stylesheet" href="../assets/sinal.css">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Ajuda: LiveScreen">
+  <meta property="og:description" content="Requisitos, versões, configurações, Android, arquivos e solução de problemas do LiveScreen.">
+  <meta property="og:url" content="https://pendiego.github.io/LiveScreen/ajuda/">
+  <meta property="og:image" content="https://pendiego.github.io/LiveScreen/assets/img/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+  <a class="skip" href="#main">Pular para o conteúdo</a>
+
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="../">LiveScreen</a>
+      <nav class="nav">
+        <a href="../#como-usar">Como usar</a>
+        <a href="../#como-funciona">Como funciona</a>
+        <a class="hide-sm" href="../#recursos">Recursos</a>
+        <a class="hide-sm" href="../#android">Android</a>
+        <a href="./">Ajuda</a>
+        <a class="hide-sm" href="https://github.com/pendiego/LiveScreen">GitHub</a>
+      </nav>
+      <a class="btn btn-primary" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe">
+        <svg
+  class="lucide lucide-download"
+  xmlns="http://www.w3.org/2000/svg"
+  width="20"
+  height="20"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 15V3" />
+  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+  <path d="m7 10 5 5 5-5" />
+</svg>
+        <span>Baixar</span>
+      </a>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="wrap">
+      <div class="help">
+        <nav class="toc" aria-label="Nesta página">
+          <ul>
+            <li><a class="small" href="#requisitos">Requisitos</a></li>
+            <li><a class="small" href="#versoes">Versões</a></li>
+            <li><a class="small" href="#download">Download e atualização</a></li>
+            <li><a class="small" href="#configuracoes">Configurações</a></li>
+            <li><a class="small" href="#qualidade-pelo-espectador">Qualidade pelo espectador</a></li>
+            <li><a class="small" href="#android">Android</a></li>
+            <li><a class="small" href="#arquivos">Arquivos e configurações</a></li>
+            <li><a class="small" href="#diagnostico">Diagnóstico</a></li>
+            <li><a class="small" href="#problemas">Solução de problemas</a></li>
+          </ul>
+        </nav>
+
+        <article>
+          <h1>Ajuda</h1>
+          <p class="lead">Tudo o que não coube na página inicial.</p>
+
+          <section id="requisitos">
+            <h2>Requisitos</h2>
+            <ul>
+              <li><strong>Host (quem transmite):</strong> Windows 10 versão 2004 ou superior, 64 bits.</li>
+              <li><strong>Viewer (quem assiste):</strong> Windows 10 2004+ x64 ou Android 8.0 (API 26) ou superior. O Android não transmite.</li>
+            </ul>
+          </section>
+
+          <section id="versoes">
+            <h2>Versões</h2>
+            <p>O host 0.5 só aceita viewers 0.5 (protocolo 5). Viewers 0.5.x conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com &ldquo;versão incompatível&rdquo;.</p>
+            <div class="table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Quem transmite</th>
+                    <th>Quem assiste</th>
+                    <th>Conecta?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>0.5</code></td>
+                    <td><code>0.5 (desktop ou Android)</code></td>
+                    <td>Sim</td>
+                  </tr>
+                  <tr>
+                    <td><code>0.4</code></td>
+                    <td><code>0.5 (desktop ou Android)</code></td>
+                    <td>Sim, com convite sem chave de sala</td>
+                  </tr>
+                  <tr>
+                    <td><code>0.5</code></td>
+                    <td><code>0.4</code></td>
+                    <td>Não: &ldquo;versão incompatível&rdquo;</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="download">
+            <h2>Download e atualização</h2>
+            <p>Baixe o <a href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe"><code>livescreen.exe</code></a> (ou o <a href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen-windows-x64.zip"><code>.zip</code></a>) em <a href="https://github.com/pendiego/LiveScreen/releases">Releases</a>. Não precisa instalar: é só abrir.</p>
+            <p>Ao abrir, o app verifica se há versão nova. Se houver, aparece o botão <strong>Atualizar para a versão X</strong> no rodapé da tela inicial. Ele:</p>
+            <ol class="steps">
+              <li>baixa o <code>livescreen.exe</code> da release;</li>
+              <li>confere o sha256 publicado pelo GitHub;</li>
+              <li>troca o executável e reabre o app.</li>
+            </ol>
+            <div class="note note-warn">
+              <p>Para atualizar, o executável precisa estar numa pasta com permissão de escrita (fora de <code>Program Files</code>, por exemplo).</p>
+            </div>
+          </section>
+
+          <section id="configuracoes">
+            <h2>Configurações</h2>
+            <p>Abra pela engrenagem em qualquer tela ou com <kbd>Ctrl</kbd>+<kbd>,</kbd>. Tudo fica em <code>ui.json</code>.</p>
+            <figure>
+              <img class="shot" src="../assets/img/settings.webp" width="2080" height="1440" loading="lazy" alt="Janela de Configurações do LiveScreen, aba Vídeo">
+              <figcaption class="small">Janela de Configurações do LiveScreen, aba Vídeo</figcaption>
+            </figure>
+
+            <h3>Vídeo</h3>
+            <ul>
+              <li>
+                <strong>Decodificar vídeo pela placa de vídeo</strong>
+                <p class="small">Vale na próxima vez que você assistir. Se falhar, o LiveScreen usa o processador.</p>
+              </li>
+              <li>
+                <strong>Mostrar o vídeo direto da placa de vídeo, sem cópia</strong>
+                <p class="small">Vale na próxima vez que você assistir. Desligue se a imagem ficar preta ou piscando: o quadro passa a ser copiado pelo processador.</p>
+              </li>
+              <li>
+                <strong>Codificar vídeo pela placa de vídeo</strong>
+                <p class="small">Vale na próxima transmissão.</p>
+              </li>
+              <li>
+                <strong>Mostrar estatísticas de vídeo ao assistir</strong>
+              </li>
+            </ul>
+
+            <h3>Transmissão</h3>
+            <ul>
+              <li>
+                <strong>Qualidade padrão</strong>
+              </li>
+              <li>
+                <strong>Transmitir áudio</strong>
+              </li>
+              <li>
+                <strong>Transmitir microfone</strong>
+              </li>
+              <li>
+                <strong>Baixar a qualidade sozinho quando o PC não der conta</strong>
+                <p class="small">Vale na hora, inclusive com a transmissão no ar. Só reduz; para subir, escolha a qualidade.</p>
+              </li>
+              <li>
+                <strong>Aceitar pedidos de qualidade mais leve de quem assiste</strong>
+                <p class="small">Desligado, os pedidos só aparecem como aviso.</p>
+              </li>
+              <li>
+                <strong>Limite da sala</strong>
+              </li>
+              <li>
+                <strong>Seu nome</strong>
+                <p class="small">Como você aparece para quem compartilha</p>
+              </li>
+              <li>
+                <p class="small">A qualidade e o áudio também mudam quando você escolhe ao iniciar uma transmissão.</p>
+              </li>
+            </ul>
+
+            <h3>Atualizações</h3>
+            <ul>
+              <li>
+                <strong>Procurar atualizações ao abrir o LiveScreen</strong>
+                <p class="small">Versão instalada</p>
+              </li>
+            </ul>
+
+            <h3>Diagnóstico</h3>
+            <ul>
+              <li>
+                <strong>Abrir pasta de logs</strong>
+              </li>
+              <li>
+                <strong>Usar Windows Graphics Capture (necessário para compartilhar janelas)</strong>
+              </li>
+              <li>
+                <strong>Usar Desktop Duplication (DXGI) como alternativa para telas</strong>
+                <p class="small">Vale na próxima transmissão.</p>
+              </li>
+            </ul>
+          </section>
+
+          <section id="qualidade-pelo-espectador">
+            <h2>Qualidade pelo espectador</h2>
+            <p>Quem assiste pode pedir ao host uma qualidade mais leve (menu &ldquo;Qualidade&rdquo;), inclusive as faixas 240p 30, 360p 30 e 480p 15 (hosts mais antigos, que não conhecem essas faixas, recebem 480p 30). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda. O host pode desligar os pedidos em Configurações (&ldquo;Aceitar pedidos de qualidade mais leve de quem assiste&rdquo;); desligado, eles só aparecem como aviso.</p>
+          </section>
+
+          <section id="android">
+            <h2>Android (só para assistir)</h2>
+            <p>O app Android só <strong>assiste</strong>: cole o código de convite e toque em <strong>Assistir</strong>. Ele conecta a hosts 0.5 e também a hosts 0.4 (convite sem chave de sala).</p>
+            <p>
+              <a class="btn btn-primary" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen-android.apk">
+                <svg
+  class="lucide lucide-download"
+  xmlns="http://www.w3.org/2000/svg"
+  width="20"
+  height="20"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 15V3" />
+  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+  <path d="m7 10 5 5 5-5" />
+</svg>
+                <span>Baixar o APK</span>
+              </a>
+            </p>
+            <ul>
+              <li><strong>Bateria:</strong> com o app em segundo plano o áudio pausa e, em hosts 0.5, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar. Hosts 0.4 não entendem esse pedido e continuam enviando vídeo. Mudo também pausa a decodificação do áudio.</li>
+              <li><strong>Atualização:</strong> o app confere a release pelo GitHub e baixa o APK novo.</li>
+            </ul>
+          </section>
+
+          <section id="arquivos">
+            <h2>Arquivos em %APPDATA%\LiveScreen\ e config.json</h2>
+            <ul>
+              <li><strong><code>ui.json</code>:</strong> preferências (qualidade, áudio, nome, volume, limite da sala, posição da janela, decodificação/codificação por hardware, estatísticas, tema, atualização, backends de captura).</li>
+              <li><strong><code>livescreen.log</code>:</strong> registro para diagnóstico.</li>
+              <li>
+                <strong><code>config.json</code></strong> (opcional): desliga partes da captura ou do encoder para contornar problemas de driver:
+                <pre><code>{ "capture_overrides": ["deny-hardware-encoder"] }</code></pre>
+                <p>Valores aceitos:</p>
+                <ul>
+                  <li><code>deny-graphics-capture</code></li>
+                  <li><code>deny-dxgi</code></li>
+                  <li><code>deny-hardware-encoder</code></li>
+                  <li><code>deny-hardware-decoder</code></li>
+                  <li><code>deny-zero-copy</code> (o viewer volta a ler o quadro pela CPU em vez de compartilhar a textura com a placa de vídeo; o overlay de estatísticas mostra <code>sem cópia</code> ou <code>cópia via CPU</code>)</li>
+                </ul>
+                <p class="small">A variável de ambiente <code>LIVESCREEN_CAPTURE_OVERRIDES</code> (valores separados por vírgula) substitui o arquivo. O que o arquivo ou a variável desligam não pode ser religado em Configurações. A janela usa o backend DX12 do wgpu; <code>WGPU_BACKEND</code> troca o backend e, fora do DX12, o viewer usa a cópia via CPU.</p>
+              </li>
+            </ul>
+          </section>
+
+          <section id="diagnostico">
+            <h2>Diagnóstico pela linha de comando</h2>
+            <p>O <code>.exe</code> é um app de janela: para ver a saída, redirecione, ex.: <code>livescreen.exe --probe-encoder | Out-String</code> no PowerShell ou <code>| more</code> no cmd.</p>
+            <ul>
+              <li>
+                <pre><code>livescreen.exe --probe-encoder</code></pre>
+                <p class="small">Testa os encoders de placa e imprime o que funcionou.</p>
+              </li>
+              <li>
+                <pre><code>livescreen.exe --selftest-capture</code></pre>
+                <p class="small">Captura a tela principal por 3 s com cada backend e conta os quadros.</p>
+              </li>
+            </ul>
+          </section>
+
+          <section id="problemas">
+            <h2>Solução de problemas</h2>
+            <h3>Aparece Via servidor e o vídeo trava</h3>
+            <p>O servidor de retransmissão padrão é a infraestrutura pública e gratuita da n0 (equipe do iroh), compartilhada com outros apps e com limite de taxa. Quando alguém aparece como <strong>Via servidor</strong>, qualidades altas podem travar: baixe a qualidade da transmissão ou peça uma mais leve no menu <strong>Qualidade</strong> de quem assiste.</p>
+
+            <h3>Recusado: sala cheia</h3>
+            <p>Quem transmite pode aumentar o limite da sala durante a transmissão na janela do app.</p>
+
+            <h3>&ldquo;versão incompatível&rdquo;</h3>
+            <p>As versões do LiveScreen em uso possuem protocolos incompatíveis. Atualize ambos os lados para a mesma versão (consulte <a href="#versoes">Versões</a>).</p>
+
+            <h3>O botão Atualizar não funciona</h3>
+            <p>Para conseguir substituir o executável durante a atualização automática, o aplicativo precisa estar numa pasta com permissão de escrita (fora de <code>Program Files</code>, por exemplo).</p>
+
+            <h3>O PC não dá conta da qualidade</h3>
+            <p>Deixe &ldquo;Baixar a qualidade sozinho quando o PC não der conta&rdquo; ligado nas <a href="#configuracoes">Configurações</a> (padrão) ou escolha uma qualidade menor.</p>
+
+            <h3>Vídeo preto ou erro da placa de vídeo</h3>
+            <p>Use os seletores <code>deny-hardware-encoder</code>, <code>deny-hardware-decoder</code> e <code>deny-zero-copy</code> em <code>config.json</code> (veja a seção <a href="#arquivos">Arquivos</a>) ou desmarque &ldquo;Mostrar o vídeo direto da placa de vídeo, sem cópia&rdquo; nas Configurações.</p>
+
+            <h3>Reportar um problema</h3>
+            <p>Abra uma issue em <a href="https://github.com/pendiego/LiveScreen/issues">GitHub Issues</a> e anexe o arquivo <code>%APPDATA%\LiveScreen\livescreen.log</code>.</p>
+          </section>
+        </article>
+      </div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <div class="foot-row">
+        <a class="brand" href="../">LiveScreen</a>
+        <div class="foot-links">
+          <a href="./">Ajuda</a>
+          <a href="https://github.com/pendiego/LiveScreen/releases">Versões</a>
+          <a href="https://github.com/pendiego/LiveScreen">
+            <span>Código no GitHub</span>
+            <svg
+  class="lucide lucide-external-link"
+  xmlns="http://www.w3.org/2000/svg"
+  width="20"
+  height="20"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M15 3h6v6" />
+  <path d="M10 14 21 3" />
+  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+</svg>
+          </a>
+          <a href="https://github.com/pendiego/LiveScreen/issues">Problemas</a>
+        </div>
+      </div>
+      <div class="small">
+        Licença MIT ou Apache-2.0. Fontes Inter, Space Grotesk e JetBrains Mono sob a <a href="../assets/fonts/OFL-Inter.txt">SIL OFL 1.1</a>; ícones <a href="../assets/fonts/LICENSE-Lucide.txt">Lucide</a> (ISC).
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
