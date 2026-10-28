@@ -9,8 +9,18 @@ val cargoVersion = rootProject.projectDir.parentFile.resolve("Cargo.toml").readL
     .first { it.startsWith("version = ") }.substringAfter('"').substringBefore('"')
 val appVersion = (findProperty("appVersion") as String?) ?: cargoVersion
 val (vMaj, vMin, vPatch) = appVersion.split('.').map { it.toInt() }
+// Fontes do tema Sinal: fonte única em assets/fonts (as mesmas do desktop), copiadas como res/font.
+val fontResDir = layout.buildDirectory.dir("generated/fontRes")
+val copyFonts by tasks.registering(Copy::class) {
+    from(rootProject.projectDir.parentFile.resolve("assets/fonts")) {
+        include("SpaceGrotesk-Medium.ttf", "Inter-Regular.ttf", "Inter-Medium.ttf", "Inter-SemiBold.ttf", "JetBrainsMono-Regular.ttf")
+    }
+    into(fontResDir.map { it.dir("font") })
+    rename { it.lowercase().replace('-', '_') }
+}
 
 android {
+    sourceSets["main"].res.srcDir(fontResDir)
     namespace = "io.github.pendiego.livescreen"
     compileSdk = 35
 
@@ -92,4 +102,5 @@ val cargoBuild by tasks.registering(Exec::class) {
 
 tasks.named("preBuild") {
     dependsOn(cargoBuild)
+    dependsOn(copyFonts)
 }

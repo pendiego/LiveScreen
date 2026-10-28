@@ -231,6 +231,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     private var hidden = false
 
     var update: UpdateState by mutableStateOf(UpdateState.Idle)
+    var updatePromptDismissed: Boolean by mutableStateOf(false)
 
     init {
         // Debug é assinado com outra chave e não aceitaria o APK de release; também poupa o e2e_android.
