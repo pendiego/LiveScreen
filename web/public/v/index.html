@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LiveScreen — Transmissão ao vivo</title>
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div class="logo">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span class="brand">LiveScreen</span>
+      </div>
+    </header>
+
+    <div class="stage">
+      <div id="playerBox" class="player-box" hidden>
+        <video id="video" autoplay playsinline></video>
+        <div class="controls">
+          <button id="muteBtn" type="button" class="btn btn-ctrl">Som</button>
+          <button id="fsBtn" type="button" class="btn btn-ctrl">Tela cheia</button>
+        </div>
+      </div>
+
+      <div id="card" class="card">
+        <div id="statusBox" hidden>
+          <p id="statusMsg" class="status-msg"></p>
+          <button id="retryBtn" type="button" class="btn btn-primary" hidden>Tentar de novo</button>
+        </div>
+
+        <form id="joinForm">
+          <div class="field">
+            <label for="nameInput">Seu nome</label>
+            <input
+              id="nameInput"
+              type="text"
+              maxlength="32"
+              placeholder="Como você aparece para quem transmite"
+              autocomplete="name"
+              required
+            >
+          </div>
+          <button id="joinBtn" type="submit" class="btn btn-primary btn-full">Assistir</button>
+        </form>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <a href="https://github.com/pendiego/LiveScreen/releases/latest" target="_blank" rel="noopener">Baixe o LiveScreen para transmitir</a>
+    </footer>
+  </main>
+  <script src="viewer.js"></script>
+</body>
+</html>
