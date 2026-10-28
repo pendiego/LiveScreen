@@ -70,6 +70,27 @@ fn share_tile(ui: &mut egui::Ui, width: f32) -> bool {
     resp.clicked()
 }
 
+/// Pílula de status do rodapé: altura fixa de 28 dp centrada no conteúdo. Um `Frame` aqui esticaria
+/// até a altura do painel, porque `horizontal_centered` justifica os filhos no eixo vertical.
+fn pill(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) -> egui::Response {
+    let bg = ui.painter().add(egui::Shape::Noop);
+    let inner = ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.add_space(4.0);
+        add(ui);
+        ui.add_space(4.0);
+    });
+    let rect = egui::Rect::from_center_size(
+        inner.response.rect.center(),
+        vec2(inner.response.rect.width() + 12.0, 28.0),
+    );
+    ui.painter().set(
+        bg,
+        egui::epaint::RectShape::filled(rect, theme::R_PILL, theme::P.raised),
+    );
+    inner.response
+}
+
 pub fn footer(app: &mut App, ui: &mut egui::Ui) {
     let enc = app.encoder.lock().unwrap().clone();
     let update = app.update.lock().unwrap().clone();
@@ -88,21 +109,10 @@ pub fn footer(app: &mut App, ui: &mut egui::Ui) {
             ui.horizontal_centered(|ui| {
                 match &enc {
                     None => {
-                        egui::Frame::new()
-                            .fill(p.raised)
-                            .corner_radius(theme::R_PILL)
-                            .inner_margin(egui::Margin::symmetric(10, 4))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 6.0;
-                                    ui.add(egui::Spinner::new().size(12.0));
-                                    ui.label(
-                                        RichText::new("Detectando encoder de vídeo…")
-                                            .small()
-                                            .color(p.text_muted),
-                                    );
-                                });
-                            });
+                        pill(ui, |ui| {
+                            ui.add(egui::Spinner::new().size(12.0));
+                            ui.label(RichText::new("Detectando encoder de vídeo…").small().color(p.text_muted));
+                        });
                     }
                     Some(kinds) => {
                         let hw_labels: Vec<_> = kinds
@@ -122,42 +132,24 @@ pub fn footer(app: &mut App, ui: &mut egui::Ui) {
                                     }
                                 }
                             }
-                            let resp = egui::Frame::new()
-                                .fill(p.raised)
-                                .corner_radius(theme::R_PILL)
-                                .inner_margin(egui::Margin::symmetric(10, 4))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = 6.0;
-                                        ui.label(RichText::new(I_CIRCLE_CHECK).size(16.0).color(p.success));
-                                        ui.label(
-                                            RichText::new(format!("Hardware · {}", codecs.join(", ")))
-                                                .small()
-                                                .color(p.text_muted),
-                                        );
-                                    });
-                                });
-                            resp.response.on_hover_text(format!(
+                            pill(ui, |ui| {
+                                ui.label(RichText::new(I_CIRCLE_CHECK).size(16.0).color(p.success));
+                                ui.label(
+                                    RichText::new(format!("Hardware · {}", codecs.join(", ")))
+                                        .small()
+                                        .color(p.text_muted),
+                                );
+                            })
+                            .on_hover_text(format!(
                                 "Encoder com aceleração por hardware: {}",
                                 hw_labels.join(", ")
                             ));
                         } else {
-                            let resp = egui::Frame::new()
-                                .fill(p.raised)
-                                .corner_radius(theme::R_PILL)
-                                .inner_margin(egui::Margin::symmetric(10, 4))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = 6.0;
-                                        ui.label(RichText::new(I_INFO).size(16.0).color(p.warn));
-                                        ui.label(
-                                            RichText::new("Encoder por software")
-                                                .small()
-                                                .color(p.text_muted),
-                                        );
-                                    });
-                                });
-                            resp.response.on_hover_text("Microsoft H.264 — pode usar mais CPU");
+                            pill(ui, |ui| {
+                                ui.label(RichText::new(I_INFO).size(16.0).color(p.warn));
+                                ui.label(RichText::new("Encoder por software").small().color(p.text_muted));
+                            })
+                            .on_hover_text("Microsoft H.264 — pode usar mais CPU");
                         }
                     }
                 }
@@ -175,7 +167,8 @@ pub fn footer(app: &mut App, ui: &mut egui::Ui) {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    super::settings::button(app, ui);
+                    // O layout justifica no eixo vertical: sem altura fixa o botão esticaria até o painel.
+                    ui.allocate_ui_with_layout(vec2(32.0, 32.0), Layout::left_to_right(Align::Center), |ui| super::settings::button(app, ui));
                     ui.add_space(16.0);
 
                     if app.updating.is_some() {

@@ -513,34 +513,24 @@ pub fn icon_button(ui: &mut egui::Ui, icon: &str, label: &str) -> Response {
 
 pub fn outline_icon_button(ui: &mut egui::Ui, icon: &str, label: &str) -> Response {
     let enabled = ui.is_enabled();
-    let r = ui
-        .scope(|ui| {
-            ui.spacing_mut().button_padding = egui::Vec2::ZERO;
-            let w = &mut ui.visuals_mut().widgets;
-            w.inactive.weak_bg_fill = Color32::TRANSPARENT;
-            w.inactive.bg_fill = Color32::TRANSPARENT;
-            w.inactive.bg_stroke = Stroke::new(1.0, P.border);
-            w.inactive.fg_stroke.color = P.text_muted;
-
-            w.hovered.weak_bg_fill = P.raised;
-            w.hovered.bg_fill = P.raised;
-            w.hovered.bg_stroke = Stroke::new(1.0, P.border_strong);
-            w.hovered.fg_stroke.color = P.text;
-
-            w.active.weak_bg_fill = P.raised.lerp_to_gamma(Color32::WHITE, 0.06);
-            w.active.bg_fill = P.raised.lerp_to_gamma(Color32::WHITE, 0.06);
-            w.active.bg_stroke = Stroke::new(2.0, P.accent);
-            w.active.fg_stroke.color = P.text;
-
-            let icon_text = RichText::new(icon).size(18.0);
-            ui.add(
-                egui::Button::new(icon_text)
-                    .corner_radius(R_MD)
-                    .min_size(vec2(32.0, 32.0)),
-            )
-        })
-        .inner
-        .on_hover_text(label);
+    // Desenhado à mão: o `Button` herda a altura de linha da fonte de ícones e passa dos 32 dp.
+    let (rect, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+    let (fill, stroke, fg) = if resp.is_pointer_button_down_on() {
+        (P.raised.lerp_to_gamma(Color32::WHITE, 0.06), Stroke::new(2.0, P.accent), P.text)
+    } else if resp.hovered() {
+        (P.raised, Stroke::new(1.0, P.border_strong), P.text)
+    } else {
+        (Color32::TRANSPARENT, Stroke::new(1.0, P.border), P.text_muted)
+    };
+    ui.painter().rect(rect, R_MD, fill, stroke, StrokeKind::Inside);
+    ui.painter().text(rect.center(), Align2::CENTER_CENTER, icon, FontId::proportional(18.0), fg);
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect, R_MD, Stroke::new(2.0, P.accent), StrokeKind::Outside);
+    }
+    if enabled && resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    let r = resp.on_hover_text(label);
     r.widget_info(|| WidgetInfo::labeled(egui::Role::Button, enabled, label));
     r
 }

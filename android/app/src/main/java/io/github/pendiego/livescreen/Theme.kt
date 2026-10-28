@@ -1,51 +1,55 @@
 package io.github.pendiego.livescreen
 
-// Material 3 do Android: cor dinâmica no Android 12+, azul fixo antes disso. O vídeo força o escuro.
+// Tema Sinal (escuro único), espelho de src/ui/theme.rs. Fontes copiadas de assets/fonts pelo Gradle (copyFonts).
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 
-/** Cores de estado que o Material 3 não tem: conexão direta (success) e via servidor ou aviso (warn). */
-data class StatusColors(val success: Color, val warn: Color)
-
-private val DarkStatus = StatusColors(success = Color(0xFF6CCB5F), warn = Color(0xFFF2C744))
-private val LightStatus = StatusColors(success = Color(0xFF0F7B0F), warn = Color(0xFF9D5D00))
-val LocalStatusColors = staticCompositionLocalOf { DarkStatus }
-
-private val FallbackDark = darkColorScheme(
-    primary = Color(0xFFA8C7FA), onPrimary = Color(0xFF062E6F),
-    primaryContainer = Color(0xFF0842A0), onPrimaryContainer = Color(0xFFD3E3FD),
-)
-private val FallbackLight = lightColorScheme(
-    primary = Color(0xFF0B57D0), onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD3E3FD), onPrimaryContainer = Color(0xFF041E49),
-)
-
-@Composable
-private fun colorScheme(dark: Boolean): ColorScheme {
-    val context = LocalContext.current
-    return when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> FallbackDark
-        else -> FallbackLight
-    }
+object Sinal {
+    val bg = Color(0xFF0B0D10); val surface = Color(0xFF14171C); val raised = Color(0xFF1C2027)
+    val border = Color(0xFF262B33); val borderStrong = Color(0xFF39404B)
+    val text = Color(0xFFF3F5F7); val textMuted = Color(0xFF9AA3AE); val textFaint = Color(0xFF5F6773)
+    val accent = Color(0xFFC8F135); val onAccent = Color(0xFF0B0D10)
+    val success = Color(0xFF3DDC97); val warn = Color(0xFFFFB547)
+    val danger = Color(0xFFFF5A4E); val onDanger = Color(0xFF1A0705)
 }
-
+private val SpaceGrotesk = FontFamily(Font(R.font.spacegrotesk_medium, FontWeight.Medium))
+private val Inter = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+)
+/** Códigos de convite e de amigo (JetBrains Mono 14/22). */
+val MonoStyle = TextStyle(fontFamily = FontFamily(Font(R.font.jetbrainsmono_regular)), fontSize = 14.sp, lineHeight = 22.sp)
+private fun inter(w: FontWeight, size: Int, lh: Int) = TextStyle(fontFamily = Inter, fontWeight = w, fontSize = size.sp, lineHeight = lh.sp)
+private val SinalTypography = Typography(
+    titleLarge = TextStyle(fontFamily = SpaceGrotesk, fontWeight = FontWeight.Medium, fontSize = 20.sp, lineHeight = 28.sp), // títulos
+    titleMedium = inter(FontWeight.SemiBold, 16, 24), // botões de 48–56 dp
+    titleSmall = inter(FontWeight.Medium, 14, 20),    // rótulos, nome do amigo, título do player
+    bodyLarge = inter(FontWeight.Normal, 16, 24),     // texto corrido
+    bodyMedium = inter(FontWeight.Normal, 14, 20),
+    bodySmall = inter(FontWeight.Normal, 12, 16),     // estado, ajuda, estatísticas
+    labelLarge = inter(FontWeight.SemiBold, 14, 20),  // botões de 32–40 dp
+    labelMedium = inter(FontWeight.Medium, 12, 16),   // badges
+)
+private val SinalColors = darkColorScheme(
+    primary = Sinal.accent, onPrimary = Sinal.onAccent,
+    background = Sinal.bg, onBackground = Sinal.text,
+    surface = Sinal.bg, onSurface = Sinal.text,
+    surfaceVariant = Sinal.raised, onSurfaceVariant = Sinal.textMuted,
+    surfaceContainerLow = Sinal.surface, surfaceContainer = Sinal.raised,
+    surfaceContainerHigh = Sinal.raised, surfaceContainerHighest = Sinal.raised,
+    outline = Sinal.border, outlineVariant = Sinal.border,
+    error = Sinal.danger, onError = Sinal.onDanger,
+)
 @Composable
-fun LiveScreenTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalStatusColors provides if (dark) DarkStatus else LightStatus) {
-        MaterialTheme(colorScheme = colorScheme(dark), content = content)
-    }
-}
+fun LiveScreenTheme(content: @Composable () -> Unit) =
+    MaterialTheme(colorScheme = SinalColors, typography = SinalTypography, content = content)

@@ -68,6 +68,8 @@ fn toggle_hint(ui: &mut egui::Ui, text: &str) {
     ui.indent(text, |ui| hint(ui, text));
 }
 
+const TAB_HEIGHT: f32 = 340.0;
+
 pub fn show(app: &mut App, ctx: &egui::Context) {
     let mut close = false;
     let modal = theme::modal(ctx, "settings").show(ctx, |ui| {
@@ -83,12 +85,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
         });
         ui.add_space(16.0);
-        match app.settings_tab {
-            Tab::Video => video(app, ui),
-            Tab::Share => share(app, ui),
-            Tab::Updates => updates(app, ui, ctx),
-            Tab::Diagnostics => diagnostics(app, ui),
-        }
+        // Viewport de altura fixa (limitada pela janela): o modal nunca muda de tamanho, e conteúdo maior rola.
+        let h = TAB_HEIGHT.min(ctx.content_rect().height() - 260.0).max(120.0);
+        egui::ScrollArea::vertical()
+            .id_salt(("settings_tab", app.settings_tab as u8))
+            .auto_shrink([false, false])
+            .min_scrolled_height(h)
+            .max_height(h)
+            .show(ui, |ui| match app.settings_tab {
+                Tab::Video => video(app, ui),
+                Tab::Share => share(app, ui),
+                Tab::Updates => updates(app, ui, ctx),
+                Tab::Diagnostics => diagnostics(app, ui),
+            });
         ui.add_space(16.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if theme::button(ui, theme::Kind::Secondary, "Fechar").clicked() {
