@@ -12,3 +12,7 @@ android/local.properties
 
 *PLAN.md
 plan.md
+
+web/node_modules/
+web/dist/
+web/.wrangler/
