@@ -12,7 +12,7 @@ Sem cadastro e sem servidor de vídeo no meio: quem assiste só precisa do LiveS
 ![Windows 10 2004+ x64](https://img.shields.io/badge/Windows-10%202004%2B%20x64-C8F135)
 [![Licença: MIT ou Apache-2.0](https://img.shields.io/badge/licen%C3%A7a-MIT%20ou%20Apache--2.0-555)](#licença)
 
-**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases) · [site](https://pendiego.github.io/LiveScreen/)
+**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/download/v0.6.0-beta.1/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases) · [site](https://pendiego.github.io/LiveScreen/)
 
 <img src="site/assets/img/home.webp" width="820" alt="Tela inicial do LiveScreen, com as opções Compartilhar tela e Assistir">
 
