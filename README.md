@@ -7,12 +7,12 @@
 **Compartilhe a tela do Windows com seus amigos, direto de um PC para o outro.**<br>
 Sem cadastro e sem servidor de vídeo no meio: quem assiste só precisa do LiveScreen e de um código de convite.
 
-[![Versão](https://img.shields.io/github/v/release/pendiego/LiveScreen?label=vers%C3%A3o&color=0067C0)](https://github.com/pendiego/LiveScreen/releases/latest)
+[![Versão](https://img.shields.io/github/v/release/pendiego/LiveScreen?label=vers%C3%A3o&color=C8F135)](https://github.com/pendiego/LiveScreen/releases/latest)
 [![CI](https://github.com/pendiego/LiveScreen/actions/workflows/ci.yml/badge.svg)](https://github.com/pendiego/LiveScreen/actions/workflows/ci.yml)
-![Windows 10 2004+ x64](https://img.shields.io/badge/Windows-10%202004%2B%20x64-0067C0)
+![Windows 10 2004+ x64](https://img.shields.io/badge/Windows-10%202004%2B%20x64-C8F135)
 [![Licença: MIT ou Apache-2.0](https://img.shields.io/badge/licen%C3%A7a-MIT%20ou%20Apache--2.0-555)](#licença)
 
-**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases) · [site](https://pendiego.github.io/LiveScreen/)
+**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/download/v0.6.0-beta.1/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases) · [site](https://pendiego.github.io/LiveScreen/)
 
 <img src="site/assets/img/home.webp" width="820" alt="Tela inicial do LiveScreen, com as opções Compartilhar tela e Assistir">
 
@@ -100,12 +100,12 @@ Para ajudar na escolha:
 | **Conexão** | Direta entre os PCs via [iroh](https://iroh.computer), com servidor de retransmissão quando a conexão direta não é possível. A conexão é criptografada de ponta a ponta. |
 | **Rede** | Controle de congestionamento BBR e bitrate adaptativo: quando a fila de algum espectador cresce, o bitrate cai na hora e volta aos poucos até o teto da qualidade. Vídeo atrasado é descartado em vez de acumular. |
 | **Atualização** | Pelo próprio app, com conferência do arquivo baixado. |
-| **Android** | Visual Material 3 e decodificação H.264 por hardware (com fallback para software). |
-| **Interface** | Visual no estilo Vercel/Geist, com fonte Geist embutida, tema claro e escuro (ou seguindo o Windows), anel de foco azul para navegar pelo teclado e nomes acessíveis nos botões só com ícone. Quando as animações estão desligadas no Windows, o app desativa as animações de transição e de rolagem; os indicadores de carregamento continuam girando. |
+| **Android** | Tema escuro Sinal, fontes Space Grotesk, Inter e JetBrains Mono, ícones Lucide, popup de atualização e decodificação H.264 por hardware (com fallback para software). |
+| **Interface** | Tema escuro único "Sinal" (verde-limão sobre grafite), com as fontes Space Grotesk, Inter e JetBrains Mono embutidas e ícones Lucide, anel de foco verde-limão para navegar pelo teclado e nomes acessíveis nos botões só com ícone. Quando as animações estão desligadas no Windows, o app desativa as animações de transição e de rolagem; os indicadores de carregamento continuam girando. |
 
 ## Configurações
 
-Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar pela placa de vídeo, mostrar o vídeo direto da placa de vídeo sem cópia pelo processador, estatísticas de vídeo ao assistir (overlay com fps e ms por quadro), qualidade e áudio padrão, baixar a qualidade sozinho quando o PC não der conta, aceitar pedidos de qualidade de quem assiste, limite da sala, nome, tema, verificação de atualização e backends de captura. Tudo fica em `ui.json`.
+Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar pela placa de vídeo, mostrar o vídeo direto da placa de vídeo sem cópia pelo processador, estatísticas de vídeo ao assistir (overlay com fps e ms por quadro), qualidade e áudio padrão, baixar a qualidade sozinho quando o PC não der conta, aceitar pedidos de qualidade de quem assiste, limite da sala, nome, verificação de atualização e backends de captura. Tudo fica em `ui.json`.
 
 <div align="center">
 <img src="site/assets/img/settings.webp" width="820" alt="Janela de Configurações do LiveScreen">
@@ -152,7 +152,7 @@ O app Android só **assiste**: baixe o `livescreen-android.apk` em [Releases](ht
 <details>
 <summary><b>Arquivos em <code>%APPDATA%\LiveScreen\</code> e <code>config.json</code></b></summary>
 
-- **`ui.json`:** preferências (qualidade, áudio, nome, volume, limite da sala, posição da janela, decodificação/codificação por hardware, estatísticas, tema, atualização, backends de captura).
+- **`ui.json`:** preferências (qualidade, áudio, nome, volume, limite da sala, posição da janela, decodificação/codificação por hardware, estatísticas, atualização, backends de captura).
 - **`livescreen.log`:** registro para diagnóstico.
 - **`config.json`** (opcional): desliga partes da captura ou do encoder para contornar problemas de driver:
 
@@ -208,4 +208,4 @@ cargo test --release e2e_window -- --ignored --nocapture        # transmite uma 
 
 Dual: [MIT](LICENSE-MIT) ou [Apache-2.0](LICENSE-APACHE), à sua escolha.
 
-A fonte [Geist](https://github.com/vercel/geist-font) (Geist Sans e Geist Mono), embutida no `.exe`, é distribuída sob a [SIL Open Font License 1.1](assets/fonts/OFL.txt).
+As fontes [Space Grotesk](assets/fonts/OFL-SpaceGrotesk.txt), [Inter](assets/fonts/OFL-Inter.txt) e [JetBrains Mono](assets/fonts/OFL-JetBrainsMono.txt), embutidas no `.exe` e no app Android, são distribuídas sob a SIL Open Font License 1.1. Os ícones são do [Lucide](assets/fonts/LICENSE-Lucide.txt).
