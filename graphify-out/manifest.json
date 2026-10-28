@@ -36,8 +36,8 @@
     "semantic_hash": ""
   },
   "src/audio/playback.rs": {
-    "mtime": 1793115545.8001428,
-    "seen": 1793115599.1734006,
+    "mtime": 1793149535.651968,
+    "seen": 1793150920.2880373,
     "ast_hash": "e1483ace351f04ac49c51df7181bb87a",
     "semantic_hash": ""
   },
@@ -84,9 +84,9 @@
     "semantic_hash": ""
   },
   "src/icon.rs": {
-    "mtime": 1793146776.0298228,
-    "seen": 1793146779.4135356,
-    "ast_hash": "e28ccc08dc5104f92735de67fe5c8748",
+    "mtime": 1793149536.020538,
+    "seen": 1793150920.2880454,
+    "ast_hash": "ac6146ca0f4c93ef222b6441f75fd661",
     "semantic_hash": ""
   },
   "src/main.rs": {
@@ -108,50 +108,50 @@
     "semantic_hash": ""
   },
   "src/ui/home.rs": {
-    "mtime": 1793144059.4070861,
-    "seen": 1793144949.3483007,
+    "mtime": 1793149536.1153672,
+    "seen": 1793150920.2880504,
     "ast_hash": "8282de1b20e459c086df8dfb9830c888",
     "semantic_hash": ""
   },
   "src/ui/mod.rs": {
-    "mtime": 1793144781.51053,
-    "seen": 1793144949.3483047,
+    "mtime": 1793149536.1153672,
+    "seen": 1793150920.2880511,
     "ast_hash": "c238876b4631beddeb7bcab642ae79d5",
     "semantic_hash": ""
   },
   "src/ui/prefs.rs": {
-    "mtime": 1793139784.5309172,
-    "seen": 1793144949.3483083,
+    "mtime": 1793149536.1163676,
+    "seen": 1793150920.2880523,
     "ast_hash": "8a0298990df5de032b58b9c2e2898f49",
     "semantic_hash": ""
   },
   "src/ui/settings.rs": {
-    "mtime": 1793141754.4979079,
-    "seen": 1793144949.348312,
+    "mtime": 1793149536.1163676,
+    "seen": 1793150920.288053,
     "ast_hash": "33cd5ee998bca4b0f1410b86543e6b90",
     "semantic_hash": ""
   },
   "src/ui/share_view.rs": {
-    "mtime": 1793144285.676408,
-    "seen": 1793144949.3483164,
+    "mtime": 1793149536.1173675,
+    "seen": 1793150920.288054,
     "ast_hash": "d0bdb20c543b9af4c5d43326a9ac2348",
     "semantic_hash": ""
   },
   "src/ui/theme.rs": {
-    "mtime": 1793143539.1560166,
-    "seen": 1793144949.34832,
+    "mtime": 1793149536.1173675,
+    "seen": 1793150920.2880547,
     "ast_hash": "78635aa775605e2cbebf34f0d619979f",
     "semantic_hash": ""
   },
   "src/ui/toast.rs": {
-    "mtime": 1793141324.5794716,
-    "seen": 1793144949.3483238,
+    "mtime": 1793149536.118367,
+    "seen": 1793150920.2880557,
     "ast_hash": "051a167cee944eb05497a0e9b206f672",
     "semantic_hash": ""
   },
   "src/ui/watch_view.rs": {
-    "mtime": 1793144411.7189977,
-    "seen": 1793144949.3483274,
+    "mtime": 1793149536.118367,
+    "seen": 1793150920.2880564,
     "ast_hash": "7231a2a54469996eb9dd71271c6ed4a5",
     "semantic_hash": ""
   },
@@ -216,8 +216,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793146488.7637074,
-    "seen": 1793146779.413664,
+    "mtime": 1793149536.3817394,
+    "seen": 1793150920.2880735,
     "ast_hash": "38bc1466ce4f7c880086aed0813a004d",
     "semantic_hash": ""
   },
@@ -228,9 +228,9 @@
     "semantic_hash": ""
   },
   "android/app/build.gradle.kts": {
-    "mtime": 1793059844.9583735,
-    "seen": 1793112980.8562324,
-    "ast_hash": "f29915010b6f5be662417967b9f21140",
+    "mtime": 1793150222.150817,
+    "seen": 1793150920.2880082,
+    "ast_hash": "024cf1a7e546ff47cd407d2ba0340454",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/AudioPlayer.kt": {
@@ -240,9 +240,9 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/MainActivity.kt": {
-    "mtime": 1793059844.9807076,
-    "seen": 1793112980.856236,
-    "ast_hash": "373d1d71b4577029662b207a32fa6793",
+    "mtime": 1793150424.0160086,
+    "seen": 1793150920.2880123,
+    "ast_hash": "2c8af1fefdda858ce45354a20ffd8ce2",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Native.kt": {
@@ -252,15 +252,15 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Screens.kt": {
-    "mtime": 1793125625.4004176,
-    "seen": 1793127990.18079,
-    "ast_hash": "f3e33e539dd6602e430e5143f4787a6e",
+    "mtime": 1793150874.0222898,
+    "seen": 1793150920.2880151,
+    "ast_hash": "8afc06b032963d69a92a228a8f45409b",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Theme.kt": {
-    "mtime": 1793059844.9912033,
-    "seen": 1793112980.8562396,
-    "ast_hash": "0350a9a06b468d33925ee5f1a6a3657f",
+    "mtime": 1793150403.3548265,
+    "seen": 1793150920.288016,
+    "ast_hash": "9b233f4d1742e2861e63514bff823228",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Updater.kt": {
@@ -276,9 +276,9 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/ViewerModel.kt": {
-    "mtime": 1793059844.9957728,
-    "seen": 1793112980.8562422,
-    "ast_hash": "73a73638cf9e0fefefa23a26c7016381",
+    "mtime": 1793150437.474311,
+    "seen": 1793150920.28802,
+    "ast_hash": "4c37c0bc7a034025a86c6704f97f7b60",
     "semantic_hash": ""
   },
   "android/app/src/test/java/io/github/pendiego/livescreen/UpdaterTest.kt": {
@@ -360,8 +360,8 @@
     "semantic_hash": ""
   },
   "src/ui/friends.rs": {
-    "mtime": 1793143802.080017,
-    "seen": 1793144949.3482962,
+    "mtime": 1793149536.1153672,
+    "seen": 1793150920.2880495,
     "ast_hash": "ea4c6215632fa277e74d3a95fa9a5cf8",
     "semantic_hash": ""
   },
@@ -372,104 +372,104 @@
     "semantic_hash": ""
   },
   "assets/fonts/LICENSE-Lucide.txt": {
-    "mtime": 1793139462.6119952,
-    "seen": 1793144949.3484318,
+    "mtime": 1793149536.1103673,
+    "seen": 1793150920.2880745,
     "ast_hash": "0ac379ab65904bcb1cf0c068528e82ce",
     "semantic_hash": ""
   },
   "assets/fonts/OFL-Inter.txt": {
-    "mtime": 1793139460.8768923,
-    "seen": 1793144949.348437,
+    "mtime": 1793149536.1113665,
+    "seen": 1793150920.2880754,
     "ast_hash": "082d8cc7db39783f598b7eda8c911f9d",
     "semantic_hash": ""
   },
   "assets/fonts/OFL-JetBrainsMono.txt": {
-    "mtime": 1793139462.103937,
-    "seen": 1793144949.3484414,
+    "mtime": 1793149536.1113665,
+    "seen": 1793150920.2880766,
     "ast_hash": "2025a2ee80175b15561a8232e67d74d5",
     "semantic_hash": ""
   },
   "assets/fonts/OFL-SpaceGrotesk.txt": {
-    "mtime": 1793139461.4501553,
-    "seen": 1793144949.348445,
-    "ast_hash": "e604cedb4d1df70610db51ec35affcba",
+    "mtime": 1793149536.1113665,
+    "seen": 1793150920.2880776,
+    "ast_hash": "6e43724eebfa4bcb7e93bc04f18def65",
     "semantic_hash": ""
   },
   ".github/workflows/pages.yml": {
-    "mtime": 1793145932.3776622,
-    "seen": 1793146779.4136438,
+    "mtime": 1793149536.2373562,
+    "seen": 1793150920.2880688,
     "ast_hash": "ede20324055f06103f408937af502161",
     "semantic_hash": ""
   },
   "site/ajuda/index.html": {
-    "mtime": 1793146514.3638678,
-    "seen": 1793146779.4136887,
-    "ast_hash": "efd0d5e890912ee14a29e32a555cd53a",
+    "mtime": 1793149536.2383564,
+    "seen": 1793150920.2880785,
+    "ast_hash": "56ae4b97cb45d19f1a9283f7c3d1dd17",
     "semantic_hash": ""
   },
   "site/assets/fonts/LICENSE-Lucide.txt": {
-    "mtime": 1793146037.8677664,
-    "seen": 1793146779.4136934,
+    "mtime": 1793149536.238862,
+    "seen": 1793150920.28808,
     "ast_hash": "0ac379ab65904bcb1cf0c068528e82ce",
     "semantic_hash": ""
   },
   "site/assets/fonts/OFL-Inter.txt": {
-    "mtime": 1793146037.8647652,
-    "seen": 1793146779.4136982,
+    "mtime": 1793149536.238862,
+    "seen": 1793150920.288081,
     "ast_hash": "082d8cc7db39783f598b7eda8c911f9d",
     "semantic_hash": ""
   },
   "site/assets/fonts/OFL-JetBrainsMono.txt": {
-    "mtime": 1793146037.866767,
-    "seen": 1793146779.4137025,
+    "mtime": 1793149536.2408695,
+    "seen": 1793150920.2880821,
     "ast_hash": "2025a2ee80175b15561a8232e67d74d5",
     "semantic_hash": ""
   },
   "site/assets/fonts/OFL-SpaceGrotesk.txt": {
-    "mtime": 1793146037.8647652,
-    "seen": 1793146779.4137063,
-    "ast_hash": "e604cedb4d1df70610db51ec35affcba",
+    "mtime": 1793149536.2408695,
+    "seen": 1793150920.2880828,
+    "ast_hash": "6e43724eebfa4bcb7e93bc04f18def65",
     "semantic_hash": ""
   },
   "site/index.html": {
-    "mtime": 1793146423.3728378,
-    "seen": 1793146779.41371,
-    "ast_hash": "1d4387ec8a303bdf85549eb0bb9a0b0c",
+    "mtime": 1793149536.2478688,
+    "seen": 1793150920.288084,
+    "ast_hash": "c5e679f0f01205a132fd3bd4cefbacca",
     "semantic_hash": ""
   },
   "site/assets/img/confirm.webp": {
-    "mtime": 1793146215.101038,
-    "seen": 1793146779.413714,
+    "mtime": 1793149536.2438674,
+    "seen": 1793150920.2880847,
     "ast_hash": "4ce1b9686cdb2abc63de5bc4737196ba",
     "semantic_hash": ""
   },
   "site/assets/img/home.webp": {
-    "mtime": 1793146052.256917,
-    "seen": 1793146779.4137175,
+    "mtime": 1793149536.2448695,
+    "seen": 1793150920.2880857,
     "ast_hash": "46618c580a3431f8d79464897039c4c3",
     "semantic_hash": ""
   },
   "site/assets/img/og.png": {
-    "mtime": 1793146283.5226996,
-    "seen": 1793146779.413721,
+    "mtime": 1793149536.2458696,
+    "seen": 1793150920.2880864,
     "ast_hash": "aa85d22e49e93c1cdf64904a3ff9a50b",
     "semantic_hash": ""
   },
   "site/assets/img/settings.webp": {
-    "mtime": 1793146064.3190284,
-    "seen": 1793146779.4137247,
+    "mtime": 1793149536.2458696,
+    "seen": 1793150920.2880874,
     "ast_hash": "9289d7d708979bb10d9d319ecdc854db",
     "semantic_hash": ""
   },
   "site/assets/img/watch.webp": {
-    "mtime": 1793146250.0867102,
-    "seen": 1793146779.4137285,
+    "mtime": 1793149536.2468688,
+    "seen": 1793150920.2880883,
     "ast_hash": "aee579417fa83708fc16ce666424ab31",
     "semantic_hash": ""
   },
   "site/assets/logo.svg": {
-    "mtime": 1793059845.122162,
-    "seen": 1793146779.413733,
+    "mtime": 1793149536.2468688,
+    "seen": 1793150920.288089,
     "ast_hash": "d1d371c4b496a5279492ff30bc3efe49",
     "semantic_hash": ""
   }
