@@ -1,12 +1,11 @@
 //! Configurações do app: modal aberto de qualquer tela; tudo vai para ui.json.
 use std::time::Duration;
 
-use egui::RichText;
+use egui::{Align, Layout, RichText};
 
 use super::App;
-use super::prefs::ThemeChoice;
 use super::share_view::{MAX_ROOM, preset_hint};
-use super::theme::{self, I_SETTINGS};
+use super::theme::{self, I_MIC, I_SETTINGS, I_VOLUME};
 use super::toast::ToastKind;
 use livescreen_core::preset::Preset;
 
@@ -16,26 +15,26 @@ const FORCED: &str = "Desligado por config.json ou LIVESCREEN_CAPTURE_OVERRIDES"
 pub enum Tab {
     Video,
     Share,
-    Look,
     Updates,
     Diagnostics,
 }
 
-const TABS: [(Tab, &str); 5] = [
+const TABS: [(Tab, &str); 4] = [
     (Tab::Video, "Vídeo"),
     (Tab::Share, "Transmissão"),
-    (Tab::Look, "Aparência"),
     (Tab::Updates, "Atualizações"),
     (Tab::Diagnostics, "Diagnóstico"),
 ];
 
+pub const SETTINGS_LABEL: &str = "Configurações (Ctrl+,)";
+
 /// Engrenagem; devolve true no clique (para telas que seguram `app` emprestado).
 pub fn icon_button(ui: &mut egui::Ui) -> bool {
-    theme::icon_button(ui, I_SETTINGS, "Configurações (Ctrl+,)").clicked()
+    theme::icon_button(ui, I_SETTINGS, SETTINGS_LABEL).clicked()
 }
 
 pub fn button(app: &mut App, ui: &mut egui::Ui) {
-    if icon_button(ui) {
+    if theme::outline_icon_button(ui, I_SETTINGS, SETTINGS_LABEL).clicked() {
         app.settings_open = true;
     }
 }
@@ -74,25 +73,28 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let modal = theme::modal(ctx, "settings").show(ctx, |ui| {
         ui.set_width(560.0);
         theme::heading(ui, "Configurações");
-        ui.add_space(4.0);
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
             for (t, label) in TABS {
-                ui.selectable_value(&mut app.settings_tab, t, label);
+                if theme::tab(ui, app.settings_tab == t, label).clicked() {
+                    app.settings_tab = t;
+                }
             }
         });
-        ui.separator();
+        ui.add_space(16.0);
         match app.settings_tab {
             Tab::Video => video(app, ui),
             Tab::Share => share(app, ui),
-            Tab::Look => look(app, ui, ctx),
             Tab::Updates => updates(app, ui, ctx),
             Tab::Diagnostics => diagnostics(app, ui),
         }
-        ui.add_space(8.0);
-        ui.separator();
-        if ui.button("Fechar").clicked() {
-            close = true;
-        }
+        ui.add_space(16.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if theme::button(ui, theme::Kind::Secondary, "Fechar").clicked() {
+                close = true;
+            }
+        });
     });
     if close || modal.should_close() {
         app.settings_open = false;
@@ -115,6 +117,18 @@ fn video(app: &mut App, ui: &mut egui::Ui) {
     toggle_hint(
         ui,
         "Vale na próxima vez que você assistir. Se falhar, o LiveScreen usa o processador.",
+    );
+    ui.add_space(4.0);
+    toggle(
+        ui,
+        &mut app.prefs.zero_copy,
+        "Mostrar o vídeo direto da placa de vídeo, sem cópia",
+        forced.deny_zero_copy,
+        app.prefs.hardware_decode && !forced.deny_hardware_decoder,
+    );
+    toggle_hint(
+        ui,
+        "Vale na próxima vez que você assistir. Desligue se a imagem ficar preta ou piscando: o quadro passa a ser copiado pelo processador.",
     );
     ui.add_space(8.0);
 
@@ -148,46 +162,84 @@ fn video(app: &mut App, ui: &mut egui::Ui) {
 
 fn share(app: &mut App, ui: &mut egui::Ui) {
     let mut pr = app.prefs.preset;
-    egui::ComboBox::from_label("Qualidade padrão")
-        .selected_text(pr.name())
-        .show_ui(ui, |ui| {
-            for p in Preset::ALL {
-                ui.selectable_value(&mut pr, p, p.name())
-                    .on_hover_text(preset_hint(p));
-            }
+    ui.horizontal(|ui| {
+        ui.label("Qualidade padrão");
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            egui::ComboBox::from_id_salt("default_quality")
+                .width(220.0)
+                .icon(theme::chevron_icon)
+                .selected_text(pr.name())
+                .show_ui(ui, |ui| {
+                    for p in Preset::ALL {
+                        ui.selectable_value(&mut pr, p, p.name())
+                            .on_hover_text(preset_hint(p));
+                    }
+                });
         });
+    });
     if pr != app.prefs.preset {
         app.prefs.preset = pr;
         if let Some(p) = app.picker.as_mut() {
             p.preset = pr;
         }
     }
+    ui.add_space(8.0);
 
-    if theme::checkbox(ui, &mut app.prefs.share_audio, "Transmitir áudio")
-        .changed()
+    if theme::checkbox(
+        ui,
+        &mut app.prefs.share_audio,
+        format!("{I_VOLUME}  Transmitir áudio"),
+    )
+    .changed()
         && let Some(p) = app.picker.as_mut()
     {
         p.audio = app.prefs.share_audio;
     }
 
-    if theme::checkbox(ui, &mut app.prefs.share_mic, "Transmitir microfone")
-        .changed()
+    if theme::checkbox(
+        ui,
+        &mut app.prefs.share_mic,
+        format!("{I_MIC}  Transmitir microfone"),
+    )
+    .changed()
         && let Some(p) = app.picker.as_mut()
     {
         p.mic = app.prefs.share_mic;
     }
 
+    ui.add_space(4.0);
+    theme::checkbox(
+        ui,
+        &mut app.prefs.auto_quality,
+        "Baixar a qualidade sozinho quando o PC não der conta",
+    );
+    toggle_hint(
+        ui,
+        "Vale na hora, inclusive com a transmissão no ar. Só reduz; para subir, escolha a qualidade.",
+    );
+    ui.add_space(4.0);
+    theme::checkbox(
+        ui,
+        &mut app.prefs.accept_quality_requests,
+        "Aceitar pedidos de qualidade mais leve de quem assiste",
+    );
+    toggle_hint(ui, "Desligado, os pedidos só aparecem como aviso.");
+    ui.add_space(8.0);
+
     ui.horizontal(|ui| {
         ui.label("Limite da sala");
-        let r = ui.add(egui::DragValue::new(&mut app.prefs.room_limit).range(1..=MAX_ROOM));
-        if r.changed()
-            && let Some(s) = &app.share
-        {
-            s.set_max_viewers(app.prefs.room_limit);
-        }
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if theme::stepper(ui, &mut app.prefs.room_limit, 1, MAX_ROOM, "")
+                && let Some(s) = &app.share
+            {
+                s.set_max_viewers(app.prefs.room_limit);
+            }
+        });
     });
+    ui.add_space(8.0);
 
-    ui.label("Seu nome");
+    theme::section_label(ui, "Seu nome");
+    ui.add_space(4.0);
     ui.add(theme::field(
         ui,
         egui::TextEdit::singleline(&mut app.prefs.name)
@@ -195,25 +247,13 @@ fn share(app: &mut App, ui: &mut egui::Ui) {
             .hint_text("Como você aparece para quem compartilha")
             .desired_width(f32::INFINITY),
     ));
+    ui.add_space(4.0);
     hint(
         ui,
         "A qualidade e o áudio também mudam quando você escolhe ao iniciar uma transmissão.",
     );
 }
 
-fn look(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
-    let before = app.prefs.theme;
-    ui.radio_value(
-        &mut app.prefs.theme,
-        ThemeChoice::System,
-        "Seguir o Windows",
-    );
-    ui.radio_value(&mut app.prefs.theme, ThemeChoice::Light, "Claro");
-    ui.radio_value(&mut app.prefs.theme, ThemeChoice::Dark, "Escuro");
-    if app.prefs.theme != before {
-        ctx.set_theme(app.prefs.theme);
-    }
-}
 
 fn updates(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
     if theme::checkbox(ui, 
@@ -235,14 +275,8 @@ fn updates(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
 }
 
 fn diagnostics(app: &mut App, ui: &mut egui::Ui) {
-    if ui.button("Abrir pasta de logs").clicked()
-        && std::process::Command::new("explorer.exe")
-            .arg(crate::config::app_dir())
-            .spawn()
-            .is_err()
-    {
-        app.toasts
-            .push("Não foi possível abrir a pasta de logs", ToastKind::Warn);
+    if theme::button(ui, theme::Kind::Secondary, "Abrir pasta de logs").clicked() {
+        open_logs(app);
     }
     ui.add_space(8.0);
 
@@ -266,4 +300,26 @@ fn diagnostics(app: &mut App, ui: &mut egui::Ui) {
         dxgi_ok,
     );
     toggle_hint(ui, "Vale na próxima transmissão.");
+}
+
+pub fn open_logs(app: &mut App) {
+    if std::process::Command::new("explorer.exe")
+        .arg(crate::config::app_dir())
+        .spawn()
+        .is_err()
+    {
+        app.toasts
+            .push("Não foi possível abrir a pasta de logs", ToastKind::Warn);
+    }
+}
+
+pub fn open_help(app: &mut App) {
+    if std::process::Command::new("explorer.exe")
+        .arg("https://github.com/pendiego/LiveScreen#readme")
+        .spawn()
+        .is_err()
+    {
+        app.toasts
+            .push("Não foi possível abrir a ajuda", ToastKind::Warn);
+    }
 }

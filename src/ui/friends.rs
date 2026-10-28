@@ -3,12 +3,12 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use egui::{Align, Layout, RichText};
+use egui::{Align, Align2, Layout, RichText, Sense, vec2};
 use livescreen_core::friends::{PresenceState, friend_code, parse_friend_code};
 use livescreen_core::protocol::sanitize;
 use serde::{Deserialize, Serialize};
 
-use super::theme::{self, I_ADD_FRIEND, I_COPY, I_PEOPLE, I_PERSON, I_REMOVE};
+use super::theme::{self, I_ADD_FRIEND, I_COPY, I_PEOPLE, I_TRASH};
 use super::toast::ToastKind;
 use super::{App, Screen};
 
@@ -225,13 +225,13 @@ pub fn card(app: &mut App, ui: &mut egui::Ui, height: Option<f32>) -> f32 {
             ui.set_width(ui.available_width());
             // 16 de margem e 1 de borda em cada lado
             ui.set_min_height(height.unwrap_or(0.0) - 34.0);
-            theme::section_title(ui, format!("{I_PEOPLE}  Amigos"));
+            theme::heading(ui, format!("{I_PEOPLE}  Amigos"));
             ui.add_space(4.0);
             ui.label(
                 RichText::new(
                     "Outra janela do LiveScreen está usando seus amigos. Nesta janela, use códigos de convite.",
                 )
-                .weak(),
+                .color(theme::P.text_muted),
             );
         });
         return r.response.rect.height();
@@ -247,7 +247,6 @@ pub fn card(app: &mut App, ui: &mut egui::Ui, height: Option<f32>) -> f32 {
     let mut remove_code: Option<String> = None;
     let mut watch_code: Option<String> = None;
     let mut open_add_modal = false;
-    let p = theme::palette(ui);
     let my_code = friend_code(&app.identity.public());
 
     let rest_id = ui.make_persistent_id("friends_rest");
@@ -257,9 +256,9 @@ pub fn card(app: &mut App, ui: &mut egui::Ui, height: Option<f32>) -> f32 {
         ui.set_width(ui.available_width());
         {
             ui.horizontal(|ui| {
-                theme::section_title(ui, format!("{I_PEOPLE}  Amigos"));
+                theme::heading(ui, format!("{I_PEOPLE}  Amigos"));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if theme::small_button(ui, format!("{I_ADD_FRIEND}  Adicionar")).clicked() {
+                    if theme::small_button(ui, theme::Kind::Ghost, format!("{I_ADD_FRIEND}  Adicionar")).clicked() {
                         open_add_modal = true;
                     }
                 });
@@ -270,7 +269,7 @@ pub fn card(app: &mut App, ui: &mut egui::Ui, height: Option<f32>) -> f32 {
                     RichText::new(
                         "Amigos veem quando você transmite e entram sem convite. Troque códigos de amigo ou use o botão de amigo durante uma transmissão.",
                     )
-                    .weak(),
+                    .color(theme::P.text_muted),
                 );
             }
         }
@@ -280,99 +279,161 @@ pub fn card(app: &mut App, ui: &mut egui::Ui, height: Option<f32>) -> f32 {
             .id_salt("friends_list")
             .auto_shrink([false, true])
             .max_height(max)
-            // sem isto a área encolhe para a altura livre do pai (0 na coluna da home)
-            .min_scrolled_height(max)
+            // sem min_scrolled_height: o espaço que sobra entra como `fill`, abaixo
             .show(ui, |ui| {
             for friend in &app.friends {
                 let presence = friend
                     .id()
                     .map_or(PresenceState::Unknown, |id| presence_of(app, &id));
 
-                ui.horizontal(|ui| {
-                    ui.label(format!("{I_PERSON}  {}", friend.name));
-                    match &presence {
-                        PresenceState::Live { .. } => {
-                            theme::badge(ui, "Transmitindo", p.success);
-                        }
-                        PresenceState::Offline => {
-                            theme::badge(ui, "Offline", ui.visuals().weak_text_color());
-                        }
-                        PresenceState::NotFriend => {
-                            theme::badge(ui, "Ainda não te adicionou", p.warn).on_hover_text(
-                                format!(
-                                    "Peça para {} adicionar o seu código de amigo",
-                                    friend.name
-                                ),
-                            );
-                        }
-                        PresenceState::Removed => {
-                            theme::badge(ui, "Você foi removido", p.danger).on_hover_text(
-                                format!(
-                                    "{} removeu você desta transmissão. Na próxima você entra de novo.",
-                                    friend.name
-                                ),
-                            );
-                        }
-                        PresenceState::Unknown => {
-                            theme::badge(ui, "Verificando…", ui.visuals().weak_text_color());
-                        }
-                    }
+                ui.allocate_ui_with_layout(
+                    vec2(ui.available_width(), 44.0),
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        let (avatar_rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                        ui.painter().circle_filled(avatar_rect.center(), 16.0, theme::P.raised);
+                        let initial = friend
+                            .name
+                            .chars()
+                            .next()
+                            .map(|c| c.to_uppercase().to_string())
+                            .unwrap_or_else(|| "?".to_string());
+                        ui.painter().text(
+                            avatar_rect.center(),
+                            Align2::CENTER_CENTER,
+                            initial,
+                            egui::FontId::new(13.0, egui::FontFamily::Name("medium".into())),
+                            theme::P.text,
+                        );
 
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        // só quem está ao vivo ganha ação; offline o badge já diz tudo
-                        if matches!(presence, PresenceState::Live { .. })
-                            && theme::primary_button(ui, "Assistir").clicked()
-                        {
-                            watch_code = Some(friend.code.clone());
-                        }
-                        let is_pending = app.friend_remove_pending.as_ref().map_or(false, |(c, t)| {
-                            c == &friend.code && t.elapsed() < Duration::from_secs(3)
-                        });
-                        if is_pending {
-                            if theme::danger_button(ui, "Confirmar?").clicked() {
-                                remove_code = Some(friend.code.clone());
-                                app.friend_remove_pending = None;
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if matches!(presence, PresenceState::Live { .. })
+                                && theme::small_button(ui, theme::Kind::Primary, "Assistir").clicked()
+                            {
+                                watch_code = Some(friend.code.clone());
                             }
-                        } else if theme::ghost_icon_button(ui, I_REMOVE, &format!("Remover {}", friend.name)).clicked() {
-                            app.friend_remove_pending = Some((friend.code.clone(), Instant::now()));
-                        }
-                        if let PresenceState::Live { title } = &presence
-                            && !title.is_empty()
-                        {
-                            ui.add(egui::Label::new(RichText::new(title).weak()).truncate());
-                        }
-                    });
-                });
+                            let is_pending = app.friend_remove_pending.as_ref().map_or(false, |(c, t)| {
+                                c == &friend.code && t.elapsed() < Duration::from_secs(3)
+                            });
+                            if is_pending {
+                                if theme::small_button(ui, theme::Kind::Danger, "Confirmar?").clicked() {
+                                    remove_code = Some(friend.code.clone());
+                                    app.friend_remove_pending = None;
+                                }
+                            } else if theme::ghost_icon_button(ui, I_TRASH, &format!("Remover {}", friend.name)).clicked() {
+                                app.friend_remove_pending = Some((friend.code.clone(), Instant::now()));
+                            }
+
+                            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                ui.set_width(ui.available_width());
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(&friend.name)
+                                            .family(egui::FontFamily::Name("semibold".into()))
+                                            .size(14.0)
+                                            .color(theme::P.text),
+                                    )
+                                    .truncate(),
+                                );
+                                match &presence {
+                                    PresenceState::Live { title } => {
+                                        let text = if title.is_empty() {
+                                            "Transmitindo".to_string()
+                                        } else {
+                                            format!("Transmitindo · {title}")
+                                        };
+                                        ui.add(
+                                            egui::Label::new(
+                                                RichText::new(text)
+                                                    .small()
+                                                    .color(theme::P.success),
+                                            )
+                                            .truncate(),
+                                        );
+                                    }
+                                    PresenceState::Offline => {
+                                        ui.label(
+                                            RichText::new("Offline")
+                                                .small()
+                                                .color(theme::P.text_faint),
+                                        );
+                                    }
+                                    PresenceState::NotFriend => {
+                                        ui.label(
+                                            RichText::new("Ainda não te adicionou")
+                                                .small()
+                                                .color(theme::P.warn),
+                                        )
+                                        .on_hover_text(format!(
+                                            "Peça para {} adicionar o seu código de amigo",
+                                            friend.name
+                                        ));
+                                    }
+                                    PresenceState::Removed => {
+                                        ui.label(
+                                            RichText::new("Você foi removido")
+                                                .small()
+                                                .color(theme::P.danger),
+                                        )
+                                        .on_hover_text(format!(
+                                            "{} removeu você desta transmissão. Na próxima você entra de novo.",
+                                            friend.name
+                                        ));
+                                    }
+                                    PresenceState::Unknown => {
+                                        ui.label(
+                                            RichText::new("Verificando…")
+                                                .small()
+                                                .color(theme::P.text_faint),
+                                        );
+                                    }
+                                }
+                            });
+                        });
+                    },
+                );
             }
         });
-        let fill = if height.is_some() { (max - list.inner_rect.height()).max(0.0) } else { 0.0 };
+        let shown = list.content_size.y.min(max);
+        let fill = if height.is_some() { (max - shown).max(0.0) } else { 0.0 };
         ui.add_space(fill);
-        list_area = list.inner_rect.height() + fill;
+        list_area = shown + fill;
         list_content = list.content_size.y;
         ui.add_space(8.0);
         ui.separator();
         ui.add_space(4.0);
-        ui.label(RichText::new("Seu código de amigo").small().weak());
+        ui.label(RichText::new("Seu código de amigo").small().color(theme::P.text_muted));
         let prefix = format!(
             "{}…{}",
             &my_code[..12.min(my_code.len())],
             &my_code[my_code.len().saturating_sub(4)..]
         );
-        ui.horizontal(|ui| {
-            let mut shown = prefix.as_str();
-            ui.add(theme::field(
-                ui,
-                egui::TextEdit::singleline(&mut shown)
-                    .font(egui::TextStyle::Monospace)
-                    .interactive(false)
-                    .desired_width(ui.available_width() - 44.0),
-            ))
-            .on_hover_text(&my_code);
-            if theme::icon_button(ui, I_COPY, "Copiar código de amigo").clicked() {
-                ui.ctx().copy_text(my_code.clone());
-                app.toasts.push("Código de amigo copiado", ToastKind::Info);
-            }
-        });
+        egui::Frame::new()
+            .fill(theme::P.bg)
+            .stroke(egui::Stroke::new(1.0, theme::P.border))
+            .corner_radius(theme::R_MD)
+            .inner_margin(egui::Margin::symmetric(12, 0))
+            .show(ui, |ui| {
+                ui.set_height(36.0);
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&prefix)
+                                .font(egui::FontId::new(13.0, egui::FontFamily::Monospace))
+                                .color(theme::P.text),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(&my_code);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if theme::ghost_icon_button(ui, I_COPY, "Copiar código de amigo").clicked() {
+                            ui.ctx().copy_text(my_code.clone());
+                            app.toasts.push("Código de amigo copiado", ToastKind::Info);
+                        }
+                    });
+                });
+            });
     });
     // altura sem a área da lista + conteúdo da lista = altura natural do cartão
     let new_rest = frame.response.rect.height() - list_area;
@@ -410,8 +471,9 @@ pub fn add_friend_modal(app: &mut App, ctx: &egui::Context) {
     let modal = theme::modal(ctx, "add_friend").show(ctx, |ui| {
         ui.set_width(420.0);
         theme::heading(ui, "Adicionar amigo");
-        ui.add_space(8.0);
-        ui.label("Nome");
+        ui.add_space(12.0);
+        theme::section_label(ui, "Nome");
+        ui.add_space(4.0);
         ui.add(theme::field(
             ui,
             egui::TextEdit::singleline(&mut draft.name)
@@ -419,30 +481,31 @@ pub fn add_friend_modal(app: &mut App, ctx: &egui::Context) {
                 .hint_text("Como você quer reconhecer o amigo")
                 .desired_width(f32::INFINITY),
         ));
+        ui.add_space(12.0);
+        theme::section_label(ui, "Código de amigo");
         ui.add_space(4.0);
-        ui.label("Código de amigo");
         ui.add(theme::field(
             ui,
             egui::TextEdit::singleline(&mut draft.code)
                 .font(egui::TextStyle::Monospace)
-                .hint_text("Cole o código de 64 caracteres")
+                .hint_text(RichText::new("Cole o código de 64 caracteres").text_style(egui::TextStyle::Monospace).color(theme::P.text_faint))
                 .desired_width(f32::INFINITY),
         ));
         if let Some(err) = &draft.error {
-            ui.add_space(4.0);
+            ui.add_space(8.0);
             ui.label(RichText::new(err).color(ui.visuals().error_fg_color));
         }
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
-            let cancel_btn = ui.button("Cancelar");
-            focus_in |= cancel_btn.has_focus();
-            if cancel_btn.clicked() {
-                cancel = true;
-            }
-            let add_btn = theme::primary_button(ui, "Adicionar");
+        ui.add_space(16.0);
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let add_btn = theme::button(ui, theme::Kind::Primary, "Adicionar");
             focus_in |= add_btn.has_focus();
             if add_btn.clicked() {
                 confirm = true;
+            }
+            let cancel_btn = theme::button(ui, theme::Kind::Ghost, "Cancelar");
+            focus_in |= cancel_btn.has_focus();
+            if cancel_btn.clicked() {
+                cancel = true;
             }
         });
     });

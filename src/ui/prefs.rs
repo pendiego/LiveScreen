@@ -6,23 +6,6 @@ use tracing::warn;
 use crate::config::Overrides;
 use livescreen_core::preset::Preset;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub enum ThemeChoice {
-    #[default]
-    System,
-    Light,
-    Dark,
-}
-
-impl From<ThemeChoice> for eframe::egui::ThemePreference {
-    fn from(t: ThemeChoice) -> Self {
-        match t {
-            ThemeChoice::System => Self::System,
-            ThemeChoice::Light => Self::Light,
-            ThemeChoice::Dark => Self::Dark,
-        }
-    }
-}
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -39,10 +22,15 @@ pub struct Prefs {
     pub window: Option<[f32; 4]>,
     /// Limite de pessoas na sala; quem transmite aumenta quando quiser.
     pub room_limit: usize,
+    /// Baixar a qualidade sozinho quando o encoder perde quadros (ShareStatus.overloaded).
+    pub auto_quality: bool,
+    /// Aplicar pedidos de qualidade mais leve de quem assiste.
+    pub accept_quality_requests: bool,
     pub hardware_decode: bool,
+    /// Mostrar o quadro decodificado direto da textura da placa de vídeo (sem cópia pela CPU).
+    pub zero_copy: bool,
     pub hardware_encoder: bool,
     pub show_stats: bool,
-    pub theme: ThemeChoice,
     pub check_updates: bool,
     pub graphics_capture: bool,
     pub dxgi_capture: bool,
@@ -60,10 +48,12 @@ impl Default for Prefs {
             muted: false,
             window: None,
             room_limit: 4,
+            auto_quality: true,
+            accept_quality_requests: true,
             hardware_decode: true,
+            zero_copy: true,
             hardware_encoder: true,
             show_stats: false,
-            theme: ThemeChoice::System,
             check_updates: true,
             graphics_capture: true,
             dxgi_capture: true,
@@ -114,7 +104,7 @@ impl Prefs {
             deny_dxgi: o.deny_dxgi || !self.dxgi_capture,
             deny_hardware_encoder: o.deny_hardware_encoder || !self.hardware_encoder,
             deny_hardware_decoder: o.deny_hardware_decoder || !self.hardware_decode,
-            deny_zero_copy: o.deny_zero_copy,
+            deny_zero_copy: o.deny_zero_copy || !self.zero_copy,
         }
     }
 }
@@ -149,7 +139,11 @@ mod tests {
         assert!(p.hardware_decode && p.hardware_encoder && p.check_updates);
         assert!(p.graphics_capture && p.dxgi_capture);
         assert!(!p.show_stats);
-        assert_eq!(p.theme, ThemeChoice::System);
+    }
+
+    #[test]
+    fn old_theme_field_is_ignored() {
+        assert_eq!(Prefs::parse(r#"{"theme":"Light","volume":0.5}"#).volume, 0.5);
     }
 
     #[test]
@@ -166,5 +160,12 @@ mod tests {
         let o = p.apply(Overrides::default());
         assert!(o.deny_hardware_encoder);
         assert!(!o.deny_hardware_decoder && !o.deny_graphics_capture && !o.deny_dxgi);
+    }
+
+    #[test]
+    fn zero_copy_pref_denies_zero_copy() {
+        assert!(!Prefs::default().apply(Overrides::default()).deny_zero_copy);
+        assert!(Prefs { zero_copy: false, ..Prefs::default() }.apply(Overrides::default()).deny_zero_copy);
+        assert!(Prefs::default().apply(Overrides { deny_zero_copy: true, ..Default::default() }).deny_zero_copy);
     }
 }
