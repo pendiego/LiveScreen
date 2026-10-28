@@ -18,7 +18,7 @@ use super::{App, Screen};
 use crate::audio::capture::Mic;
 use crate::capture::{self, SourceId, SourceInfo};
 use livescreen_core::preset::{self, EncodeParams, Preset, viewers_for};
-use crate::share::{AudioState, ShareSession, ShareStatus};
+use crate::share::{AudioState, ShareSession, ShareStatus, WebState};
 use crate::speedtest::Upload;
 
 type Thumb = Option<(u32, u32, Vec<u8>)>;
@@ -1022,6 +1022,7 @@ fn invite_card(
     st: &ShareStatus,
     copied_at: &mut Option<Instant>,
     new_invite: &mut bool,
+    copy_web: &mut bool,
 ) {
     theme::card(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -1065,6 +1066,16 @@ fn invite_card(
                     {
                         *new_invite = true;
                     }
+                    if theme::button_full(
+                        ui,
+                        theme::Kind::Secondary,
+                        format!("{I_COPY}  Copiar link do navegador"),
+                    )
+                    .on_hover_text("Quem não tem o LiveScreen assiste pelo navegador, sem instalar nada")
+                    .clicked()
+                    {
+                        *copy_web = true;
+                    }
                 });
                 if let Some(inst) = copied_at {
                     if inst.elapsed() < Duration::from_secs(2) {
@@ -1073,6 +1084,37 @@ fn invite_card(
                         *copied_at = None;
                     }
                 }
+            }
+        }
+        match &st.web {
+            WebState::Off => {
+                ui.label(
+                    RichText::new("Funciona no Chrome, Edge e Safari, no computador ou no celular.")
+                        .small()
+                        .color(theme::P.text_muted),
+                );
+            }
+            WebState::Connecting => {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new());
+                    ui.label(RichText::new("Ligando o link do navegador…").small());
+                });
+            }
+            WebState::Online => {
+                ui.label(
+                    RichText::new(format!("{I_CIRCLE_CHECK}  Link do navegador ativo"))
+                        .small()
+                        .color(theme::P.success),
+                );
+            }
+            WebState::Retrying(e) => {
+                ui.label(
+                    RichText::new(format!(
+                        "{I_WARN}  Servidor do link indisponível, tentando de novo: {e}"
+                    ))
+                    .small()
+                    .color(theme::P.warn),
+                );
             }
         }
         if st.online_warning {
@@ -1157,16 +1199,22 @@ fn viewers_card(
                             *kick = Some(v.id_short.clone());
                             *kick_pending = None;
                         }
-                    } else if theme::small_button(
-                        ui,
-                        theme::Kind::Ghost,
-                        RichText::new(format!("{I_REMOVE}  Remover"))
-                            .small()
-                            .color(p.text_muted),
-                    )
-                    .clicked()
-                    {
-                        *kick_pending = Some((v.id_short.clone(), Instant::now()));
+                    } else {
+                        let mut btn = theme::small_button(
+                            ui,
+                            theme::Kind::Ghost,
+                            RichText::new(format!("{I_REMOVE}  Remover"))
+                                .small()
+                                .color(p.text_muted),
+                        );
+                        if v.id.is_none() {
+                            btn = btn.on_hover_text(
+                                "Pelo navegador dá para voltar com o mesmo link: use Novo convite para impedir",
+                            );
+                        }
+                        if btn.clicked() {
+                            *kick_pending = Some((v.id_short.clone(), Instant::now()));
+                        }
                     }
                 });
             });
@@ -1174,20 +1222,25 @@ fn viewers_card(
             ui.horizontal(|ui| {
                 if v.friend {
                     theme::badge(ui, "Amigo", p.accent);
-                } else if can_add_friend
-                    && theme::small_button(ui, theme::Kind::Secondary, format!("{I_ADD_FRIEND}  Amigo"))
-                        .on_hover_text("Adicionar aos amigos")
-                        .clicked()
-                {
-                    *add_friend = Some((v.name.clone(), v.id));
+                } else if let Some(pid) = v.id {
+                    if can_add_friend
+                        && theme::small_button(ui, theme::Kind::Secondary, format!("{I_ADD_FRIEND}  Amigo"))
+                            .on_hover_text("Adicionar aos amigos")
+                            .clicked()
+                    {
+                        *add_friend = Some((v.name.clone(), pid));
+                    }
                 }
                 let (text, color) = match v.path.as_str() {
                     "Direto" => ("Direto", p.success),
                     "Relay" => ("Via servidor", p.warn),
+                    "Navegador" => ("Navegador", p.accent),
                     _ => ("Verificando", p.text_muted),
                 };
                 let tip = if v.path == "Relay" {
                     format!("{} ms\nServidor público compartilhado, com limite de banda: se travar, baixe a qualidade.", v.rtt_ms)
+                } else if v.path == "Navegador" {
+                    format!("{} ms\nAssistindo pelo navegador", v.rtt_ms)
                 } else {
                     format!("{} ms", v.rtt_ms)
                 };
@@ -1364,6 +1417,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     let mut kick: Option<String> = None;
     let mut toggle_mic = false;
     let mut new_invite = false;
+    let mut copy_web = false;
     let mut add_friend: Option<(String, iroh::EndpointId)> = None;
     let busy = app.share_job.is_some();
     let status = format!(
@@ -1435,7 +1489,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                                     |ui| {
                                         ui.spacing_mut().item_spacing = sp;
                                         ui.set_width(right_w);
-                                        invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite);
+                                        invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web);
                                         ui.add_space(16.0);
                                         viewers_card(
                                             ui,
@@ -1455,7 +1509,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                         } else {
                             preview_card(ui, &st, &app.share_source, &app.share_preview);
                             ui.add_space(16.0);
-                            invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite);
+                            invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web);
                             ui.add_space(16.0);
                             viewers_card(
                                 ui,
@@ -1687,12 +1741,19 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         }
     }
     if let Some(id) = kick {
+        let is_web = app.share.as_ref().is_some_and(|share| {
+            share.status.lock().unwrap().viewers.iter().any(|v| v.id_short == id && v.id.is_none())
+        });
         if let Some(share) = app.share.as_ref() {
             share.kick(&id);
         }
         let label = app.known_viewers.remove(&id).unwrap_or_else(|| id.clone());
         app.toasts.push(
-            format!("{label} foi removido e não pode voltar nesta transmissão."),
+            if is_web {
+                format!("{label} foi removido. Pelo navegador dá para voltar com o mesmo link; use Novo convite para impedir.")
+            } else {
+                format!("{label} foi removido e não pode voltar nesta transmissão.")
+            },
             ToastKind::Warn,
         );
     }
@@ -1706,16 +1767,32 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     if new_invite {
         if let Some(share) = app.share.as_ref() {
             share.new_invite();
-            let ticket = share.status.lock().unwrap().ticket.clone();
+            let (ticket, web_on) = {
+                let s = share.status.lock().unwrap();
+                (s.ticket.clone(), s.web != WebState::Off)
+            };
             if let Some(t) = ticket {
                 ctx.copy_text(t);
                 let now = Instant::now();
                 app.copied_at = Some(now);
                 app.toasts.push(
-                    "Novo código copiado; o anterior não funciona mais",
+                    if web_on {
+                        "Novo código e novo link do navegador copiados; os anteriores não funcionam mais"
+                    } else {
+                        "Novo código copiado; o anterior não funciona mais"
+                    },
                     ToastKind::Info,
                 );
             }
+        }
+    }
+    if copy_web {
+        if let Some(share) = app.share.as_ref() {
+            ctx.copy_text(share.web_link());
+            app.toasts.push(
+                "Link do navegador copiado: quem abrir assiste sem instalar nada",
+                ToastKind::Info,
+            );
         }
     }
     if stop {

@@ -1,3 +1,5 @@
+mod web;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -48,6 +50,9 @@ impl Abr {
     }
 }
 
+pub(crate) fn rtt_congested(rtt: Duration, min: Duration) -> bool {
+    rtt > min + min.max(Duration::from_millis(80))
+}
 /// GOP antigo: termina; se o peer não confirmar em STALE_VIDEO, descarta (para de retransmitir).
 fn retire(mut s: iroh::endpoint::SendStream) {
     let _ = s.finish();
@@ -60,7 +65,7 @@ fn retire(mut s: iroh::endpoint::SendStream) {
 
 #[derive(Clone, Debug)]
 pub struct ViewerInfo {
-    pub id: iroh::EndpointId,
+    pub id: Option<iroh::EndpointId>,
     pub id_short: String,
     pub name: String,
     pub friend: bool,
@@ -98,10 +103,19 @@ pub enum AudioState {
     Unavailable(String),
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum WebState {
+    Off,
+    Connecting,
+    Online,
+    Retrying(String),
+}
+
 #[derive(Clone, Debug)]
 pub struct ShareStatus {
     pub ticket: Option<String>,
     pub online_warning: bool,
+    pub web: WebState,
     pub backend: Backend,
     pub encoder: String,
     pub viewers: Vec<ViewerInfo>,
@@ -143,10 +157,16 @@ impl Overload {
 }
 
 type SinkTx = Arc<Mutex<Option<std::sync::mpsc::SyncSender<Nv12Frame>>>>;
-struct Peer {
-    conn: Connection,
-    name: String,
-    decoders: Vec<Codec>,
+#[derive(Clone)]
+pub(super) enum PeerConn {
+    Iroh(Connection),
+    Web(Arc<web::WebPeer>),
+}
+
+pub(super) struct Peer {
+    pub(super) conn: PeerConn,
+    pub(super) name: String,
+    pub(super) decoders: Vec<Codec>,
 }
 
 struct Resources {
@@ -172,9 +192,9 @@ struct Resources {
 }
 
 pub struct ShareSession {
-    rt: Handle,
+    pub(super) rt: Handle,
     pub status: Arc<Mutex<ShareStatus>>,
-    shared: Arc<Shared>,
+    pub(super) shared: Arc<Shared>,
     res: Mutex<Option<Resources>>,
     mic_muted: Arc<AtomicBool>,
     /// Cópia de (preset, params, applied_src) de `Resources`, para a UI ler sem esperar uma troca de encoder.
@@ -184,29 +204,31 @@ pub struct ShareSession {
     hz: u32,
 }
 
-struct Shared {
-    status: Arc<Mutex<ShareStatus>>,
-    viewers: AtomicUsize,
-    conns: Mutex<HashMap<String, Peer>>,
-    codec_dirty: AtomicBool,
+pub(super) struct Shared {
+    pub(super) status: Arc<Mutex<ShareStatus>>,
+    pub(super) viewers: AtomicUsize,
+    pub(super) conns: Mutex<HashMap<String, Peer>>,
+    pub(super) codec_dirty: AtomicBool,
     /// Teto de handshakes simultâneos; sem ele, uma enxurrada de conexões vira enxurrada de tasks.
-    pending: Arc<Semaphore>,
+    pub(super) pending: Arc<Semaphore>,
     /// Desempata ids de espectadores que compartilham o mesmo prefixo.
     next_id: AtomicUsize,
     /// Limite da sala; ajustável durante a transmissão.
-    max_viewers: AtomicUsize,
-    video_tx: broadcast::Sender<Arc<EncodedFrame>>,
-    audio_tx: broadcast::Sender<Bytes>,
+    pub(super) max_viewers: AtomicUsize,
+    pub(super) video_tx: broadcast::Sender<Arc<EncodedFrame>>,
+    pub(super) audio_tx: broadcast::Sender<Bytes>,
     force_key: Arc<AtomicBool>,
     last_key: Mutex<Instant>,
     quality_req: Mutex<Option<(Preset, String)>>,
     last_quality: Mutex<Instant>,
     params: watch::Sender<(u32, u32, u32, bool)>,
     title: String,
-    shutdown: watch::Receiver<bool>,
+    pub(super) shutdown: watch::Receiver<bool>,
     /// Algum espectador ficou para trás desde o último tick.
-    congested: AtomicBool,
-    room_key: Mutex<[u8; ROOM_KEY_LEN]>,
+    pub(super) congested: AtomicBool,
+    pub(super) room_key: Mutex<[u8; ROOM_KEY_LEN]>,
+    pub(super) web_secret: [u8; ROOM_KEY_LEN],
+    pub(super) web_started: AtomicBool,
     ticket: Mutex<Option<EndpointTicket>>,
     host_id: iroh::EndpointId,
     friends: Mutex<HashSet<iroh::EndpointId>>,
@@ -215,7 +237,7 @@ struct Shared {
 }
 
 impl Shared {
-    fn request_keyframe(&self) {
+    pub(super) fn request_keyframe(&self) {
         let mut l = self.last_key.lock().unwrap();
         if l.elapsed() >= Duration::from_secs(1) {
             *l = Instant::now();
@@ -444,6 +466,7 @@ impl ShareSession {
         let status = Arc::new(Mutex::new(ShareStatus {
             ticket: None,
             online_warning: false,
+            web: WebState::Off,
             backend: Backend::GraphicsCapture,
             encoder: used_kind.label(),
             viewers: vec![],
@@ -565,6 +588,8 @@ impl ShareSession {
             shutdown: sd_rx,
             congested: AtomicBool::new(false),
             room_key: Mutex::new(new_room_key()),
+            web_secret: new_room_key(),
+            web_started: AtomicBool::new(false),
             ticket: Mutex::new(None),
             host_id: ep.id(),
             friends: Mutex::new(friends),
@@ -630,30 +655,42 @@ impl ShareSession {
                         .iter()
                         .map(|(id, peer)| {
                             let (c, name) = (&peer.conn, &peer.name);
-                            let peer_id = c.remote_id();
-                            let friend = friends_snap.contains(&peer_id);
-                            let (mut path, mut rtt) = ("?".to_string(), 0u32);
-                            for p in c.paths().iter() {
-                                if p.is_selected() {
-                                    path = if p.is_relay() {
-                                        "Relay"
-                                    } else if p.is_ip() {
-                                        "Direto"
-                                    } else {
-                                        "?"
+                            match c {
+                                PeerConn::Iroh(c) => {
+                                    let peer_id = c.remote_id();
+                                    let friend = friends_snap.contains(&peer_id);
+                                    let (mut path, mut rtt) = ("?".to_string(), 0u32);
+                                    for p in c.paths().iter() {
+                                        if p.is_selected() {
+                                            path = if p.is_relay() {
+                                                "Relay"
+                                            } else if p.is_ip() {
+                                                "Direto"
+                                            } else {
+                                                "?"
+                                            }
+                                            .into();
+                                            rtt = p.rtt().as_millis() as u32;
+                                            samples.push((id.clone(), p.id(), p.rtt()));
+                                        }
                                     }
-                                    .into();
-                                    rtt = p.rtt().as_millis() as u32;
-                                    samples.push((id.clone(), p.id(), p.rtt()));
+                                    ViewerInfo {
+                                        id: Some(peer_id),
+                                        id_short: id.clone(),
+                                        name: name.clone(),
+                                        friend,
+                                        path,
+                                        rtt_ms: rtt,
+                                    }
                                 }
-                            }
-                            ViewerInfo {
-                                id: peer_id,
-                                id_short: id.clone(),
-                                name: name.clone(),
-                                friend,
-                                path,
-                                rtt_ms: rtt,
+                                PeerConn::Web(w) => ViewerInfo {
+                                    id: None,
+                                    id_short: id.clone(),
+                                    name: name.clone(),
+                                    friend: false,
+                                    path: "Navegador".into(),
+                                    rtt_ms: w.rtt_ms.load(Ordering::Relaxed),
+                                },
                             }
                         })
                         .collect();
@@ -667,7 +704,7 @@ impl ShareSession {
                             e.1 = *rtt;
                         }
                         // fila crescendo: RTT acima de 2× o mínimo e mais de 80 ms acima dele
-                        if *rtt > e.1 + e.1.max(Duration::from_millis(80)) {
+                        if rtt_congested(*rtt, e.1) {
                             congested = true;
                         }
                     }
@@ -916,14 +953,28 @@ impl ShareSession {
             .get(id_short)
             .map(|p| p.conn.clone());
         let Some(c) = conn else { return };
-        self.shared.banned.lock().unwrap().insert(c.remote_id());
-        self.shared
-            .status
-            .lock()
-            .unwrap()
-            .viewers
-            .retain(|v| v.id_short != id_short);
-        c.close(CLOSE_KICKED.into(), b"kicked");
+        match c {
+            PeerConn::Iroh(c) => {
+                self.shared.banned.lock().unwrap().insert(c.remote_id());
+                self.shared
+                    .status
+                    .lock()
+                    .unwrap()
+                    .viewers
+                    .retain(|v| v.id_short != id_short);
+                c.close(CLOSE_KICKED.into(), b"kicked");
+            }
+            PeerConn::Web(w) => {
+                *w.reason.lock().unwrap() = Some("você foi removido desta transmissão".into());
+                w.stop.notify_one();
+                self.shared
+                    .status
+                    .lock()
+                    .unwrap()
+                    .viewers
+                    .retain(|v| v.id_short != id_short);
+            }
+        }
     }
 
     pub fn new_invite(&self) {
@@ -964,7 +1015,7 @@ impl Drop for ShareSession {
     }
 }
 
-struct CountGuard<'a>(&'a Shared, Option<String>);
+pub(super) struct CountGuard<'a>(pub(super) &'a Shared, pub(super) Option<String>);
 impl Drop for CountGuard<'_> {
     fn drop(&mut self) {
         self.0.viewers.fetch_sub(1, Ordering::SeqCst);
@@ -1014,7 +1065,7 @@ async fn answer_presence(conn: Connection, sh: Arc<Shared>) {
 }
 
 /// Removido nesta transmissão nunca entra; amigo entra sem convite; o resto precisa da prova da sala.
-fn admit(banned: bool, friend: bool, proof: &str, proof_ok: bool) -> Result<(), &'static str> {
+pub(super) fn admit(banned: bool, friend: bool, proof: &str, proof_ok: bool) -> Result<(), &'static str> {
     if banned {
         return Err("você foi removido desta transmissão");
     }
@@ -1126,7 +1177,7 @@ async fn handle_viewer(
     sh.conns.lock().unwrap().insert(
         id.clone(),
         Peer {
-            conn: conn.clone(),
+            conn: PeerConn::Iroh(conn.clone()),
             name: sanitize(&name, 32),
             decoders,
         },
@@ -1332,11 +1383,15 @@ mod tests {
         let kinds1 = [hevc_hw.clone(), h264_hw.clone(), sw.clone()];
         assert_eq!(
             pick_encoder(&kinds1, &[vec![Codec::H264, Codec::Hevc], vec![Codec::H264]]),
-            Some(h264_hw)
+            Some(h264_hw.clone())
         );
         assert_eq!(
             pick_encoder(&kinds1, &[vec![Codec::Hevc]]),
             Some(hevc_hw.clone())
+        );
+        assert_eq!(
+            pick_encoder(&kinds1, &[vec![Codec::Hevc], vec![]]),
+            Some(h264_hw.clone())
         );
         assert_eq!(pick_encoder(&kinds1, &[]), None);
 
@@ -1347,6 +1402,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_rtt_congested() {
+        assert!(rtt_congested(
+            Duration::from_millis(201),
+            Duration::from_millis(100)
+        ));
+        assert!(!rtt_congested(
+            Duration::from_millis(199),
+            Duration::from_millis(100)
+        ));
+        assert!(rtt_congested(
+            Duration::from_millis(81),
+            Duration::from_millis(0)
+        ));
+    }
     #[test]
     fn test_admit_precedence() {
         // banido vence amigo
