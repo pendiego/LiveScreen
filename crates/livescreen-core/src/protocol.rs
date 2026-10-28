@@ -94,6 +94,9 @@ pub enum HostMsg {
         title: String,
         #[serde(default)]
         host_name: String,
+        /// Host conhece 240p, 360p e 480p 15 em `SetQuality`.
+        #[serde(default)]
+        light_presets: bool,
     },
     /// Qualidade trocada com a transmissão no ar; o próximo keyframe já vem no novo tamanho.
     StreamParams {
@@ -547,6 +550,17 @@ mod tests {
             panic!()
         };
         assert_eq!(title, "");
+    }
+    #[test]
+    fn welcome_from_old_host_has_no_light_presets() {
+        let m = serde_json::from_str::<HostMsg>(
+            r#"{"type":"welcome","width":1280,"height":720,"fps":30,"audio":false}"#,
+        )
+        .unwrap();
+        let HostMsg::Welcome { light_presets, .. } = m else {
+            panic!()
+        };
+        assert!(!light_presets);
     }
     #[test]
     fn sanitize_strips_controls_and_trims() {

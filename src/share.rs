@@ -177,6 +177,11 @@ pub struct ShareSession {
     shared: Arc<Shared>,
     res: Mutex<Option<Resources>>,
     mic_muted: Arc<AtomicBool>,
+    /// Cópia de (preset, params, applied_src) de `Resources`, para a UI ler sem esperar uma troca de encoder.
+    applied: Mutex<(Preset, EncodeParams, (u32, u32))>,
+    /// Mesmo `Arc` de `Resources::src_size`.
+    src_size: Arc<AtomicU64>,
+    hz: u32,
 }
 
 struct Shared {
@@ -736,7 +741,7 @@ impl ShareSession {
                 context,
                 kinds: encoders,
                 kind: used_kind,
-                src_size,
+                src_size: src_size.clone(),
                 hz,
                 stats,
                 preset,
@@ -745,6 +750,9 @@ impl ShareSession {
                 ep,
                 shutdown: sd_tx,
             })),
+            applied: Mutex::new((preset, params, (sw, sh))),
+            src_size,
+            hz,
         })
     }
 
@@ -752,15 +760,7 @@ impl ShareSession {
     /// configurado). A janela pode ter mudado de tamanho depois: capacidade e rótulo da
     /// transmissão atual vêm daqui, não das opções calculadas para o tamanho novo.
     pub fn current(&self) -> (Preset, EncodeParams, (u32, u32)) {
-        let g = self.res.lock().unwrap();
-        g.as_ref().map_or(
-            (
-                Preset::default(),
-                encode_params(Preset::default(), 1920, 1080, 60),
-                (1920, 1080),
-            ),
-            |r| (r.preset, r.params, r.applied_src),
-        )
+        *self.applied.lock().unwrap()
     }
 
     pub fn set_mic_muted(&self, muted: bool) {
@@ -773,29 +773,32 @@ impl ShareSession {
         self.shared.max_viewers.store(n.max(1), Ordering::SeqCst);
     }
 
-    /// Aplica o pedido de qualidade pendente de um espectador, se houver. Só aceita opções mais
-    /// leves que a atual (um espectador não pode pesar a sala). Bloqueia como `set_preset`
-    /// (chamar da UI, nunca de dentro do runtime). Devolve quem pediu, o preset e o resultado.
-    pub fn apply_quality_request(&self) -> Option<(String, Preset, Result<()>)> {
-        let (preset, who) = self.shared.quality_req.lock().unwrap().take()?;
+    /// Pedido de qualidade pendente de um espectador (preset, nome de quem pediu). Não bloqueia.
+    pub fn take_quality_request(&self) -> Option<(Preset, String)> {
+        self.shared.quality_req.lock().unwrap().take()
+    }
+
+    /// Aplica um pedido de espectador: só aceita opções mais leves que a atual (um espectador
+    /// não pode pesar a sala). Bloqueia como `set_preset`.
+    pub fn apply_quality_request(&self, preset: Preset) -> Result<()> {
         let (sw, sh, hz) = self.source_shape();
-        let wanted = encode_params(preset, sw, sh, hz);
-        let res = if is_reduction(self.current().1, wanted) {
+        if is_reduction(self.current().1, encode_params(preset, sw, sh, hz)) {
             self.set_preset(preset)
         } else {
             Err(anyhow!("só é aceita uma qualidade mais leve que a atual"))
-        };
-        Some((who, preset, res))
+        }
+    }
+
+    /// Algum espectador entrou ou saiu desde o último apply_codec. Não bloqueia.
+    pub fn codec_pending(&self) -> bool {
+        self.shared.codec_dirty.load(Ordering::Acquire)
     }
 
     /// Tamanho atual da fonte (último quadro capturado) e Hz do monitor dela: base das opções
     /// de qualidade e da recomendação de pessoas.
     pub fn source_shape(&self) -> (u32, u32, u32) {
-        let g = self.res.lock().unwrap();
-        g.as_ref().map_or((1920, 1080, 60), |r| {
-            let (w, h) = unpack_size(r.src_size.load(Ordering::Relaxed));
-            (w, h, r.hz)
-        })
+        let (w, h) = unpack_size(self.src_size.load(Ordering::Relaxed));
+        (w, h, self.hz)
     }
 
     /// Troca a qualidade com a transmissão no ar. Bloqueia a thread chamadora (nunca chamar de
@@ -849,6 +852,7 @@ impl ShareSession {
         if failed.is_none() {
             r.applied_src = (sw, sh);
         }
+        *self.applied.lock().unwrap() = (r.preset, r.params, r.applied_src);
         self.shared.force_key.store(true, Ordering::SeqCst);
         {
             let mut s = self.status.lock().unwrap();
@@ -1142,6 +1146,7 @@ async fn handle_viewer(
                 audio,
                 title: sh.title.clone(),
                 host_name: sh.host_name.clone(),
+                light_presets: true,
             },
         ),
     )
