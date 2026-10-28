@@ -552,10 +552,9 @@ tr:last-child td {
 .brand::before {
   content: "";
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
+  width: 28px;
+  height: 28px;
+  background: url("logo.svg") center / contain no-repeat;
 }
 
 .brand:hover {
