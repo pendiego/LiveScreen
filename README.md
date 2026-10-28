@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/logo.svg" width="96" height="96" alt="LiveScreen">
+<img src="site/assets/logo.svg" width="96" height="96" alt="LiveScreen">
 
 # LiveScreen
 
@@ -12,12 +12,9 @@ Sem cadastro e sem servidor de vídeo no meio: quem assiste só precisa do LiveS
 ![Windows 10 2004+ x64](https://img.shields.io/badge/Windows-10%202004%2B%20x64-0067C0)
 [![Licença: MIT ou Apache-2.0](https://img.shields.io/badge/licen%C3%A7a-MIT%20ou%20Apache--2.0-555)](#licença)
 
-**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases)
+**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases) · [site](https://pendiego.github.io/LiveScreen/)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/home-dark.png">
-  <img src="docs/screenshots/home-light.png" width="820" alt="Tela inicial do LiveScreen, com as opções Compartilhar tela e Assistir">
-</picture>
+<img src="site/assets/img/home.webp" width="820" alt="Tela inicial do LiveScreen, com as opções Compartilhar tela e Assistir">
 
 </div>
 
@@ -67,6 +64,9 @@ flowchart LR
 
 Cada pessoa que assiste recebe do seu PC a própria cópia do vídeo e do áudio. Quando a conexão direta não é possível, os pacotes passam por um servidor de retransmissão, que só repassa dados criptografados de ponta a ponta.
 
+> [!NOTE]
+> O servidor de retransmissão padrão é a infraestrutura pública e gratuita da n0 (equipe do iroh). Ela é compartilhada com outros apps, [feita para desenvolvimento e testes e tem limite de taxa](https://docs.iroh.computer/add-a-relay). Com conexão direta, nada passa por ela. Quando alguém aparece como **Via servidor**, qualidades altas podem travar: baixe a qualidade da transmissão ou peça uma mais leve no menu **Qualidade** de quem assiste.
+
 ## Qualidade, sala e internet
 
 Quem limita o tamanho da sala é o **upload** da sua internet:
@@ -86,7 +86,9 @@ Para ajudar na escolha:
 - **Qualidade recomendada:** o app marca a mais pesada que o seu PC e a sua internet sustentam para o tamanho da sala, até 1080p 60fps.
 - **Limite da sala:** começa em 4 pessoas e pode ser aumentado durante a transmissão. Se o limite passar do que a internet aguenta, aparece um aviso. Quem tenta entrar com a sala cheia recebe "Recusado: sala cheia".
 - **Opções conforme a fonte:** só aparecem as que cabem na tela ou janela escolhida. Por enquanto a transmissão vai até 1080p 60fps, mesmo em monitores maiores ou acima de 60 Hz.
-- **Aviso de PC sobrecarregado:** se o computador não der conta da qualidade, o app avisa e sugere uma mais leve.
+- **PC sobrecarregado:** se o computador não der conta da qualidade, o app avisa e, com "Baixar a qualidade sozinho" ligado (padrão), reduz uma faixa sozinho, no máximo a cada 10 s. Só reduz, e só por sobrecarga do PC; a rede continua só com o bitrate adaptativo. Trocas de qualidade ou codec rodam em segundo plano e não travam a janela.
+- **Sem custo de servidor:** não há servidor de vídeo para pagar. Cada pessoa recebe a própria cópia, então o upload necessário é o valor da tabela vezes o número de pessoas. Para caber mais gente, baixe a qualidade ou o limite da sala.
+- **Leve para quem assiste:** o codec é escolhido automaticamente entre os que todos na sala decodificam. HEVC e AV1 só entram se todo mundo os decodifica pela placa de vídeo; senão vai H.264, que o Android sempre usa. Se o PC ou o celular de quem assiste esquentar ou travar, peça uma qualidade mais leve no menu **Qualidade**.
 
 ## Recursos
 
@@ -103,16 +105,13 @@ Para ajudar na escolha:
 
 ## Configurações
 
-Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar pela placa de vídeo, estatísticas de vídeo ao assistir (overlay com fps e ms por quadro), qualidade e áudio padrão, limite da sala, nome, tema, verificação de atualização e backends de captura. Tudo fica em `ui.json`.
+Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar pela placa de vídeo, mostrar o vídeo direto da placa de vídeo sem cópia pelo processador, estatísticas de vídeo ao assistir (overlay com fps e ms por quadro), qualidade e áudio padrão, baixar a qualidade sozinho quando o PC não der conta, aceitar pedidos de qualidade de quem assiste, limite da sala, nome, tema, verificação de atualização e backends de captura. Tudo fica em `ui.json`.
 
 <div align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-dark.png">
-  <img src="docs/screenshots/settings-light.png" width="820" alt="Janela de Configurações do LiveScreen">
-</picture>
+<img src="site/assets/img/settings.webp" width="820" alt="Janela de Configurações do LiveScreen">
 </div>
 
-**Qualidade pelo espectador:** quem assiste pode pedir ao host uma qualidade mais leve (menu "Qualidade"). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda.
+**Qualidade pelo espectador:** quem assiste pode pedir ao host uma qualidade mais leve (menu "Qualidade"), inclusive as faixas 240p 30, 360p 30 e 480p 15 (hosts mais antigos, que não conhecem essas faixas, recebem 480p 30). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda. O host pode desligar os pedidos em Configurações ("Aceitar pedidos de qualidade mais leve de quem assiste"); desligado, eles só aparecem como aviso.
 
 ## Requisitos
 
@@ -144,7 +143,7 @@ O app Android só **assiste**: baixe o `livescreen-android.apk` em [Releases](ht
 
 | Destino | Quando | Para quê |
 |---|---|---|
-| Servidores públicos da n0 (equipe do iroh) | ao transmitir, ao assistir e com o app aberto fora de uma transmissão quando há amigos na lista | Encontrar o outro PC e retransmitir quando não há conexão direta, e ver quais amigos estão transmitindo (uma conexão curta por amigo a cada 15 s). Os servidores repassam pacotes criptografados e não veem o vídeo. |
+| Servidores públicos da n0 (equipe do iroh) | ao transmitir, ao assistir e com o app aberto fora de uma transmissão quando há amigos na lista | Encontrar o outro PC e retransmitir quando não há conexão direta, e ver quais amigos estão transmitindo (uma conexão curta por amigo a cada 15 s). Os servidores repassam pacotes criptografados e não veem o vídeo. É infraestrutura pública compartilhada, para testes e com limite de taxa: não há garantia de banda quando o vídeo passa por ela. |
 | `api.github.com` / `github.com` | ao abrir o app; ao clicar em Atualizar (desktop e Android) | Verificar e baixar versões novas |
 | `speed.cloudflare.com` | ao abrir a escolha de tela, uma vez por execução, e ao clicar em "Medir de novo" | Medir o upload. O teste dura ~5 s e envia dados de teste: cerca de 60 MB numa fibra de 100 Mbps, com teto de 150 MB. |
 
