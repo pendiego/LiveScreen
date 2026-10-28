@@ -507,9 +507,8 @@ tr:last-child td {
 
 .note {
   --tone: var(--accent);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--tone);
+  background: color-mix(in srgb, var(--tone) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--tone) 35%, var(--border));
   border-radius: var(--r-lg);
   padding: 20px;
 }
