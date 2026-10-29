@@ -451,6 +451,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_presets(
 ) -> jstring {
     let list: Vec<serde_json::Value> = Preset::ALL
         .iter()
+        .rev()
         .map(|p| {
             serde_json::json!({
                 "id": serde_json::to_value(p).unwrap_or_default(),

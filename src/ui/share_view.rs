@@ -811,7 +811,7 @@ fn quality_options(
         .auto_shrink([false, true])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
-            for &(pr, _) in &choices.list {
+            for &(pr, _) in choices.list.iter().rev() {
                 let detail = match choices.people(pr) {
                     Some(0) => "ninguém".to_string(),
                     Some(1) => "até 1 pessoa".to_string(),
