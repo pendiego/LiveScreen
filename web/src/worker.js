@@ -56,6 +56,7 @@ async function iceServers(env) {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (url.pathname === "/") return Response.redirect("https://pendiego.github.io/LiveScreen/", 302);
     const match = url.pathname.match(/^\/ws\/(host|view)\/([0-9a-f]{32})$/);
     if (!match) {
       return env.ASSETS.fetch(req);

@@ -24,7 +24,7 @@ use tokio_websockets::{ClientBuilder, Message};
 
 use super::{CountGuard, Peer, PeerConn, Shared, WebState, admit, rtt_congested};
 
-const WEB_BASE: &str = "https://livescreen-web.pendiego.workers.dev";
+const WEB_BASE: &str = "https://livescreen.pendiego.com";
 const STUN_SERVER: &str = "stun.cloudflare.com:3478";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_SDP: usize = 32 * 1024;
