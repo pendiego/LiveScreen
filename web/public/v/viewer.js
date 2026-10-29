@@ -10,12 +10,22 @@
   const retryBtn = document.getElementById("retryBtn");
   const playerBox = document.getElementById("playerBox");
   const video = document.getElementById("video");
+  const cardLead = document.getElementById("cardLead");
   const muteBtn = document.getElementById("muteBtn");
   const fsBtn = document.getElementById("fsBtn");
+  const pipBtn = document.getElementById("pipBtn");
+  const statsBtn = document.getElementById("statsBtn");
+  const statsPanel = document.getElementById("statsPanel");
+  const unmuteBtn = document.getElementById("unmuteBtn");
+  const waitOverlay = document.getElementById("waitOverlay");
+  const netBadge = document.getElementById("netBadge");
+  const elapsed = document.getElementById("elapsed");
 
   if (!hashMatch) {
     joinForm.hidden = true;
-    showStatus("Link incompleto: peça um novo link para quem está transmitindo.", false);
+    retryBtn.hidden = true;
+    showStatus("Link incompleto: peça um novo link para quem está transmitindo.", "info");
+    cardLead.hidden = true;
     return;
   }
 
@@ -83,6 +93,37 @@
     return sdp.replace(rtpmapRegex, `$1\r\na=fmtp:${pt} stereo=1`);
   }
 
+  const TITLE = "LiveScreen — Assistir transmissão";
+  const nf = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
+  let elapsedTimer = null;
+  let statsTimer = null;
+  let idleTimer = null;
+  let prevBytes = null;
+  let prevTs = null;
+
+  function sentence(s) {
+    s = String(s || "").trim();
+    if (!s) return "Conexão encerrada.";
+    s = s.charAt(0).toUpperCase() + s.slice(1);
+    return /[.!?:]$/.test(s) ? s : s + ".";
+  }
+
+  function formatElapsed(sec) {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = String(sec % 60).padStart(2, "0");
+    return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+  }
+
+  function stopStats() {
+    if (statsTimer) {
+      clearInterval(statsTimer);
+      statsTimer = null;
+    }
+    prevBytes = null;
+    prevTs = null;
+  }
+
   function cleanup() {
     if (pingTimer) {
       clearInterval(pingTimer);
@@ -92,35 +133,51 @@
       clearTimeout(answerTimer);
       answerTimer = null;
     }
+    if (elapsedTimer) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
+    }
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+    stopStats();
+    netBadge.hidden = true;
     if (pc) {
       try { pc.close(); } catch {}
       pc = null;
     }
     if (ws) {
-      try { ws.close(); } catch {}
+      const old = ws;
       ws = null;
+      try { old.close(); } catch {}
     }
   }
 
-  function showStatus(text, canRetry) {
+  function showStatus(text, kind) {
     statusMsg.textContent = text;
+    statusBox.dataset.kind = kind;
     statusBox.hidden = false;
-    retryBtn.hidden = !canRetry;
+    retryBtn.hidden = kind !== "error";
+    cardLead.hidden = kind !== "info";
   }
 
-  function stopWithReason(reason) {
-    console.log("[viewer stopWithReason]", reason);
+  function stopWithReason(text) {
     cleanup();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
     playerBox.hidden = true;
+    statsPanel.hidden = true;
+    statsBtn.setAttribute("aria-pressed", "false");
     card.hidden = false;
     joinForm.hidden = true;
-    showStatus(reason, false);
+    document.title = TITLE;
+    showStatus(sentence(text), "error");
   }
 
   async function start(iceServers) {
     try {
       pc = new RTCPeerConnection({ iceServers });
-      window.__pc = pc;
 
       const ms = new MediaStream();
       video.srcObject = ms;
@@ -135,8 +192,14 @@
       };
 
       pc.onconnectionstatechange = () => {
-        if (pc && pc.connectionState === "failed") {
-          stopWithReason("Não foi possível conectar: a rede pode estar bloqueando a conexão.");
+        if (!pc) return;
+        const st = pc.connectionState;
+        if (st === "failed") {
+          stopWithReason("Não foi possível conectar: a rede pode estar bloqueando a conexão direta.");
+        } else if (st === "disconnected") {
+          netBadge.hidden = false;
+        } else if (st === "connected") {
+          netBadge.hidden = true;
         }
       };
 
@@ -177,52 +240,56 @@
           proof,
           name: currentName,
         }));
+        showStatus("Esperando quem transmite aceitar…", "busy");
       }
 
       answerTimer = setTimeout(() => {
         stopWithReason("Sem resposta de quem transmite.");
       }, 15000);
     } catch (err) {
-      stopWithReason("Erro ao iniciar conexão: " + (err?.message || err));
+      // pc nulo: a conexão já foi encerrada por outro caminho
+      if (pc) stopWithReason("Erro ao iniciar conexão: " + (err?.message || err));
     }
   }
 
   function connect() {
     cleanup();
-    statusBox.hidden = true;
     joinForm.hidden = true;
+    showStatus("Conectando…", "busy");
 
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProto}//${location.host}/ws/view/${roomId}`;
 
-    ws = new WebSocket(wsUrl);
+    const sock = new WebSocket(wsUrl);
+    ws = sock;
 
-    ws.onopen = () => {
+    sock.onopen = () => {
       pingTimer = setInterval(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ t: "ping" }));
+        if (ws === sock && sock.readyState === WebSocket.OPEN) {
+          sock.send(JSON.stringify({ t: "ping" }));
         }
       }, 30000);
     };
 
-    ws.onmessage = async (evt) => {
+    sock.onmessage = async (evt) => {
+      if (ws !== sock) return;
       let data;
       try {
         data = JSON.parse(evt.data);
       } catch {
         return;
       }
-      console.log("[viewer ws message]", data);
 
       if (data.t === "nohost") {
         cleanup();
         playerBox.hidden = true;
         card.hidden = false;
-        showStatus("A transmissão não está no ar.", true);
+        showStatus("A transmissão não está no ar. Quando quem transmite voltar a compartilhar, tente de novo.", "error");
         return;
       }
 
       if (data.t === "hello") {
+        showStatus("Pedindo para entrar…", "busy");
         await start(data.iceServers || []);
         return;
       }
@@ -237,11 +304,14 @@
             await pc.setRemoteDescription({ type: "answer", sdp: data.sdp });
             card.hidden = true;
             playerBox.hidden = false;
+            waitOverlay.hidden = false;
             video.muted = false;
             video.play().catch(() => {
               video.muted = true;
+              unmuteBtn.hidden = false;
               video.play().catch(() => {});
             });
+            wake();
           } catch (e) {
             stopWithReason("Erro ao aplicar resposta da transmissão.");
           }
@@ -250,22 +320,17 @@
       }
 
       if (data.t === "reject" || data.t === "closed") {
-        stopWithReason(data.reason || "Conexão encerrada.");
+        stopWithReason(data.reason);
       }
     };
 
-    ws.onerror = () => {
-      // Deixar onclose ou falha de timeout lidar com o estado
+    sock.onerror = () => {
+      // onclose trata o estado
     };
 
-    ws.onclose = () => {
-      if (pingTimer) {
-        clearInterval(pingTimer);
-        pingTimer = null;
-      }
-      if (pc && !playerBox.hidden) {
-        stopWithReason("a transmissão terminou");
-      }
+    sock.onclose = () => {
+      if (ws !== sock) return;
+      stopWithReason(playerBox.hidden ? "A conexão com o servidor do link caiu." : "A transmissão terminou.");
     };
   }
 
@@ -277,24 +342,165 @@
     connect();
   });
 
-  retryBtn.addEventListener("click", () => {
-    connect();
+  retryBtn.addEventListener("click", connect);
+
+  // Primeiro quadro: tira a espera, inicia o relógio e o título.
+  video.addEventListener("playing", () => {
+    if (elapsedTimer) return;
+    waitOverlay.hidden = true;
+    const startedAt = performance.now();
+    elapsed.textContent = "0:00";
+    elapsedTimer = setInterval(() => {
+      elapsed.textContent = formatElapsed(Math.floor((performance.now() - startedAt) / 1000));
+    }, 1000);
+    document.title = "● Ao vivo — LiveScreen";
   });
 
-  muteBtn.addEventListener("click", () => {
+  // Mudo
+  function toggleMute() {
     video.muted = !video.muted;
-    muteBtn.textContent = video.muted ? "Ativar som" : "Desativar som";
+  }
+  muteBtn.addEventListener("click", toggleMute);
+  video.addEventListener("volumechange", () => {
+    muteBtn.dataset.state = video.muted ? "off" : "on";
+    muteBtn.setAttribute("aria-label", video.muted ? "Ativar som" : "Desativar som");
+    if (!video.muted) unmuteBtn.hidden = true;
+  });
+  unmuteBtn.addEventListener("click", () => {
+    video.muted = false;
+    video.play().catch(() => {});
+    unmuteBtn.hidden = true;
   });
 
-  fsBtn.addEventListener("click", () => {
-    if (!document.fullscreenElement) {
-      if (playerBox.requestFullscreen) {
-        playerBox.requestFullscreen();
-      } else if (video.requestFullscreen) {
-        video.requestFullscreen();
-      }
-    } else {
+  // Tela cheia
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
       document.exitFullscreen();
+    } else if (playerBox.requestFullscreen) {
+      playerBox.requestFullscreen().catch(() => {});
+    } else if (video.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen();
     }
+  }
+  fsBtn.addEventListener("click", toggleFullscreen);
+  video.addEventListener("dblclick", toggleFullscreen);
+  document.addEventListener("fullscreenchange", () => {
+    const on = !!document.fullscreenElement;
+    fsBtn.dataset.state = on ? "on" : "off";
+    fsBtn.setAttribute("aria-label", on ? "Sair da tela cheia" : "Tela cheia");
+  });
+
+  // Picture-in-Picture
+  if (document.pictureInPictureEnabled && !video.disablePictureInPicture) pipBtn.hidden = false;
+  function togglePip() {
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+    } else {
+      video.requestPictureInPicture().catch(() => {});
+    }
+  }
+  pipBtn.addEventListener("click", togglePip);
+
+  // Estatísticas
+  function row(dt, dd) {
+    const a = document.createElement("dt");
+    a.textContent = dt;
+    const b = document.createElement("dd");
+    b.textContent = dd;
+    statsPanel.append(a, b);
+  }
+
+  async function refreshStats() {
+    if (!pc) return;
+    let report;
+    try {
+      report = await pc.getStats();
+    } catch {
+      return;
+    }
+    let vid = null;
+    let bytes = 0;
+    let ts = 0;
+    let pair = null;
+    const locals = new Map();
+    report.forEach((r) => {
+      if (r.type === "inbound-rtp") {
+        bytes += r.bytesReceived || 0;
+        ts = Math.max(ts, r.timestamp || 0);
+        if (r.kind === "video") vid = r;
+      } else if (r.type === "candidate-pair" && r.state === "succeeded" && r.nominated) {
+        pair = r;
+      } else if (r.type === "local-candidate") {
+        locals.set(r.id, r);
+      }
+    });
+
+    let rate = "—";
+    if (prevBytes !== null && ts > prevTs) {
+      const kbit = ((bytes - prevBytes) * 8) / (ts - prevTs);
+      rate = kbit >= 1000 ? `${nf.format(kbit / 1000)} Mbit/s` : `${nf.format(kbit)} kbit/s`;
+    }
+    prevBytes = bytes;
+    prevTs = ts;
+
+    const res = vid && vid.frameWidth ? `${vid.frameWidth}×${vid.frameHeight}` : "—";
+    const fps = vid && vid.framesPerSecond != null ? `${nf.format(vid.framesPerSecond)} fps` : "—";
+    let loss = "—";
+    if (vid && vid.packetsLost != null && vid.packetsReceived != null) {
+      const total = vid.packetsLost + vid.packetsReceived;
+      loss = `${nf.format(total ? (vid.packetsLost / total) * 100 : 0)} %`;
+    }
+    const rtt = pair && pair.currentRoundTripTime != null ? `${nf.format(pair.currentRoundTripTime * 1000)} ms` : "—";
+    const local = pair ? locals.get(pair.localCandidateId) : null;
+    const path = local && local.candidateType ? (local.candidateType === "relay" ? "Via TURN" : "Direto") : "—";
+
+    statsPanel.replaceChildren();
+    row("Resolução", res);
+    row("Quadros", fps);
+    row("Taxa", rate);
+    row("Perda", loss);
+    row("Latência", rtt);
+    row("Caminho", path);
+  }
+
+  function toggleStats() {
+    const open = statsPanel.hidden;
+    statsPanel.hidden = !open;
+    statsBtn.setAttribute("aria-pressed", String(open));
+    stopStats();
+    if (open) {
+      refreshStats();
+      statsTimer = setInterval(refreshStats, 1000);
+    }
+  }
+  statsBtn.addEventListener("click", toggleStats);
+
+  // Controles que somem sozinhos
+  function wake() {
+    playerBox.classList.remove("idle");
+    clearTimeout(idleTimer);
+    if (playerBox.hidden) return;
+    idleTimer = setTimeout(() => {
+      if (!statsPanel.hidden || controls.matches(":focus-within")) return;
+      playerBox.classList.add("idle");
+    }, 2500);
+  }
+  const controls = playerBox.querySelector(".controls");
+  ["pointermove", "pointerdown", "keydown"].forEach((ev) => playerBox.addEventListener(ev, wake));
+  playerBox.addEventListener("pointerleave", (e) => {
+    if (e.pointerType === "mouse") playerBox.classList.add("idle");
+  });
+
+  // Atalhos
+  document.addEventListener("keydown", (e) => {
+    if (playerBox.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target instanceof Element && e.target.closest("input")) return;
+    const k = e.key.toLowerCase();
+    if (k === "m") toggleMute();
+    else if (k === "f") toggleFullscreen();
+    else if (k === "p" && !pipBtn.hidden) togglePip();
+    else if (k === "i") toggleStats();
+    else return;
+    e.preventDefault();
   });
 })();
