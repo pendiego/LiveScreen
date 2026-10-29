@@ -304,7 +304,7 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
         .align(egui::RectAlign::TOP_START)
         .show(|ui| {
             ui.label(RichText::new("Só vale se for mais leve que a atual").small().weak());
-            for p in livescreen_core::preset::Preset::ALL {
+            for p in livescreen_core::preset::Preset::ALL.into_iter().rev() {
                 if ui.button(p.name()).clicked() {
                     if let Some(w) = app.watch.as_ref() {
                         w.request_quality(p);
