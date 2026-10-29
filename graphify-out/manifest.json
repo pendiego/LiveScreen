@@ -126,15 +126,15 @@
     "semantic_hash": ""
   },
   "src/ui/settings.rs": {
-    "mtime": 1793238824.0957956,
-    "seen": 1793239494.863462,
-    "ast_hash": "3e2554bc0f12c204a15a883416b2bf87",
+    "mtime": 1793240003.626273,
+    "seen": 1793240010.5273268,
+    "ast_hash": "63e8def423778a6755f5e1c9a8b4e68e",
     "semantic_hash": ""
   },
   "src/ui/share_view.rs": {
-    "mtime": 1793238824.0967958,
-    "seen": 1793239494.8634632,
-    "ast_hash": "84fa881e3000470c4e03b2162585adce",
+    "mtime": 1793240003.6277776,
+    "seen": 1793240010.5273278,
+    "ast_hash": "7dd1e9dd86f597097a346a4f5587ffe0",
     "semantic_hash": ""
   },
   "src/ui/theme.rs": {
@@ -150,9 +150,9 @@
     "semantic_hash": ""
   },
   "src/ui/watch_view.rs": {
-    "mtime": 1793238824.0987968,
-    "seen": 1793239494.8634663,
-    "ast_hash": "7231a2a54469996eb9dd71271c6ed4a5",
+    "mtime": 1793240003.6287825,
+    "seen": 1793240010.527331,
+    "ast_hash": "36bf16d19136c6979af6de5e62bab7b0",
     "semantic_hash": ""
   },
   "src/update.rs": {
@@ -216,9 +216,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793239489.8174188,
-    "seen": 1793239494.863482,
-    "ast_hash": "cd3d112837d1a30b0fb502821b849723",
+    "mtime": 1793240003.6100955,
+    "seen": 1793240010.5273492,
+    "ast_hash": "fe2cc8a53880c7c50b0ba233003daf9e",
     "semantic_hash": ""
   },
   ".github/scripts/test-changelog.sh": {
@@ -306,9 +306,9 @@
     "semantic_hash": ""
   },
   "android/rust/src/lib.rs": {
-    "mtime": 1793030149.1138725,
-    "seen": 1793239494.863429,
-    "ast_hash": "67f2a81fd3daa3c4eb0e25e012f87b60",
+    "mtime": 1793240003.6112323,
+    "seen": 1793240010.5272906,
+    "ast_hash": "e33eaf17f1f42095d90f46149ede110c",
     "semantic_hash": ""
   },
   "android/settings.gradle.kts": {
@@ -474,8 +474,8 @@
     "semantic_hash": ""
   },
   "src/share/web.rs": {
-    "mtime": 1793238824.0927851,
-    "seen": 1793239494.8634555,
+    "mtime": 1793240003.295737,
+    "seen": 1793240010.5273197,
     "ast_hash": "ad41010cda75e3953340d5d0268d2710",
     "semantic_hash": ""
   },
@@ -486,50 +486,50 @@
     "semantic_hash": ""
   },
   "web/public/v/viewer.js": {
-    "mtime": 1793239418.635691,
-    "seen": 1793239494.863479,
+    "mtime": 1793240003.3110447,
+    "seen": 1793240010.527346,
     "ast_hash": "18097c3569c38c87d0b97f5fba8473c9",
     "semantic_hash": ""
   },
   "web/src/worker.js": {
-    "mtime": 1793239325.3772354,
-    "seen": 1793239494.8634799,
+    "mtime": 1793240003.3120453,
+    "seen": 1793240010.5273468,
     "ast_hash": "5cdd3bfb125e98bf523bf6b150e28213",
     "semantic_hash": ""
   },
   "web/public/v/index.html": {
-    "mtime": 1793239325.417323,
-    "seen": 1793239494.863499,
+    "mtime": 1793240003.3085356,
+    "seen": 1793240010.5273662,
     "ast_hash": "851a026bfd5d118ed35d0d80522f5c36",
     "semantic_hash": ""
   },
   ".github/workflows/deploy-web.yml": {
-    "mtime": 1793238824.0242362,
-    "seen": 1793239494.863406,
+    "mtime": 1793240003.2857153,
+    "seen": 1793240010.5272663,
     "ast_hash": "ed1eca67edc3a4c60ded2d45129e68b0",
     "semantic_hash": ""
   },
   "web/public/v/fonts/LICENSE-Lucide.txt": {
-    "mtime": 1793239292.085749,
-    "seen": 1793239494.863494,
+    "mtime": 1793240003.2967396,
+    "seen": 1793240010.5273626,
     "ast_hash": "0ac379ab65904bcb1cf0c068528e82ce",
     "semantic_hash": ""
   },
   "web/public/v/fonts/OFL-Inter.txt": {
-    "mtime": 1793239292.082724,
-    "seen": 1793239494.8634965,
+    "mtime": 1793240003.2977374,
+    "seen": 1793240010.5273638,
     "ast_hash": "082d8cc7db39783f598b7eda8c911f9d",
     "semantic_hash": ""
   },
   "web/public/v/fonts/OFL-SpaceGrotesk.txt": {
-    "mtime": 1793239292.0842295,
-    "seen": 1793239494.8634977,
+    "mtime": 1793240003.3065302,
+    "seen": 1793240010.5273652,
     "ast_hash": "6e43724eebfa4bcb7e93bc04f18def65",
     "semantic_hash": ""
   },
   "web/public/v/logo.svg": {
-    "mtime": 1793239292.074235,
-    "seen": 1793239494.863507,
+    "mtime": 1793240003.31004,
+    "seen": 1793240010.5273743,
     "ast_hash": "0a10888163b636e767b224d6483260ad",
     "semantic_hash": ""
   },

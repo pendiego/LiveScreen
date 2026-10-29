@@ -179,7 +179,7 @@ fn share(app: &mut App, ui: &mut egui::Ui) {
                 .icon(theme::chevron_icon)
                 .selected_text(pr.name())
                 .show_ui(ui, |ui| {
-                    for p in Preset::ALL {
+                    for p in Preset::ALL.into_iter().rev() {
                         ui.selectable_value(&mut pr, p, p.name())
                             .on_hover_text(preset_hint(p));
                     }
