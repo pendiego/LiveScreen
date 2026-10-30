@@ -6,8 +6,8 @@
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1793394304.3553035,
-    "seen": 1793394380.5476825,
+    "mtime": 1793394964.3767507,
+    "seen": 1793397419.0491958,
     "ast_hash": "b2c85f2734676abbad71c0009f73be9b",
     "semantic_hash": ""
   },
@@ -216,8 +216,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793394323.267957,
-    "seen": 1793394380.547771,
+    "mtime": 1793394964.3778462,
+    "seen": 1793397419.0492985,
     "ast_hash": "c838681f1033f6e28a4f5df8079c927f",
     "semantic_hash": ""
   },
@@ -390,14 +390,14 @@
     "semantic_hash": ""
   },
   ".github/workflows/pages.yml": {
-    "mtime": 1793383634.8172598,
-    "seen": 1793392637.0661922,
+    "mtime": 1793394964.3762188,
+    "seen": 1793397419.0491934,
     "ast_hash": "b4ff5f166d91cd44d6668588b0433f75",
     "semantic_hash": ""
   },
   "site/ajuda/index.html": {
-    "mtime": 1793394366.2524743,
-    "seen": 1793394380.547778,
+    "mtime": 1793394964.3891027,
+    "seen": 1793397419.0493052,
     "ast_hash": "546ad80b3e91a51692e15b46e483f7ea",
     "semantic_hash": ""
   },
@@ -426,9 +426,9 @@
     "semantic_hash": ""
   },
   "site/index.html": {
-    "mtime": 1793394343.1761026,
-    "seen": 1793394380.5477839,
-    "ast_hash": "7f2886e5fe865d53a7784e1b4292d37b",
+    "mtime": 1793397324.2682455,
+    "seen": 1793397419.049311,
+    "ast_hash": "9d9649ce2edc0f052f0b36c4d3314f75",
     "semantic_hash": ""
   },
   "site/assets/img/confirm.webp": {
@@ -480,9 +480,9 @@
     "semantic_hash": ""
   },
   "web/public/v/viewer.js": {
-    "mtime": 1793393497.9606378,
-    "seen": 1793393810.239067,
-    "ast_hash": "62af0f1f9953b42abc1ce4d1d0612923",
+    "mtime": 1793397358.676769,
+    "seen": 1793397419.049294,
+    "ast_hash": "fd4551d39d473dd7180fe96da7f13a23",
     "semantic_hash": ""
   },
   "web/src/worker.js": {
@@ -492,14 +492,14 @@
     "semantic_hash": ""
   },
   "web/public/v/index.html": {
-    "mtime": 1793393457.558208,
-    "seen": 1793393810.2390885,
-    "ast_hash": "92bdc30eb8b838bad87d212db04fcb0c",
+    "mtime": 1793397358.6673162,
+    "seen": 1793397419.0493212,
+    "ast_hash": "18e14d61ee44bbc1c7a1c7029df5921b",
     "semantic_hash": ""
   },
   ".github/workflows/deploy-web.yml": {
-    "mtime": 1793394311.6185763,
-    "seen": 1793394380.547677,
+    "mtime": 1793394964.3751688,
+    "seen": 1793397419.0491898,
     "ast_hash": "81a73a0452560bb63596a31964882d06",
     "semantic_hash": ""
   },
@@ -573,6 +573,294 @@
     "mtime": 1793393468.1165662,
     "seen": 1793393810.2390172,
     "ast_hash": "5c4a4c57409125f902c24ac15dcbeaef",
+    "semantic_hash": ""
+  },
+  "video/audio/captions.json": {
+    "mtime": 1793396693.119423,
+    "seen": 1793397419.0492852,
+    "ast_hash": "848eb72afc7842a5406e83d880c8f435",
+    "semantic_hash": ""
+  },
+  "video/composition/.hyperframes/video-state.json": {
+    "mtime": 1793397312.0209146,
+    "seen": 1793397419.0492866,
+    "ast_hash": "bcf890dbb106c88edb2de7fe6c48417f",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/data.js": {
+    "mtime": 1793397269.0683196,
+    "seen": 1793397419.049288,
+    "ast_hash": "4dc4438bc3bd2bb2a973f018704e4ee9",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/gsap.min.js": {
+    "mtime": 1793395733.6043737,
+    "seen": 1793397419.049289,
+    "ast_hash": "bf3fd8ec2a5d9f4531b4c310222361f8",
+    "semantic_hash": ""
+  },
+  "video/composition/build.mjs": {
+    "mtime": 1793397193.6971877,
+    "seen": 1793397419.04929,
+    "ast_hash": "cbeb6d905f323fbf5d95060baf0fbd81",
+    "semantic_hash": ""
+  },
+  "video/render.sh": {
+    "mtime": 1793397019.791488,
+    "seen": 1793397419.049291,
+    "ast_hash": "43713fb956429e56ce10f7e11d312577",
+    "semantic_hash": ""
+  },
+  "video/assets/captures.md": {
+    "mtime": 1793396612.1415849,
+    "seen": 1793397419.049312,
+    "ast_hash": "45fd398fb2bc16116570d3709c87672f",
+    "semantic_hash": ""
+  },
+  "video/audio/audio.md": {
+    "mtime": 1793396700.8754258,
+    "seen": 1793397419.0493133,
+    "ast_hash": "f80356da3eca8d5da625fd586274ff7b",
+    "semantic_hash": ""
+  },
+  "video/composition/README.txt": {
+    "mtime": 1793395868.4926136,
+    "seen": 1793397419.0493145,
+    "ast_hash": "58ad743806be863c206b125bdb96f9e7",
+    "semantic_hash": ""
+  },
+  "video/composition/index.html": {
+    "mtime": 1793397265.123422,
+    "seen": 1793397419.0493157,
+    "ast_hash": "63caccedddee22136e2c72af8a83caee",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-a-host.png": {
+    "mtime": 1793395825.9662235,
+    "seen": 1793397419.04933,
+    "ast_hash": "92e637bedb450fb4d6676abf173e7479",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-a-viewer.png": {
+    "mtime": 1793395808.8894527,
+    "seen": 1793397419.0493307,
+    "ast_hash": "ef256bf6ab7b09c387d4771f767d9622",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-a.png": {
+    "mtime": 1793395823.2272053,
+    "seen": 1793397419.0493317,
+    "ast_hash": "0473990c78ddf2c5a1ca543fdde7dd51",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-b-android-host.png": {
+    "mtime": 1793396335.0260684,
+    "seen": 1793397419.049333,
+    "ast_hash": "206087eac00d97407027286720bb80eb",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-b-android.png": {
+    "mtime": 1793396064.0574267,
+    "seen": 1793397419.0493338,
+    "ast_hash": "a9ee03cc7160915d9fab2957323d6ace",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-b-web.png": {
+    "mtime": 1793396645.806207,
+    "seen": 1793397419.0493348,
+    "ast_hash": "933fbae9f4435f3bcb7eebb7f5e77831",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-c-android-chat.png": {
+    "mtime": 1793396568.8220599,
+    "seen": 1793397419.0493357,
+    "ast_hash": "03f43f0e47323c0e86f8441302c02e42",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-c-android.png": {
+    "mtime": 1793396418.1977859,
+    "seen": 1793397419.049337,
+    "ast_hash": "0158520134625e529b6de5aae8925a07",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-c-chat.png": {
+    "mtime": 1793396568.8215566,
+    "seen": 1793397419.0493376,
+    "ast_hash": "9f00ca78a3be75fd24d831be2b37f552",
+    "semantic_hash": ""
+  },
+  "video/assets/beat-c-friends.png": {
+    "mtime": 1793396335.0250874,
+    "seen": 1793397419.0493388,
+    "ast_hash": "2b4c25138425ae4df2a190ef59c38f4e",
+    "semantic_hash": ""
+  },
+  "video/assets/hook.png": {
+    "mtime": 1793395719.5495422,
+    "seen": 1793397419.04934,
+    "ast_hash": "8696d41da92f5d73585bc9f87f0b25d3",
+    "semantic_hash": ""
+  },
+  "video/assets/logo-1024.png": {
+    "mtime": 1793395583.2951853,
+    "seen": 1793397419.049341,
+    "ast_hash": "1da74967c5b5c0d1a00acc08f5414160",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/cpu.svg": {
+    "mtime": 1793397187.5398316,
+    "seen": 1793397419.0493417,
+    "ast_hash": "e8ce9a242a72e5f2321369732b290453",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/download.svg": {
+    "mtime": 1793397187.52844,
+    "seen": 1793397419.0493426,
+    "ast_hash": "f1c9e635606524510a31726bc264bd65",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/globe.svg": {
+    "mtime": 1793397187.5145652,
+    "seen": 1793397419.0493438,
+    "ast_hash": "b12edf1b3398e9a6aec6d71a6d1f35c2",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/link-2.svg": {
+    "mtime": 1793397187.4992397,
+    "seen": 1793397419.0493448,
+    "ast_hash": "055315e5cf0eb05ceed60792d008d48c",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/message-circle.svg": {
+    "mtime": 1793397187.5204897,
+    "seen": 1793397419.0493457,
+    "ast_hash": "93214f007d5f0f4d48eec6936ebc1354",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/monitor.svg": {
+    "mtime": 1793397187.507157,
+    "seen": 1793397419.049347,
+    "ast_hash": "9f28fa317a41747606f2611cf3eac1ef",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/package.svg": {
+    "mtime": 1793397187.4903219,
+    "seen": 1793397419.0493479,
+    "ast_hash": "efed3b574f6f70e7defead70a0a7939f",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/settings.svg": {
+    "mtime": 1793397187.5333905,
+    "seen": 1793397419.0493488,
+    "ast_hash": "f360138e1481837af285b23c94702a0d",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/shield-check.svg": {
+    "mtime": 1793397187.5051768,
+    "seen": 1793397419.0493498,
+    "ast_hash": "5508b76922ae5d86637357d22beb62ce",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/smartphone.svg": {
+    "mtime": 1793397187.5081377,
+    "seen": 1793397419.049351,
+    "ast_hash": "888da67a2b596e7d9d953c99b82482ba",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/timer.svg": {
+    "mtime": 1793397187.4923432,
+    "seen": 1793397419.0493517,
+    "ast_hash": "d44a738acc4a9225ea56822a6a095d6b",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/user-round.svg": {
+    "mtime": 1793397187.481827,
+    "seen": 1793397419.0493526,
+    "ast_hash": "f2988840446bb8049cace5a24e56ab6a",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/icons/users.svg": {
+    "mtime": 1793397187.5224423,
+    "seen": 1793397419.0493538,
+    "ast_hash": "52b93f54e2de226628e92bc8c895260b",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/logo-1024.png": {
+    "mtime": 1793395583.2951853,
+    "seen": 1793397419.0493548,
+    "ast_hash": "1da74967c5b5c0d1a00acc08f5414160",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/shots/beat-a-viewer.png": {
+    "mtime": 1793395808.8894527,
+    "seen": 1793397419.0493557,
+    "ast_hash": "ef256bf6ab7b09c387d4771f767d9622",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/shots/beat-a.png": {
+    "mtime": 1793395823.2272053,
+    "seen": 1793397419.0493567,
+    "ast_hash": "0473990c78ddf2c5a1ca543fdde7dd51",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/shots/beat-b-android.png": {
+    "mtime": 1793396064.0574267,
+    "seen": 1793397419.049358,
+    "ast_hash": "a9ee03cc7160915d9fab2957323d6ace",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/shots/beat-b-web.png": {
+    "mtime": 1793396645.806207,
+    "seen": 1793397419.0493586,
+    "ast_hash": "933fbae9f4435f3bcb7eebb7f5e77831",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/shots/beat-c-android.png": {
+    "mtime": 1793396418.1977859,
+    "seen": 1793397419.0493598,
+    "ast_hash": "0158520134625e529b6de5aae8925a07",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/shots/beat-c-chat.png": {
+    "mtime": 1793396568.8215566,
+    "seen": 1793397419.049361,
+    "ast_hash": "9f00ca78a3be75fd24d831be2b37f552",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/shots/beat-c-friends.png": {
+    "mtime": 1793396335.0250874,
+    "seen": 1793397419.049362,
+    "ast_hash": "2b4c25138425ae4df2a190ef59c38f4e",
+    "semantic_hash": ""
+  },
+  "video/composition/assets/shots/hook.png": {
+    "mtime": 1793395719.5495422,
+    "seen": 1793397419.0493631,
+    "ast_hash": "8696d41da92f5d73585bc9f87f0b25d3",
+    "semantic_hash": ""
+  },
+  "video/audio/mix.wav": {
+    "mtime": 1793396697.9621665,
+    "seen": 1793397419.0493655,
+    "ast_hash": "2df71c1f5b39ecddfd49fd085e9c636d",
+    "semantic_hash": ""
+  },
+  "video/audio/music.wav": {
+    "mtime": 1793395626.622546,
+    "seen": 1793397419.0493667,
+    "ast_hash": "e3c6182089c40542e0707bc8229f1235",
+    "semantic_hash": ""
+  },
+  "video/audio/voice.wav": {
+    "mtime": 1793396697.3374674,
+    "seen": 1793397419.049368,
+    "ast_hash": "c77f7293807115474319702bf496dd98",
+    "semantic_hash": ""
+  },
+  "video/livescreen-v0.6.0.mp4": {
+    "mtime": 1793397313.0944843,
+    "seen": 1793397419.0493689,
+    "ast_hash": "cd70570eecb4ad5d5d83b9a93c441a59",
     "semantic_hash": ""
   },
   "web/package-lock.json": {
