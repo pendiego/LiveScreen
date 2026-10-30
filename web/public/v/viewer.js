@@ -16,6 +16,13 @@
   const pipBtn = document.getElementById("pipBtn");
   const statsBtn = document.getElementById("statsBtn");
   const statsPanel = document.getElementById("statsPanel");
+  const chatBtn = document.getElementById("chatBtn");
+  const chatPanel = document.getElementById("chatPanel");
+  const chatList = document.getElementById("chatList");
+  const chatForm = document.getElementById("chatForm");
+  const chatInput = document.getElementById("chatInput");
+  let chatCh = null;
+  let myChatId = null;
   const unmuteBtn = document.getElementById("unmuteBtn");
   const waitOverlay = document.getElementById("waitOverlay");
   const netBadge = document.getElementById("netBadge");
@@ -169,6 +176,14 @@
     playerBox.hidden = true;
     statsPanel.hidden = true;
     statsBtn.setAttribute("aria-pressed", "false");
+    try { if (chatCh) chatCh.close(); } catch {}
+    chatCh = null;
+    myChatId = null;
+    chatBtn.hidden = true;
+    chatBtn.setAttribute("aria-pressed", "false");
+    delete chatBtn.dataset.unread;
+    chatPanel.hidden = true;
+    chatList.replaceChildren();
     card.hidden = false;
     joinForm.hidden = true;
     document.title = TITLE;
@@ -205,6 +220,9 @@
 
       pc.addTransceiver("video", { direction: "recvonly" });
       pc.addTransceiver("audio", { direction: "recvonly" });
+
+      chatCh = pc.createDataChannel("chat");
+      chatCh.onmessage = onChatMessage;
 
       const offer = await pc.createOffer();
       const patchedSdp = addOpusStereo(offer.sdp);
@@ -475,13 +493,73 @@
   }
   statsBtn.addEventListener("click", toggleStats);
 
+  function onChatMessage(evt) {
+    let data;
+    try { data = JSON.parse(evt.data); } catch { return; }
+    if (!data || typeof data !== "object") return;
+    if (data.type === "chat_ready") {
+      myChatId = data.chat_id;
+      chatBtn.hidden = false;
+    } else if (data.type === "chat") {
+      appendChat(data);
+    }
+  }
+
+  function appendChat(m) {
+    const mine = m.role === "viewer" && m.sender === myChatId;
+    const host = m.role === "host";
+    const label = mine ? "Você" : host ? (m.name || "Anfitrião") : `${m.name || "Anônimo"} #${m.sender}`;
+    const li = document.createElement("li");
+    li.className = host ? "chat-msg host" : "chat-msg";
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = label;
+    li.append(who);
+    const tag = host ? "anfitrião" : m.friend ? "amigo" : null;
+    if (tag) {
+      const t = document.createElement("span");
+      t.className = "chat-tag";
+      t.textContent = tag;
+      li.append(t);
+    }
+    const text = document.createElement("span");
+    text.className = "text";
+    text.textContent = " " + String(m.text ?? "");
+    li.append(text);
+    const atEnd = chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight <= 40;
+    chatList.append(li);
+    while (chatList.children.length > 200) chatList.firstElementChild.remove();
+    if (atEnd) chatList.scrollTop = chatList.scrollHeight;
+    if (chatPanel.hidden && !mine) chatBtn.dataset.unread = "true";
+  }
+
+  function toggleChat() {
+    const open = chatPanel.hidden;
+    chatPanel.hidden = !open;
+    chatBtn.setAttribute("aria-pressed", String(open));
+    if (open) {
+      delete chatBtn.dataset.unread;
+      chatList.scrollTop = chatList.scrollHeight;
+      chatInput.focus();
+    }
+  }
+  chatBtn.addEventListener("click", toggleChat);
+  chatForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = chatInput.value.trim();
+    if (text && chatCh && chatCh.readyState === "open") {
+      chatCh.send(JSON.stringify({ type: "chat", text }));
+      chatInput.value = "";
+    }
+  });
+
   // Controles que somem sozinhos
   function wake() {
     playerBox.classList.remove("idle");
     clearTimeout(idleTimer);
     if (playerBox.hidden) return;
     idleTimer = setTimeout(() => {
-      if (!statsPanel.hidden || controls.matches(":focus-within")) return;
+      if (!statsPanel.hidden || controls.matches(":focus-within") || chatPanel.matches(":focus-within")) return;
       playerBox.classList.add("idle");
     }, 2500);
   }
@@ -500,6 +578,7 @@
     else if (k === "f") toggleFullscreen();
     else if (k === "p" && !pipBtn.hidden) togglePip();
     else if (k === "i") toggleStats();
+    else if (k === "c" && !chatBtn.hidden) toggleChat();
     else return;
     e.preventDefault();
   });

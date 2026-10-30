@@ -71,6 +71,9 @@ pub enum ViewerMsg {
         room_proof: String,
         #[serde(default)]
         decoders: Vec<Codec>,
+        /// Viewer entende `HostMsg::Chat`; host antigo ignora o campo.
+        #[serde(default)]
+        chat: bool,
     },
     RequestKeyframe,
     /// Pede ao host a qualidade da transmissão (vale para a sala toda; o host aplica).
@@ -79,6 +82,10 @@ pub enum ViewerMsg {
     },
     SetVisible {
         visible: bool,
+    },
+    /// Mensagem de chat; o host atribui remetente e papel, o texto é só conteúdo.
+    Chat {
+        text: String,
     },
 }
 
@@ -97,6 +104,12 @@ pub enum HostMsg {
         /// Host conhece 240p, 360p e 480p 15 em `SetQuality`.
         #[serde(default)]
         light_presets: bool,
+        /// Host sabe de chat; o viewer só envia/recebe chat se vier `true`.
+        #[serde(default)]
+        chat: bool,
+        /// Identificador do viewer na sala (0 é o host).
+        #[serde(default)]
+        chat_id: u32,
     },
     /// Qualidade trocada com a transmissão no ar; o próximo keyframe já vem no novo tamanho.
     StreamParams {
@@ -107,6 +120,7 @@ pub enum HostMsg {
     Rejected {
         reason: String,
     },
+    Chat(crate::chat::ChatLine),
     StreamEnded,
 }
 
@@ -515,6 +529,7 @@ mod tests {
             name: String::new(),
             room_proof: String::new(),
             decoders: Vec::new(),
+            chat: true,
         };
         assert!(encode_msg(&big).is_err());
         assert!(encode_msg(&ViewerMsg::RequestKeyframe).is_ok());
@@ -561,6 +576,44 @@ mod tests {
             panic!()
         };
         assert!(!light_presets);
+    }
+    #[test]
+    fn hello_without_chat() {
+        let m = serde_json::from_str::<ViewerMsg>(
+            r#"{"type":"hello","protocol":1,"app_version":"0.1.0"}"#,
+        )
+        .unwrap();
+        let ViewerMsg::Hello { chat, .. } = m else {
+            panic!()
+        };
+        assert!(!chat);
+    }
+    #[test]
+    fn welcome_from_old_host_has_no_chat() {
+        let m = serde_json::from_str::<HostMsg>(
+            r#"{"type":"welcome","width":1280,"height":720,"fps":30,"audio":false}"#,
+        )
+        .unwrap();
+        let HostMsg::Welcome { chat, chat_id, .. } = m else {
+            panic!()
+        };
+        assert!(!chat);
+        assert_eq!(chat_id, 0);
+    }
+    #[test]
+    fn chat_msg_json_shape() {
+        let l = crate::chat::ChatLine {
+            sender: 3,
+            role: crate::chat::ChatRole::Viewer,
+            name: "Ana".into(),
+            friend: false,
+            text: "oi".into(),
+        };
+        let v = serde_json::to_value(&HostMsg::Chat(l)).unwrap();
+        assert_eq!(v["type"], "chat");
+        assert_eq!(v["role"], "viewer");
+        let m = serde_json::from_str::<ViewerMsg>(r#"{"type":"chat","text":"oi"}"#).unwrap();
+        assert!(matches!(m, ViewerMsg::Chat { .. }));
     }
     #[test]
     fn sanitize_strips_controls_and_trims() {
