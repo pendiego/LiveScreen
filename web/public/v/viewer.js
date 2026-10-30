@@ -1,6 +1,15 @@
 (() => {
   window.addEventListener("hashchange", () => location.reload());
-  const hashMatch = location.hash.match(/^#([0-9a-f]{32})\.([0-9a-f]{32})$/i);
+  const LINK_KEY = "livescreen-room";
+  let link = location.hash.slice(1);
+  if (link) {
+    // tira a chave da barra de endereço e do histórico; o analytics roda depois deste script
+    history.replaceState(null, "", location.pathname + location.search);
+  } else {
+    try { link = sessionStorage.getItem(LINK_KEY) || ""; } catch { link = ""; }
+  }
+  const hashMatch = link.match(/^([0-9a-f]{32})\.([0-9a-f]{32})$/i);
+  if (hashMatch) { try { sessionStorage.setItem(LINK_KEY, link); } catch {} }
 
   const card = document.getElementById("card");
   const joinForm = document.getElementById("joinForm");
@@ -308,6 +317,7 @@
       }
 
       if (data.t === "hello") {
+        if (pc) return;
         showStatus("Pedindo para entrar…", "busy");
         await start(data.iceServers || []);
         return;
@@ -339,7 +349,7 @@
       }
 
       if (data.t === "reject" || data.t === "closed") {
-        stopWithReason(data.reason);
+        stopWithReason(typeof data.reason === "string" ? data.reason.slice(0, 200) : "");
       }
     };
 
@@ -499,6 +509,7 @@
     try { data = JSON.parse(evt.data); } catch { return; }
     if (!data || typeof data !== "object") return;
     if (data.type === "chat_ready") {
+      if (!Number.isInteger(data.chat_id)) return;
       myChatId = data.chat_id;
       chatBtn.hidden = false;
     } else if (data.type === "chat") {
@@ -507,9 +518,11 @@
   }
 
   function appendChat(m) {
+    if (typeof m.text !== "string" || (!Number.isInteger(m.sender) && m.role !== "host")) return;
     const mine = m.role === "viewer" && m.sender === myChatId;
     const host = m.role === "host";
-    const label = mine ? "Você" : host ? (m.name || "Anfitrião") : `${m.name || "Anônimo"} #${m.sender}`;
+    const name = typeof m.name === "string" ? m.name.slice(0, 32) : "";
+    const label = mine ? "Você" : host ? (name || "Anfitrião") : `${name || "Anônimo"} #${m.sender}`;
     const li = document.createElement("li");
     li.className = host ? "chat-msg host" : "chat-msg";
     const who = document.createElement("span");
@@ -525,7 +538,7 @@
     }
     const text = document.createElement("span");
     text.className = "text";
-    text.textContent = " " + String(m.text ?? "");
+    text.textContent = " " + m.text.slice(0, 500);
     li.append(text);
     const atEnd = chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight <= 40;
     chatList.append(li);
