@@ -9,6 +9,7 @@
   const statusMsg = document.getElementById("statusMsg");
   const retryBtn = document.getElementById("retryBtn");
   const playerBox = document.getElementById("playerBox");
+  const watch = document.getElementById("watch");
   const video = document.getElementById("video");
   const cardLead = document.getElementById("cardLead");
   const muteBtn = document.getElementById("muteBtn");
@@ -394,8 +395,8 @@
   function toggleFullscreen() {
     if (document.fullscreenElement) {
       document.exitFullscreen();
-    } else if (playerBox.requestFullscreen) {
-      playerBox.requestFullscreen().catch(() => {});
+    } else if (watch.requestFullscreen) {
+      watch.requestFullscreen().catch(() => {});
     } else if (video.webkitEnterFullscreen) {
       video.webkitEnterFullscreen();
     }
@@ -544,6 +545,10 @@
     }
   }
   chatBtn.addEventListener("click", toggleChat);
+  document.getElementById("chatClose").addEventListener("click", toggleChat);
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !chatPanel.hidden) toggleChat();
+  });
   chatForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = chatInput.value.trim();

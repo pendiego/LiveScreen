@@ -177,9 +177,12 @@ h1 {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 50% { opacity: .35; } }
 
+.watch { display: flex; width: 100%; gap: var(--s3); align-items: stretch; }
+.watch:fullscreen { gap: 0; background: #000; }
 .player {
   position: relative;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: #000;
   border-radius: var(--r-lg);
   overflow: hidden;
@@ -191,8 +194,9 @@ h1 {
   max-height: calc(100dvh - 160px);
   object-fit: contain;
 }
-.player:fullscreen { border-radius: 0; border: 0; }
-.player:fullscreen video { max-height: 100dvh; height: 100%; }
+.watch:fullscreen .player { border-radius: 0; border: 0; display: flex; align-items: center; }
+.watch:fullscreen .player video { max-height: 100dvh; height: 100%; }
+.watch:fullscreen .chat { border-radius: 0; border-width: 0 0 0 1px; }
 
 .controls {
   position: absolute;
@@ -287,11 +291,8 @@ h1 {
 .stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 
 .chat {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  bottom: 68px;
-  width: min(320px, calc(100% - 24px));
+  flex: 0 0 320px;
+  contain: size; /* a altura é a do player; a lista rola por dentro */
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
@@ -302,6 +303,7 @@ h1 {
   line-height: 20px;
 }
 .chat[hidden] { display: none; }
+.chat-head { display: flex; align-items: center; justify-content: space-between; padding: var(--s1) var(--s2) var(--s1) var(--s3); border-bottom: 1px solid var(--border); font-weight: 600; }
 .chat-list { flex: 1; overflow-y: auto; margin: 0; padding: var(--s3); list-style: none; }
 .chat-msg { margin-bottom: var(--s2); overflow-wrap: anywhere; }
 .chat-msg .who { font-weight: 600; }
@@ -355,6 +357,31 @@ h1 {
 @media (max-width: 600px) {
   .shell { padding: var(--s4); }
   .card { padding: var(--s5); }
-  .player video { max-height: calc(100dvh - 120px); }
-  .chat { width: calc(100% - 24px); }
+  .player video { max-height: 55dvh; }
+}
+
+/* celular em pé ou deitado: alvos de toque e fonte que o iOS não amplia */
+@media (max-width: 600px), (max-height: 500px) and (orientation: landscape) {
+  .chat-form { padding: var(--s2) var(--s3) max(var(--s2), env(safe-area-inset-bottom)); }
+  .chat-form input { font-size: 16px; height: 44px; } /* 16px evita o zoom automático do iOS ao focar */
+  .chat-form .btn { height: 44px; }
+  .chat-head .ctrl { width: 44px; height: 44px; }
+}
+
+/* retrato: o chat desce para baixo do vídeo, inclusive em tela cheia */
+@media (max-width: 600px) and (orientation: portrait) {
+  .watch { flex-direction: column; }
+  .watch:fullscreen .player { flex: 0 0 auto; }
+  .watch:fullscreen .player video { height: auto; max-height: 55dvh; }
+  .chat { flex: 1 1 auto; contain: none; height: 40dvh; min-height: 160px; }
+  .watch:fullscreen .chat { height: auto; border-width: 1px 0 0; }
+}
+
+/* celular deitado: vídeo e chat lado a lado, chat mais estreito */
+@media (max-height: 500px) and (orientation: landscape) {
+  .shell { padding: var(--s2) var(--s3); }
+  .shell:has(#playerBox:not([hidden])) :is(.header, .footer) { display: none; }
+  .player video { max-height: calc(100dvh - 16px); }
+  .chat { flex-basis: 240px; }
+  .chat-form .btn { padding: 0 var(--s3); }
 }
