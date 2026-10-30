@@ -56,6 +56,15 @@
           </div>
           <button id="joinBtn" class="btn btn-primary btn-full" type="submit">Assistir</button>
         </form>
+        <form id="codeForm" hidden>
+          <div class="field">
+            <label for="codeInput">Link ou código da transmissão</label>
+            <input id="codeInput" type="text" placeholder="Cole aqui o link ou o código" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+          </div>
+          <p id="codeError" class="small" role="alert" hidden>Link ou código inválido. Copie de novo com quem está transmitindo.</p>
+          <button class="btn btn-primary btn-full" type="submit">Continuar</button>
+        </form>
+        <button id="changeBtn" type="button" class="btn btn-secondary btn-full" hidden>Trocar transmissão</button>
       </section>
     </div>
     <footer class="footer">Transmissão direta pelo LiveScreen, sem servidor de vídeo. <a href="https://pendiego.github.io/LiveScreen/" target="_blank" rel="noopener">Conheça e baixe</a></footer>
