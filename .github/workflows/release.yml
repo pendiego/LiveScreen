@@ -51,8 +51,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: git-cliff@2.14.2
-      # notas = todos os Conventional Commits desde a tag anterior (config em cliff.toml)
+      # notas = todos os Conventional Commits desde a tag anterior (config em cliff.toml);
+      # na versão final as betas não contam como tag anterior: as notas vêm desde a última final
       - run: git-cliff --current --strip all --output CHANGES.md
+        env:
+          GIT_CLIFF_TAG_PATTERN: ${{ contains(github.ref_name, '-') && 'v[0-9].*' || '^v[0-9]+\.[0-9]+\.[0-9]+$' }}
       - uses: actions/download-artifact@v4
         with:
           name: apk
