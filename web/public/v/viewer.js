@@ -39,12 +39,30 @@
   const elapsed = document.getElementById("elapsed");
 
   if (!hashMatch) {
+    // sem link na barra: aceita o link inteiro ou só "sala.chave" colado; o fragmento nunca vai ao servidor
+    const codeForm = document.getElementById("codeForm");
+    const codeInput = document.getElementById("codeInput");
+    const codeError = document.getElementById("codeError");
     joinForm.hidden = true;
     retryBtn.hidden = true;
-    showStatus("Link incompleto: peça um novo link para quem está transmitindo.", "info");
-    cardLead.hidden = true;
+    statusBox.hidden = true;
+    codeForm.hidden = false;
+    codeForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const m = codeInput.value.match(/([0-9a-f]{32}\.[0-9a-f]{32})\s*$/i);
+      if (!m) { codeError.hidden = false; return; }
+      location.hash = m[1];
+    });
     return;
   }
+
+  // sala restaurada do sessionStorage: permite largar a anterior e colar outro código
+  const changeBtn = document.getElementById("changeBtn");
+  changeBtn.hidden = false;
+  changeBtn.addEventListener("click", () => {
+    try { sessionStorage.removeItem(LINK_KEY); } catch {}
+    location.reload();
+  });
 
   const roomId = hashMatch[1].toLowerCase();
   const roomKey = hashMatch[2].toLowerCase();
