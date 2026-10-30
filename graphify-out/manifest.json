@@ -6,9 +6,9 @@
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1793238824.0252912,
-    "seen": 1793239946.7327368,
-    "ast_hash": "5fb602893415527e583e1b85d4bc0b1c",
+    "mtime": 1793394304.3553035,
+    "seen": 1793394380.5476825,
+    "ast_hash": "b2c85f2734676abbad71c0009f73be9b",
     "semantic_hash": ""
   },
   "Cargo.toml": {
@@ -210,15 +210,15 @@
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1793028228.919532,
-    "seen": 1793239946.732808,
-    "ast_hash": "0cf15aaf235d6d8aade5d051a5d8b6b4",
+    "mtime": 1793394106.5877056,
+    "seen": 1793394380.5477698,
+    "ast_hash": "f65f3c6643471d5032970c68b89b5b60",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793393504.872786,
-    "seen": 1793393810.239071,
-    "ast_hash": "ccf6300acd34baaae7f97430b0c67820",
+    "mtime": 1793394323.267957,
+    "seen": 1793394380.547771,
+    "ast_hash": "c838681f1033f6e28a4f5df8079c927f",
     "semantic_hash": ""
   },
   ".github/scripts/test-changelog.sh": {
@@ -396,9 +396,9 @@
     "semantic_hash": ""
   },
   "site/ajuda/index.html": {
-    "mtime": 1793238824.0765202,
-    "seen": 1793239946.732815,
-    "ast_hash": "56ae4b97cb45d19f1a9283f7c3d1dd17",
+    "mtime": 1793394366.2524743,
+    "seen": 1793394380.547778,
+    "ast_hash": "546ad80b3e91a51692e15b46e483f7ea",
     "semantic_hash": ""
   },
   "site/assets/fonts/LICENSE-Lucide.txt": {
@@ -426,9 +426,9 @@
     "semantic_hash": ""
   },
   "site/index.html": {
-    "mtime": 1793238824.0886097,
-    "seen": 1793239946.7328205,
-    "ast_hash": "819fa65208bd69168a46a75a38aaa8df",
+    "mtime": 1793394343.1761026,
+    "seen": 1793394380.5477839,
+    "ast_hash": "7f2886e5fe865d53a7784e1b4292d37b",
     "semantic_hash": ""
   },
   "site/assets/img/confirm.webp": {
@@ -498,9 +498,9 @@
     "semantic_hash": ""
   },
   ".github/workflows/deploy-web.yml": {
-    "mtime": 1793383634.8160794,
-    "seen": 1793392637.0661893,
-    "ast_hash": "3b3765fda3c20464fecfec1dbcb6e24e",
+    "mtime": 1793394311.6185763,
+    "seen": 1793394380.547677,
+    "ast_hash": "81a73a0452560bb63596a31964882d06",
     "semantic_hash": ""
   },
   "web/public/v/fonts/LICENSE-Lucide.txt": {
@@ -573,12 +573,6 @@
     "mtime": 1793393468.1165662,
     "seen": 1793393810.2390172,
     "ast_hash": "5c4a4c57409125f902c24ac15dcbeaef",
-    "semantic_hash": ""
-  },
-  "crates/livescreen-core/examples/web_smoke.rs": {
-    "mtime": 1793393565.757578,
-    "seen": 1793393810.2390099,
-    "ast_hash": "c7c158ee36b4d578c77b978a6699476c",
     "semantic_hash": ""
   },
   "web/package-lock.json": {
