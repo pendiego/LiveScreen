@@ -89,7 +89,8 @@ export class Room extends DurableObject {
     const role = match[1];
     const room = match[2];
 
-    if (this.ctx.getWebSockets().length >= 64) {
+    const tag = role === "host" ? "host" : "view";
+    if (this.ctx.getWebSockets(tag).length >= (role === "host" ? 4 : 64)) {
       return new Response("Too Many Requests", { status: 429 });
     }
 
@@ -102,13 +103,16 @@ export class Room extends DurableObject {
       tags = ["host"];
     } else {
       const bytes = new Uint8Array(4);
-      crypto.getRandomValues(bytes);
-      id = bytesToHex(bytes);
+      do {
+        crypto.getRandomValues(bytes);
+        id = bytesToHex(bytes);
+      } while (this.ctx.getWebSockets("v:" + id).length > 0);
       tags = ["view", "v:" + id];
     }
 
     this.ctx.acceptWebSocket(server, tags);
-    server.serializeAttachment({ role, room, id, ok: false, offered: false });
+    server.serializeAttachment({ role, room, id, ok: false, offered: false, at: Date.now() });
+    await this._armReaper();
 
     if (role === "view") {
       const hosts = this.ctx.getWebSockets("host");
@@ -205,7 +209,7 @@ export class Room extends DurableObject {
       if (data.t !== "offer") return;
       if (att.offered) return;
       if (typeof data.sdp !== "string" || typeof data.proof !== "string") return;
-      const name = typeof data.name === "string" ? data.name : "";
+      const name = typeof data.name === "string" ? data.name.slice(0, 64) : "";
 
       const hosts = this.ctx.getWebSockets("host");
       const verifiedHost = hosts.find((h) => {
@@ -240,6 +244,27 @@ export class Room extends DurableObject {
 
   async webSocketError(ws, error) {
     this._handleLeave(ws);
+  }
+
+  async _armReaper() {
+    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now() + 10000);
+  }
+
+  // Host que não se autentica em 10 s e espectador que não manda oferta em 30 s ocupam vaga à toa.
+  async alarm() {
+    const now = Date.now();
+    let pending = false;
+    for (const ws of this.ctx.getWebSockets()) {
+      let a;
+      try { a = ws.deserializeAttachment(); } catch { continue; }
+      if (!a || (a.role === "host" ? a.ok : a.offered)) continue;
+      if (now - (a.at || 0) >= (a.role === "host" ? 10000 : 30000)) {
+        try { ws.close(4008, "tempo esgotado"); } catch {}
+      } else {
+        pending = true;
+      }
+    }
+    if (pending) await this.ctx.storage.setAlarm(now + 10000);
   }
 
   _handleLeave(ws) {
