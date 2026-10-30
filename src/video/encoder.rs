@@ -3,7 +3,7 @@
 //! Hardware (MFT de hardware + `IMFDXGIDeviceManager`) recebe os samples
 //! direto da textura NV12; o software (MFT da Microsoft) copia via CPU.
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -17,6 +17,7 @@ use windows::Win32::Media::MediaFoundation::*;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::core::Interface;
 
+use livescreen_core::host::HostStats;
 use livescreen_core::preset::EncodeParams;
 use livescreen_core::protocol::{Codec, EncodedFrame};
 use crate::video::mf;
@@ -53,16 +54,6 @@ fn vbv_bytes(bps: u32) -> u32 {
     bps / 32
 }
 
-#[derive(Default)]
-pub struct EncoderStats {
-    pub frames: AtomicU64,
-    pub bytes: AtomicU64,
-    /// alvo do controle adaptativo; 0 = teto do preset
-    pub target_bps: AtomicU32,
-    /// bitrate do preset do encoder atual
-    pub ceiling_bps: AtomicU32,
-}
-
 pub struct EncoderHandle {
     join: Option<std::thread::JoinHandle<()>>,
 }
@@ -84,7 +75,7 @@ pub fn spawn(
     input: Receiver<Nv12Frame>,
     out: broadcast::Sender<Arc<EncodedFrame>>,
     force_key: Arc<AtomicBool>,
-    stats: Arc<EncoderStats>,
+    stats: Arc<HostStats>,
 ) -> Result<EncoderHandle> {
     mf::startup();
     let device = device.clone();
@@ -197,7 +188,7 @@ struct Encoder {
     input: Receiver<Nv12Frame>,
     out: broadcast::Sender<Arc<EncodedFrame>>,
     force_key: Arc<AtomicBool>,
-    stats: Arc<EncoderStats>,
+    stats: Arc<HostStats>,
     ceiling: u32,
     bitrate: u32,
     cpu: Option<CpuCopy>,
@@ -213,7 +204,7 @@ impl Encoder {
         input: Receiver<Nv12Frame>,
         out: broadcast::Sender<Arc<EncodedFrame>>,
         force_key: Arc<AtomicBool>,
-        stats: Arc<EncoderStats>,
+        stats: Arc<HostStats>,
     ) -> Result<Self> {
         stats.ceiling_bps.store(params.bitrate_bps, Ordering::Relaxed);
         stats.target_bps.store(0, Ordering::Relaxed);

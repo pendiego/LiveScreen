@@ -241,7 +241,7 @@ fn share(app: &mut App, ui: &mut egui::Ui) {
             if theme::stepper(ui, &mut app.prefs.room_limit, 1, MAX_ROOM, "")
                 && let Some(s) = &app.share
             {
-                s.set_max_viewers(app.prefs.room_limit);
+                s.host.set_max_viewers(app.prefs.room_limit);
             }
         });
     });

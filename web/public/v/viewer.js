@@ -1,6 +1,15 @@
 (() => {
   window.addEventListener("hashchange", () => location.reload());
-  const hashMatch = location.hash.match(/^#([0-9a-f]{32})\.([0-9a-f]{32})$/i);
+  const LINK_KEY = "livescreen-room";
+  let link = location.hash.slice(1);
+  if (link) {
+    // tira a chave da barra de endereço e do histórico; o analytics roda depois deste script
+    history.replaceState(null, "", location.pathname + location.search);
+  } else {
+    try { link = sessionStorage.getItem(LINK_KEY) || ""; } catch { link = ""; }
+  }
+  const hashMatch = link.match(/^([0-9a-f]{32})\.([0-9a-f]{32})$/i);
+  if (hashMatch) { try { sessionStorage.setItem(LINK_KEY, link); } catch {} }
 
   const card = document.getElementById("card");
   const joinForm = document.getElementById("joinForm");
@@ -9,6 +18,7 @@
   const statusMsg = document.getElementById("statusMsg");
   const retryBtn = document.getElementById("retryBtn");
   const playerBox = document.getElementById("playerBox");
+  const watch = document.getElementById("watch");
   const video = document.getElementById("video");
   const cardLead = document.getElementById("cardLead");
   const muteBtn = document.getElementById("muteBtn");
@@ -16,6 +26,13 @@
   const pipBtn = document.getElementById("pipBtn");
   const statsBtn = document.getElementById("statsBtn");
   const statsPanel = document.getElementById("statsPanel");
+  const chatBtn = document.getElementById("chatBtn");
+  const chatPanel = document.getElementById("chatPanel");
+  const chatList = document.getElementById("chatList");
+  const chatForm = document.getElementById("chatForm");
+  const chatInput = document.getElementById("chatInput");
+  let chatCh = null;
+  let myChatId = null;
   const unmuteBtn = document.getElementById("unmuteBtn");
   const waitOverlay = document.getElementById("waitOverlay");
   const netBadge = document.getElementById("netBadge");
@@ -37,6 +54,8 @@
 
   let ws = null;
   let pc = null;
+  let answered = false;
+  let everConnected = false;
   let pingTimer = null;
   let answerTimer = null;
   let currentName = "";
@@ -122,6 +141,7 @@
     }
     prevBytes = null;
     prevTs = null;
+    if (statsDd) statsDd.forEach((d) => { d.textContent = "—"; });
   }
 
   function cleanup() {
@@ -141,6 +161,8 @@
       clearTimeout(idleTimer);
       idleTimer = null;
     }
+    answered = false;
+    everConnected = false;
     stopStats();
     netBadge.hidden = true;
     if (pc) {
@@ -169,6 +191,14 @@
     playerBox.hidden = true;
     statsPanel.hidden = true;
     statsBtn.setAttribute("aria-pressed", "false");
+    try { if (chatCh) chatCh.close(); } catch {}
+    chatCh = null;
+    myChatId = null;
+    chatBtn.hidden = true;
+    chatBtn.setAttribute("aria-pressed", "false");
+    delete chatBtn.dataset.unread;
+    chatPanel.hidden = true;
+    chatList.replaceChildren();
     card.hidden = false;
     joinForm.hidden = true;
     document.title = TITLE;
@@ -195,16 +225,20 @@
         if (!pc) return;
         const st = pc.connectionState;
         if (st === "failed") {
-          stopWithReason("Não foi possível conectar: a rede pode estar bloqueando a conexão direta.");
+          stopWithReason(everConnected ? "A conexão com quem transmite caiu." : "Não foi possível conectar: a rede pode estar bloqueando a conexão direta.");
         } else if (st === "disconnected") {
           netBadge.hidden = false;
         } else if (st === "connected") {
+          everConnected = true;
           netBadge.hidden = true;
         }
       };
 
       pc.addTransceiver("video", { direction: "recvonly" });
       pc.addTransceiver("audio", { direction: "recvonly" });
+
+      chatCh = pc.createDataChannel("chat");
+      chatCh.onmessage = onChatMessage;
 
       const offer = await pc.createOffer();
       const patchedSdp = addOpusStereo(offer.sdp);
@@ -289,6 +323,7 @@
       }
 
       if (data.t === "hello") {
+        if (pc) return;
         showStatus("Pedindo para entrar…", "busy");
         await start(data.iceServers || []);
         return;
@@ -302,6 +337,7 @@
         if (pc && typeof data.sdp === "string") {
           try {
             await pc.setRemoteDescription({ type: "answer", sdp: data.sdp });
+            answered = true;
             card.hidden = true;
             playerBox.hidden = false;
             waitOverlay.hidden = false;
@@ -320,7 +356,7 @@
       }
 
       if (data.t === "reject" || data.t === "closed") {
-        stopWithReason(data.reason);
+        stopWithReason(typeof data.reason === "string" ? data.reason.slice(0, 200) : "");
       }
     };
 
@@ -330,6 +366,10 @@
 
     sock.onclose = () => {
       if (ws !== sock) return;
+      ws = null;
+      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+      // depois da resposta o vídeo é P2P: a sinalização pode cair sem encerrar
+      if (answered && pc) return;
       stopWithReason(playerBox.hidden ? "A conexão com o servidor do link caiu." : "A transmissão terminou.");
     };
   }
@@ -376,8 +416,8 @@
   function toggleFullscreen() {
     if (document.fullscreenElement) {
       document.exitFullscreen();
-    } else if (playerBox.requestFullscreen) {
-      playerBox.requestFullscreen().catch(() => {});
+    } else if (watch.requestFullscreen) {
+      watch.requestFullscreen().catch(() => {});
     } else if (video.webkitEnterFullscreen) {
       video.webkitEnterFullscreen();
     }
@@ -402,15 +442,33 @@
   pipBtn.addEventListener("click", togglePip);
 
   // Estatísticas
-  function row(dt, dd) {
-    const a = document.createElement("dt");
-    a.textContent = dt;
-    const b = document.createElement("dd");
-    b.textContent = dd;
-    statsPanel.append(a, b);
+  const STAT_LABELS = ["Resolução", "Quadros", "Taxa", "Perda", "Latência", "Caminho"];
+  let statsDd = null;
+  let statsBusy = false;
+  function renderStats(values) {
+    if (!statsDd) {
+      statsDd = STAT_LABELS.map((label) => {
+        const a = document.createElement("dt");
+        a.textContent = label;
+        const b = document.createElement("dd");
+        statsPanel.append(a, b);
+        return b;
+      });
+    }
+    values.forEach((v, i) => { if (statsDd[i].textContent !== v) statsDd[i].textContent = v; });
   }
 
   async function refreshStats() {
+    if (!pc || statsBusy) return;
+    statsBusy = true;
+    try {
+      await collectStats();
+    } finally {
+      statsBusy = false;
+    }
+  }
+
+  async function collectStats() {
     if (!pc) return;
     let report;
     try {
@@ -454,13 +512,7 @@
     const local = pair ? locals.get(pair.localCandidateId) : null;
     const path = local && local.candidateType ? (local.candidateType === "relay" ? "Via TURN" : "Direto") : "—";
 
-    statsPanel.replaceChildren();
-    row("Resolução", res);
-    row("Quadros", fps);
-    row("Taxa", rate);
-    row("Perda", loss);
-    row("Latência", rtt);
-    row("Caminho", path);
+    renderStats([res, fps, rate, loss, rtt, path]);
   }
 
   function toggleStats() {
@@ -475,13 +527,80 @@
   }
   statsBtn.addEventListener("click", toggleStats);
 
+  function onChatMessage(evt) {
+    let data;
+    try { data = JSON.parse(evt.data); } catch { return; }
+    if (!data || typeof data !== "object") return;
+    if (data.type === "chat_ready") {
+      if (!Number.isInteger(data.chat_id)) return;
+      myChatId = data.chat_id;
+      chatBtn.hidden = false;
+    } else if (data.type === "chat") {
+      appendChat(data);
+    }
+  }
+
+  function appendChat(m) {
+    if (typeof m.text !== "string" || (!Number.isInteger(m.sender) && m.role !== "host")) return;
+    const mine = m.role === "viewer" && m.sender === myChatId;
+    const host = m.role === "host";
+    const name = typeof m.name === "string" ? m.name.slice(0, 32) : "";
+    const label = mine ? "Você" : host ? (name || "Anfitrião") : `${name || "Anônimo"} #${m.sender}`;
+    const li = document.createElement("li");
+    li.className = host ? "chat-msg host" : "chat-msg";
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = label;
+    li.append(who);
+    const tag = host ? "anfitrião" : m.friend ? "amigo" : null;
+    if (tag) {
+      const t = document.createElement("span");
+      t.className = "chat-tag";
+      t.textContent = tag;
+      li.append(t);
+    }
+    const text = document.createElement("span");
+    text.className = "text";
+    text.textContent = " " + m.text.slice(0, 500);
+    li.append(text);
+    const atEnd = chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight <= 40;
+    chatList.append(li);
+    while (chatList.children.length > 200) chatList.firstElementChild.remove();
+    if (atEnd) chatList.scrollTop = chatList.scrollHeight;
+    if (chatPanel.hidden && !mine) chatBtn.dataset.unread = "true";
+  }
+
+  function toggleChat() {
+    const open = chatPanel.hidden;
+    chatPanel.hidden = !open;
+    chatBtn.setAttribute("aria-pressed", String(open));
+    if (open) {
+      delete chatBtn.dataset.unread;
+      chatList.scrollTop = chatList.scrollHeight;
+      chatInput.focus();
+    }
+  }
+  chatBtn.addEventListener("click", toggleChat);
+  document.getElementById("chatClose").addEventListener("click", toggleChat);
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !chatPanel.hidden) toggleChat();
+  });
+  chatForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = chatInput.value.trim();
+    if (text && chatCh && chatCh.readyState === "open") {
+      chatCh.send(JSON.stringify({ type: "chat", text }));
+      chatInput.value = "";
+    }
+  });
+
   // Controles que somem sozinhos
   function wake() {
     playerBox.classList.remove("idle");
     clearTimeout(idleTimer);
     if (playerBox.hidden) return;
     idleTimer = setTimeout(() => {
-      if (!statsPanel.hidden || controls.matches(":focus-within")) return;
+      if (!statsPanel.hidden || controls.matches(":focus-within") || chatPanel.matches(":focus-within")) return;
       playerBox.classList.add("idle");
     }, 2500);
   }
@@ -500,6 +619,7 @@
     else if (k === "f") toggleFullscreen();
     else if (k === "p" && !pipBtn.hidden) togglePip();
     else if (k === "i") toggleStats();
+    else if (k === "c" && !chatBtn.hidden) toggleChat();
     else return;
     e.preventDefault();
   });

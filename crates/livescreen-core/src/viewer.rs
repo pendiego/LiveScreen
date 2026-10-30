@@ -44,6 +44,8 @@ pub struct WatchStatus {
     pub decode_ms: f32,
     pub codec: String,
     pub zero_copy: bool,
+    pub chat: bool,
+    pub chat_id: u32,
 }
 
 pub fn close_reason(e: &ConnectionError) -> &'static str {
@@ -113,6 +115,8 @@ pub struct ViewerSession {
     ep: Endpoint,
     task: JoinHandle<()>,
     pub status: Arc<Mutex<WatchStatus>>,
+    /// Mensagens do chat recebidas do host (já limpas).
+    pub chat: Arc<Mutex<crate::chat::ChatLog>>,
     ctl_tx: UnboundedSender<ViewerMsg>,
     stopped: AtomicBool,
 }
@@ -148,10 +152,14 @@ impl ViewerSession {
             decode_ms: 0.0,
             codec: String::new(),
             zero_copy: false,
+            chat: false,
+            chat_id: 0,
         }));
         let (ctl_tx, ctl_rx) = tokio::sync::mpsc::unbounded_channel();
+        let chat = Arc::new(Mutex::new(crate::chat::ChatLog::default()));
         let task = {
             let (ep, status) = (ep.clone(), status.clone());
+            let chat = chat.clone();
             let (name, app_version) = (name.to_string(), app_version.to_string());
             let notify = notify.clone();
             rt.spawn(async move {
@@ -174,6 +182,7 @@ impl ViewerSession {
                     notify.clone(),
                     outputs,
                     ctl_rx,
+                    chat,
                 )
                 .await
                 {
@@ -188,6 +197,7 @@ impl ViewerSession {
         Ok(ViewerSession {
             rt: rt.clone(),
             status,
+            chat,
             ep,
             task,
             ctl_tx,
@@ -199,6 +209,13 @@ impl ViewerSession {
     /// ou ignorar (há um intervalo mínimo entre pedidos).
     pub fn request_quality(&self, preset: Preset) {
         let _ = self.ctl_tx.send(ViewerMsg::SetQuality { preset });
+    }
+
+    /// Manda uma mensagem de chat ao host (ignorada se o host não suporta chat).
+    pub fn send_chat(&self, text: &str) {
+        if let Some(t) = crate::chat::clean_chat(text) {
+            let _ = self.ctl_tx.send(ViewerMsg::Chat { text: t });
+        }
     }
 
     /// Avisa o host que a janela foi minimizada/restaurada: escondido, ele para de mandar vídeo.
@@ -237,6 +254,7 @@ async fn run(
     notify: Arc<dyn Fn() + Send + Sync>,
     outputs: StartOutputs,
     mut ctl_rx: tokio::sync::mpsc::UnboundedReceiver<ViewerMsg>,
+    chat: Arc<Mutex<crate::chat::ChatLog>>,
 ) -> Result<String> {
     let addr = target.addr();
     let (protocol, proof) = match &target {
@@ -260,13 +278,14 @@ async fn run(
             name,
             room_proof: proof,
             decoders,
+            chat: true,
         },
     )
     .await?;
     let welcome: HostMsg = tokio::time::timeout(Duration::from_secs(15), read_msg(&mut recv))
         .await
         .map_err(|_| anyhow!("Sem resposta do host"))??;
-    let (w, h, audio, title, host_name, light_presets) = match welcome {
+    let (w, h, audio, title, host_name, light_presets, host_chat, chat_id) = match welcome {
         HostMsg::Welcome {
             width,
             height,
@@ -274,11 +293,14 @@ async fn run(
             title,
             host_name,
             light_presets,
+            chat,
+            chat_id,
             ..
-        } => (width, height, audio, title, host_name, light_presets),
+        } => (width, height, audio, title, host_name, light_presets, chat, chat_id),
         HostMsg::Rejected { reason } => return Ok(format!("Recusado: {reason}")),
         HostMsg::StreamEnded => return Ok("Transmissão encerrada".into()),
         HostMsg::StreamParams { .. } => return Ok("Resposta inesperada do host".into()),
+        HostMsg::Chat(_) => return Ok("Resposta inesperada do host".into()),
     };
     {
         let mut s = status.lock().unwrap();
@@ -288,6 +310,8 @@ async fn run(
         s.audio = audio;
         s.title = crate::protocol::sanitize(&title, 120);
         s.host_name = crate::protocol::sanitize(&host_name, 32);
+        s.chat = host_chat;
+        s.chat_id = chat_id;
     }
     let (tx, _audio) = outputs(&conn, audio);
 
@@ -370,6 +394,10 @@ async fn run(
                 Some(msg) = ctl_rx.recv() => {
                     // host 0.4 não conhece SetVisible: a mensagem derrubaria o canal de controle dele
                     if matches!(target, Target::Invite(_, None)) && matches!(msg, ViewerMsg::SetVisible { .. }) {
+                        continue;
+                    }
+                    // host sem chat fecharia o canal de controle ao ver uma variante desconhecida
+                    if matches!(msg, ViewerMsg::Chat { .. }) && !host_chat {
                         continue;
                     }
                     let msg = match msg {
@@ -466,6 +494,12 @@ async fn run(
                         s.height = height;
                     }
                     Ok(HostMsg::StreamEnded) => break true,
+                    Ok(HostMsg::Chat(line)) => {
+                        if let Some(l) = line.sanitized() {
+                            chat.lock().unwrap().push(l);
+                            notify();
+                        }
+                    }
                     Ok(_) => {}
                     Err(_) => break false,
                 }

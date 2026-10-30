@@ -12,7 +12,7 @@ Sem cadastro e sem servidor de vídeo no meio: quem assiste só precisa do LiveS
 ![Windows 10 2004+ x64](https://img.shields.io/badge/Windows-10%202004%2B%20x64-C8F135)
 [![Licença: MIT ou Apache-2.0](https://img.shields.io/badge/licen%C3%A7a-MIT%20ou%20Apache--2.0-555)](#licença)
 
-**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/download/v0.6.0-beta.1/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases) · [site](https://pendiego.github.io/LiveScreen/)
+**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases) · [site](https://pendiego.github.io/LiveScreen/)
 
 <img src="site/assets/img/home.webp" width="820" alt="Tela inicial do LiveScreen, com as opções Compartilhar tela e Assistir">
 
@@ -102,7 +102,9 @@ Para ajudar na escolha:
 | **Atualização** | Pelo próprio app, com conferência do arquivo baixado. |
 | **Android** | Tema escuro Sinal, fontes Space Grotesk, Inter e JetBrains Mono, ícones Lucide, popup de atualização e decodificação H.264 por hardware (com fallback para software). |
 | **Interface** | Tema escuro único "Sinal" (verde-limão sobre grafite), com as fontes Space Grotesk, Inter e JetBrains Mono embutidas e ícones Lucide, anel de foco verde-limão para navegar pelo teclado e nomes acessíveis nos botões só com ícone. Quando as animações estão desligadas no Windows, o app desativa as animações de transição e de rolagem; os indicadores de carregamento continuam girando. |
-| **Navegador** | "Copiar link do navegador" gera um link para assistir sem instalar nada. A página usa o tema Sinal e mostra cada etapa (conectando, esperando o host aceitar, recebendo vídeo, sinal instável, encerrado, com "Tentar de novo" nos erros). O player tem selo AO VIVO com tempo, painel de estatísticas (resolução, fps, taxa, perda, latência e caminho direto ou TURN), mudo, Picture-in-Picture e tela cheia, com controles que somem sozinhos e atalhos `M`, `P`, `I` e `F`. |
+| **Tela cheia (desktop)** | Ao conectar, o viewer do PC abre em tela cheia. `F11` ou o botão da barra alternam, `Esc` sai da tela cheia e **Sair** volta à Home. |
+| **Navegador** | "Copiar link do navegador" gera um link para assistir sem instalar nada. A página usa o tema Sinal e mostra cada etapa (conectando, esperando o host aceitar, recebendo vídeo, sinal instável, encerrado, com "Tentar de novo" nos erros). O player tem selo AO VIVO com tempo, painel de estatísticas (resolução, fps, taxa, perda, latência e caminho direto ou TURN), chat, mudo, Picture-in-Picture e tela cheia, com controles que somem sozinhos e atalhos `M`, `P`, `I`, `F` e `C` (chat). O chat abre numa coluna ao lado do vídeo, como na Twitch; no celular em pé desce para baixo do vídeo, e no celular deitado volta para o lado. Ele fecha pelo X do cabeçalho, pelo `C` ou por `Esc` no campo de mensagem, e a tela cheia leva vídeo e chat juntos. Ao abrir o link, a chave da sala sai da barra de endereço e fica só na aba (recarregar continua funcionando). A página tem CSP e cabeçalhos que impedem embutir em outro site. Se a sinalização cair (queda de rede de quem transmite ou atualização do servidor do link), quem já está assistindo continua vendo e conversando. |
+| **Chat** | Chat de texto na transmissão, no host e em quem assiste (desktop, Android e navegador). Quem assiste manda a mensagem ao host, e o host repassa para a sala toda, inclusive para quem enviou (o eco confirma o envio). Uma linha por mensagem, até 500 caracteres, no máximo 5 em rajada e 2 por segundo por pessoa (o excesso é descartado). Não há histórico para quem entra no meio nem gravação em disco, e não tem horário. Quem assiste aparece como `Nome #N` (o número é atribuído pelo host, então nomes iguais não se confundem), o host leva a marca **anfitrião** e amigos (por chave) levam a marca **amigo**; no navegador não há selo de amigo. Suas próprias mensagens aparecem como "Você". Com o chat fechado, chega um aviso da mensagem nova. Tudo passa pela mesma conexão da transmissão: não há servidor novo nem conexão externa extra. |
 
 ## Configurações
 
@@ -117,8 +119,9 @@ Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar p
 ## Requisitos
 
 - **Host (quem transmite):** Windows 10 versão 2004 ou superior, 64 bits.
-- **Viewer (quem assiste):** Windows 10 2004+ x64 ou Android 8.0 (API 26) ou superior. O Android não transmite.
-- **Versões:** o host 0.5 só aceita viewers 0.5 (protocolo 5). Viewers 0.5.x conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com "versão incompatível".
+- **Viewer (quem assiste):** Windows 10 2004+ x64 ou Android 8.0 (API 26) ou superior.
+- **Host Android (quem transmite):** Android 8.0 (API 26) ou superior; a transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior, a permissão de microfone/áudio e só captura apps que permitem; o microfone não é transmitido. O aparelho precisa de um codificador Opus; sem ele a transmissão segue sem áudio.
+- **Versões:** hosts 0.5 e 0.6 aceitam viewers 0.5 e 0.6 (protocolo 5). Viewers 0.5 e 0.6 conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com "versão incompatível". O chat exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona normalmente, só sem chat (o botão não aparece). O número do protocolo não mudou na 0.6.
 
 ## Download e atualização
 
@@ -133,11 +136,13 @@ Ao abrir, o app verifica se há versão nova. Se houver, aparece o botão **Atua
 > [!NOTE]
 > Para atualizar, o executável precisa estar numa pasta com permissão de escrita (fora de `Program Files`, por exemplo).
 
-### Android (só para assistir)
+### Android (assistir e transmitir)
 
-O app Android só **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases). Cole o código de convite e toque em **Assistir**. Ele conecta a hosts 0.5 e também a hosts 0.4 (convite sem chave de sala).
+O app Android **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases), cole o código de convite e toque em **Assistir**. Ele conecta a hosts 0.5 e 0.6 e também a hosts 0.4 (convite sem chave de sala).
 
-- **Bateria:** com o app em segundo plano o áudio pausa e, em hosts 0.5, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar. Hosts 0.4 não entendem esse pedido e continuam enviando vídeo. Mudo também pausa a decodificação do áudio.
+Também **transmite** a tela: toque em **Transmitir tela** na Home, aceite o pedido de captura e a notificação (a transmissão roda num serviço em primeiro plano, com a ação **Parar**). A tela mostra o convite, o link do navegador, a qualidade (padrão 720p 30 fps), quem assiste (com **Remover**) e o chat. A sala começa com 4 pessoas, e amigos adicionados assistem sem convite. Girar o aparelho não muda o tamanho da transmissão. Se um espectador pedir qualidade menor, o app reduz sozinho. O link do navegador depende de o navegador alcançar o aparelho (NAT, emuladores).
+
+- **Bateria:** com o app em segundo plano o áudio pausa e, em hosts 0.5 ou mais novos, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar. Hosts 0.4 não entendem esse pedido e continuam enviando vídeo. Mudo também pausa a decodificação do áudio.
 - **Atualização:** o app confere a release pelo GitHub e baixa o APK novo.
 
 ## Conexões que o app faz

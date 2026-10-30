@@ -3,16 +3,19 @@ package io.github.pendiego.livescreen
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
 import java.io.File
 import android.view.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -25,6 +28,32 @@ import org.json.JSONException
 import org.json.JSONObject
 data class Friend(val name: String, val code: String)
 data class Presence(val state: String, val title: String = "")
+data class ChatItem(
+    val seq: Long,
+    val label: String,
+    val host: Boolean,
+    val friend: Boolean,
+    val mine: Boolean,
+    val text: String
+)
+
+fun parseChatItems(raw: String): List<ChatItem> = try {
+    val arr = JSONArray(raw)
+    (0 until arr.length()).map { i ->
+        val o = arr.getJSONObject(i)
+        ChatItem(
+            seq = o.getLong("seq"),
+            label = o.optString("label", ""),
+            host = o.optBoolean("host", false),
+            friend = o.optBoolean("friend", false),
+            mine = o.optBoolean("mine", false),
+            text = o.optString("text", "")
+        )
+    }
+} catch (e: JSONException) {
+    Log.w("ViewerModel", "chat inválido", e)
+    emptyList()
+}
 
 data class Status(
     val connecting: Boolean = false,
@@ -40,7 +69,8 @@ data class Status(
     val decodeFps: Int = 0,
     val decodeMs: Double = 0.0,
     val hostId: String = "",
-    val hostName: String = ""
+    val hostName: String = "",
+    val chat: Boolean = false
 )
 
 sealed interface UpdateState {
@@ -59,6 +89,10 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     var lastEnd: String? by mutableStateOf(null)
     var status: Status? by mutableStateOf(null)
     var videoSize: Pair<Int, Int>? by mutableStateOf(null)
+    val chat = mutableStateListOf<ChatItem>()
+    private var chatSeq = 0L
+    var chatOpen by mutableStateOf(false)
+    var chatPreview: ChatItem? by mutableStateOf(null)
 
 
     val identity: String = run {
@@ -138,11 +172,12 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     var starting: Boolean by mutableStateOf(false)
 
     fun startPresence() {
-        if (friends.isEmpty() || handle != 0L || pollingJob?.isActive == true || presenceJob?.isActive == true) return
+        if (Hosting.active || friends.isEmpty() || handle != 0L || pollingJob?.isActive == true || presenceJob?.isActive == true) return
         val prev = presenceJob
         presenceJob = viewModelScope.launch(Dispatchers.IO) {
             prev?.join()
             viewerStop?.join()
+            Hosting.stopThread?.join()
             val codes = friends.joinToString(",") { it.code }
             val ph = try {
                 Native.presenceStart(identity, codes)
@@ -283,7 +318,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun connect(target: String = ticket.trim()) {
-        if (handle != 0L || pollingJob?.isActive == true) return
+        if (handle != 0L || pollingJob?.isActive == true || Hosting.active) return
         starting = true
         prefs.edit().putString("name", name).apply()
         lastEnd = null
@@ -297,6 +332,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             val h = try {
                 withContext(Dispatchers.IO + NonCancellable) {
                     viewerStop?.join()
+                    Hosting.stopThread?.join()
                     Native.start(target, name, identity)
                 }
             } catch (e: IllegalArgumentException) {
@@ -323,12 +359,23 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             startVideo()
 
             while (isActive) {
-                delay(if (status?.connecting != false) 500 else 1000)
+                delay(if (status?.connecting != false || chatOpen) 500 else 1000)
                 val s = withContext(Dispatchers.IO) {
                     Native.status(h)
                 }
                 val parsed = parseStatus(s)
                 status = parsed
+
+                if (parsed.chat) {
+                    val raw = withContext(Dispatchers.IO) { Native.chatSince(h, chatSeq) }
+                    val fresh = parseChatItems(raw)
+                    if (fresh.isNotEmpty()) {
+                        chat.addAll(fresh)
+                        while (chat.size > 200) chat.removeAt(0)
+                        chatSeq = fresh.maxOf { it.seq }
+                        if (!chatOpen) chatPreview = fresh.lastOrNull { !it.mine } ?: chatPreview
+                    }
+                }
 
                 if (parsed.audio && !parsed.connecting && player == null) {
                     player = AudioPlayer(h).apply {
@@ -416,8 +463,41 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         }
 
         status = null
+        chat.clear()
+        chatSeq = 0
+        chatOpen = false
+        chatPreview = null
         videoSize = null
         lastEnd = reason
+    }
+
+    fun sendChat(text: String) {
+        val h = handle
+        val t = text.trim()
+        if (h != 0L && t.isNotEmpty()) {
+            Native.sendChat(h, t)
+        }
+    }
+
+    fun beginHost(ctx: Context, code: Int, data: Intent) {
+        if (handle != 0L || pollingJob?.isActive == true || Hosting.active) return
+        prefs.edit().putString("name", name).apply()
+        Hosting.active = true
+        Hosting.lastError = null
+        val pj = presenceJob
+        pj?.cancel()
+        viewModelScope.launch {
+            pj?.join()
+            withContext(Dispatchers.IO) {
+                viewerStop?.join()
+                Hosting.stopThread?.join()
+            }
+            Hosting.request = HostRequest(
+                identity, name, "Tela de ${Build.MODEL}",
+                friends.joinToString(",") { it.code }
+            )
+            ContextCompat.startForegroundService(ctx, HostService.startIntent(ctx, code, data))
+        }
     }
 
     override fun onCleared() {
@@ -457,7 +537,8 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             decodeFps = obj.optInt("decode_fps", 0),
             decodeMs = obj.optDouble("decode_ms", 0.0),
             hostId = obj.optString("host_id", ""),
-            hostName = obj.optString("host_name", "")
+            hostName = obj.optString("host_name", ""),
+            chat = obj.optBoolean("chat", false)
         )
     }
 }

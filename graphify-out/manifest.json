@@ -6,15 +6,15 @@
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1793238824.0252912,
-    "seen": 1793239946.7327368,
-    "ast_hash": "5fb602893415527e583e1b85d4bc0b1c",
+    "mtime": 1793394304.3553035,
+    "seen": 1793394380.5476825,
+    "ast_hash": "b2c85f2734676abbad71c0009f73be9b",
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1793238824.0279124,
-    "seen": 1793239946.7327385,
-    "ast_hash": "843d0cfc642c9f2df76749d4e4652174",
+    "mtime": 1793377693.346605,
+    "seen": 1793382490.061606,
+    "ast_hash": "6b3884f7eabf8ab3204800b773cb711f",
     "semantic_hash": ""
   },
   "build.rs": {
@@ -72,9 +72,9 @@
     "semantic_hash": ""
   },
   "src/e2e_window.rs": {
-    "mtime": 1793238824.089611,
-    "seen": 1793239946.7327762,
-    "ast_hash": "247336832698682cf356a08e460b33ba",
+    "mtime": 1793378851.5976064,
+    "seen": 1793382490.0616627,
+    "ast_hash": "0155bb4a7324142ad5554044b78ad7b3",
     "semantic_hash": ""
   },
   "src/gpu.rs": {
@@ -96,9 +96,9 @@
     "semantic_hash": ""
   },
   "src/share.rs": {
-    "mtime": 1793238824.0917845,
-    "seen": 1793239946.7327807,
-    "ast_hash": "58efde8172da634abae86fe86fc2e0aa",
+    "mtime": 1793377645.9387732,
+    "seen": 1793382490.0616674,
+    "ast_hash": "3231246ffe7c714ff248ed92d3b1a502",
     "semantic_hash": ""
   },
   "src/speedtest.rs": {
@@ -114,9 +114,9 @@
     "semantic_hash": ""
   },
   "src/ui/mod.rs": {
-    "mtime": 1793238824.0947912,
-    "seen": 1793239946.7327862,
-    "ast_hash": "c238876b4631beddeb7bcab642ae79d5",
+    "mtime": 1793383057.6637049,
+    "seen": 1793383083.012868,
+    "ast_hash": "94aae7e441484bfd088f5df0a8583686",
     "semantic_hash": ""
   },
   "src/ui/prefs.rs": {
@@ -126,21 +126,21 @@
     "semantic_hash": ""
   },
   "src/ui/settings.rs": {
-    "mtime": 1793240003.626273,
-    "seen": 1793240601.0136926,
-    "ast_hash": "63e8def423778a6755f5e1c9a8b4e68e",
+    "mtime": 1793377653.203773,
+    "seen": 1793382490.0616755,
+    "ast_hash": "bf5bc78d275b7b2dce647964a6f0a8cf",
     "semantic_hash": ""
   },
   "src/ui/share_view.rs": {
-    "mtime": 1793240003.6277776,
-    "seen": 1793240601.013694,
-    "ast_hash": "7dd1e9dd86f597097a346a4f5587ffe0",
+    "mtime": 1793382960.60962,
+    "seen": 1793383083.0128713,
+    "ast_hash": "87eb07efb9cb1eac54e30d533ea1d08a",
     "semantic_hash": ""
   },
   "src/ui/theme.rs": {
-    "mtime": 1793238824.0977955,
-    "seen": 1793239946.7327902,
-    "ast_hash": "eb5d7ec0a19cf5ba18c5fa5a81fc7697",
+    "mtime": 1793382106.0468225,
+    "seen": 1793382490.061678,
+    "ast_hash": "94065000cbd3ccc68fdd58d3ab7c2e30",
     "semantic_hash": ""
   },
   "src/ui/toast.rs": {
@@ -150,9 +150,9 @@
     "semantic_hash": ""
   },
   "src/ui/watch_view.rs": {
-    "mtime": 1793240003.6287825,
-    "seen": 1793240601.0136974,
-    "ast_hash": "36bf16d19136c6979af6de5e62bab7b0",
+    "mtime": 1793382412.149384,
+    "seen": 1793382490.0616803,
+    "ast_hash": "b65b41de5ef0da3e68a3830a28c9e234",
     "semantic_hash": ""
   },
   "src/update.rs": {
@@ -162,9 +162,9 @@
     "semantic_hash": ""
   },
   "src/video/codec_roundtrip.rs": {
-    "mtime": 1792968505.864286,
-    "seen": 1793239946.7327948,
-    "ast_hash": "0686bb622dfd246d3543459da76d2cd3",
+    "mtime": 1793377645.9403014,
+    "seen": 1793382490.0616827,
+    "ast_hash": "a42cb7026489660acfaaa35f3e37276d",
     "semantic_hash": ""
   },
   "src/video/convert.rs": {
@@ -180,9 +180,9 @@
     "semantic_hash": ""
   },
   "src/video/encoder.rs": {
-    "mtime": 1792968505.8683133,
-    "seen": 1793239946.732798,
-    "ast_hash": "b467bf6228d887f05aa7cf5424cfbc1e",
+    "mtime": 1793377688.1183918,
+    "seen": 1793382490.061686,
+    "ast_hash": "96db3392e7d4a441e72bc72440f2ae00",
     "semantic_hash": ""
   },
   "src/video/mf.rs": {
@@ -198,27 +198,27 @@
     "semantic_hash": ""
   },
   "src/video/probe.rs": {
-    "mtime": 1792968505.8717713,
-    "seen": 1793239946.7328026,
-    "ast_hash": "255491e9a9171df1cb542a1436db9997",
+    "mtime": 1793377645.9392807,
+    "seen": 1793382490.0616908,
+    "ast_hash": "104e74a252df49f97e58953026cb4084",
     "semantic_hash": ""
   },
   "src/watch.rs": {
-    "mtime": 1792981728.9547927,
-    "seen": 1793239946.7328036,
-    "ast_hash": "ce90928c99590dd1f1cd64af8e4b77f5",
+    "mtime": 1793375123.630194,
+    "seen": 1793375807.130103,
+    "ast_hash": "748ec5f7727f1f06ceb63cf56f7a24fc",
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1793028228.919532,
-    "seen": 1793239946.732808,
-    "ast_hash": "0cf15aaf235d6d8aade5d051a5d8b6b4",
+    "mtime": 1793394106.5877056,
+    "seen": 1793394380.5477698,
+    "ast_hash": "f65f3c6643471d5032970c68b89b5b60",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793240594.6892056,
-    "seen": 1793240601.0137155,
-    "ast_hash": "fe2cc8a53880c7c50b0ba233003daf9e",
+    "mtime": 1793394323.267957,
+    "seen": 1793394380.547771,
+    "ast_hash": "c838681f1033f6e28a4f5df8079c927f",
     "semantic_hash": ""
   },
   ".github/scripts/test-changelog.sh": {
@@ -246,15 +246,15 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Native.kt": {
-    "mtime": 1793030088.42577,
-    "seen": 1793239946.7327437,
-    "ast_hash": "86e994036952d5fcaa0e3674a40f7088",
+    "mtime": 1793377467.6041112,
+    "seen": 1793382490.0616179,
+    "ast_hash": "e40a879b506a94cae62f78bafe5d7eae",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Screens.kt": {
-    "mtime": 1793238824.0316193,
-    "seen": 1793239946.7327447,
-    "ast_hash": "c5ea917e8501abeba73ea96a50ae5a41",
+    "mtime": 1793380549.9599192,
+    "seen": 1793382490.061621,
+    "ast_hash": "638a81296b8f74ef48719b21efd7305a",
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/Theme.kt": {
@@ -276,9 +276,9 @@
     "semantic_hash": ""
   },
   "android/app/src/main/java/io/github/pendiego/livescreen/ViewerModel.kt": {
-    "mtime": 1793238824.033213,
-    "seen": 1793239946.7327492,
-    "ast_hash": "4c37c0bc7a034025a86c6704f97f7b60",
+    "mtime": 1793377483.5569496,
+    "seen": 1793382490.061627,
+    "ast_hash": "8425bd2c4266ad3855ad62bb342602b8",
     "semantic_hash": ""
   },
   "android/app/src/test/java/io/github/pendiego/livescreen/UpdaterTest.kt": {
@@ -306,9 +306,9 @@
     "semantic_hash": ""
   },
   "android/rust/src/lib.rs": {
-    "mtime": 1793240003.6112323,
-    "seen": 1793240601.0136566,
-    "ast_hash": "e33eaf17f1f42095d90f46149ede110c",
+    "mtime": 1793378947.308211,
+    "seen": 1793382490.0616338,
+    "ast_hash": "49fae80c2ffe16b918791e38a378a35c",
     "semantic_hash": ""
   },
   "android/settings.gradle.kts": {
@@ -318,15 +318,15 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/Cargo.toml": {
-    "mtime": 1793238824.0589182,
-    "seen": 1793239946.7327585,
-    "ast_hash": "3df98638edb9f6ab1f58ea11fdea8917",
+    "mtime": 1793377499.6574502,
+    "seen": 1793382490.0616376,
+    "ast_hash": "b2f1a82ca9e0a8f83e774937bf1b4fdd",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/lib.rs": {
-    "mtime": 1793238824.0599172,
-    "seen": 1793239946.732761,
-    "ast_hash": "f1c434284c6bc55b656d2b42a6c9d745",
+    "mtime": 1793377499.6574502,
+    "seen": 1793382490.0616455,
+    "ast_hash": "fb3aca442f339dca1cbbde7ff222de81",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/preset.rs": {
@@ -336,15 +336,15 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/protocol.rs": {
-    "mtime": 1793238824.0619197,
-    "seen": 1793239946.7327633,
-    "ast_hash": "c9febf9b5e5c848d7f14d3134253fafd",
+    "mtime": 1793374912.9201677,
+    "seen": 1793375807.1300557,
+    "ast_hash": "c924fd8b9446807dec696c6491a3b6a4",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/viewer.rs": {
-    "mtime": 1793238824.0619197,
-    "seen": 1793239946.7327645,
-    "ast_hash": "6558cdc5257769884193c58e0d183080",
+    "mtime": 1793374929.686671,
+    "seen": 1793375807.1300569,
+    "ast_hash": "b21fe5cbcf235cf34a394a916c10b472",
     "semantic_hash": ""
   },
   "src/video/present.rs": {
@@ -360,9 +360,9 @@
     "semantic_hash": ""
   },
   "src/ui/friends.rs": {
-    "mtime": 1793238824.0937905,
-    "seen": 1793239946.732784,
-    "ast_hash": "ea4c6215632fa277e74d3a95fa9a5cf8",
+    "mtime": 1793377653.2018125,
+    "seen": 1793382490.0616705,
+    "ast_hash": "577f36e322b983632580b4a42ef3bd02",
     "semantic_hash": ""
   },
   "assets/fonts/LICENSE-Lucide.txt": {
@@ -390,15 +390,15 @@
     "semantic_hash": ""
   },
   ".github/workflows/pages.yml": {
-    "mtime": 1793238824.024762,
-    "seen": 1793239946.7327347,
-    "ast_hash": "ede20324055f06103f408937af502161",
+    "mtime": 1793383634.8172598,
+    "seen": 1793392637.0661922,
+    "ast_hash": "b4ff5f166d91cd44d6668588b0433f75",
     "semantic_hash": ""
   },
   "site/ajuda/index.html": {
-    "mtime": 1793238824.0765202,
-    "seen": 1793239946.732815,
-    "ast_hash": "56ae4b97cb45d19f1a9283f7c3d1dd17",
+    "mtime": 1793394366.2524743,
+    "seen": 1793394380.547778,
+    "ast_hash": "546ad80b3e91a51692e15b46e483f7ea",
     "semantic_hash": ""
   },
   "site/assets/fonts/LICENSE-Lucide.txt": {
@@ -426,9 +426,9 @@
     "semantic_hash": ""
   },
   "site/index.html": {
-    "mtime": 1793238824.0886097,
-    "seen": 1793239946.7328205,
-    "ast_hash": "819fa65208bd69168a46a75a38aaa8df",
+    "mtime": 1793394343.1761026,
+    "seen": 1793394380.5477839,
+    "ast_hash": "7f2886e5fe865d53a7784e1b4292d37b",
     "semantic_hash": ""
   },
   "site/assets/img/confirm.webp": {
@@ -473,12 +473,6 @@
     "ast_hash": "d5ae340ff573b2caa7e14e758cccd900",
     "semantic_hash": ""
   },
-  "src/share/web.rs": {
-    "mtime": 1793240003.295737,
-    "seen": 1793240601.0136855,
-    "ast_hash": "ad41010cda75e3953340d5d0268d2710",
-    "semantic_hash": ""
-  },
   "web/package.json": {
     "mtime": 1793238824.1003013,
     "seen": 1793239946.7328045,
@@ -486,27 +480,27 @@
     "semantic_hash": ""
   },
   "web/public/v/viewer.js": {
-    "mtime": 1793240594.708851,
-    "seen": 1793240601.013712,
-    "ast_hash": "18097c3569c38c87d0b97f5fba8473c9",
+    "mtime": 1793393497.9606378,
+    "seen": 1793393810.239067,
+    "ast_hash": "62af0f1f9953b42abc1ce4d1d0612923",
     "semantic_hash": ""
   },
   "web/src/worker.js": {
-    "mtime": 1793240594.7098503,
-    "seen": 1793240601.013713,
-    "ast_hash": "5cdd3bfb125e98bf523bf6b150e28213",
+    "mtime": 1793393449.47181,
+    "seen": 1793393810.2390687,
+    "ast_hash": "201301f735155a534925f1765503bcea",
     "semantic_hash": ""
   },
   "web/public/v/index.html": {
-    "mtime": 1793240594.70685,
-    "seen": 1793240601.013735,
-    "ast_hash": "851a026bfd5d118ed35d0d80522f5c36",
+    "mtime": 1793393457.558208,
+    "seen": 1793393810.2390885,
+    "ast_hash": "92bdc30eb8b838bad87d212db04fcb0c",
     "semantic_hash": ""
   },
   ".github/workflows/deploy-web.yml": {
-    "mtime": 1793240003.2857153,
-    "seen": 1793240601.0136302,
-    "ast_hash": "ed1eca67edc3a4c60ded2d45129e68b0",
+    "mtime": 1793394311.6185763,
+    "seen": 1793394380.547677,
+    "ast_hash": "81a73a0452560bb63596a31964882d06",
     "semantic_hash": ""
   },
   "web/public/v/fonts/LICENSE-Lucide.txt": {
@@ -531,6 +525,54 @@
     "mtime": 1793240594.707851,
     "seen": 1793240601.0137439,
     "ast_hash": "0a10888163b636e767b224d6483260ad",
+    "semantic_hash": ""
+  },
+  "crates/livescreen-core/src/chat.rs": {
+    "mtime": 1793374912.9614196,
+    "seen": 1793375807.1300497,
+    "ast_hash": "f990836fb634aa9be047214a75f42baa",
+    "semantic_hash": ""
+  },
+  "src/ui/chat.rs": {
+    "mtime": 1793382647.6168835,
+    "seen": 1793383083.012864,
+    "ast_hash": "f79b6bcd17f3eb74b835d95c28a64717",
+    "semantic_hash": ""
+  },
+  "android/app/src/main/java/io/github/pendiego/livescreen/AudioEncoder.kt": {
+    "mtime": 1793377611.6207027,
+    "seen": 1793382490.06161,
+    "ast_hash": "ef3e984693661346d2b34f7c4649c628",
+    "semantic_hash": ""
+  },
+  "android/app/src/main/java/io/github/pendiego/livescreen/HostService.kt": {
+    "mtime": 1793377673.734367,
+    "seen": 1793382490.0616133,
+    "ast_hash": "9e2959488e6ad758fb95d8d5bffae3b2",
+    "semantic_hash": ""
+  },
+  "android/app/src/main/java/io/github/pendiego/livescreen/Hosting.kt": {
+    "mtime": 1793380547.9041817,
+    "seen": 1793382490.0616145,
+    "ast_hash": "913eff168121462adc0966e52fdd584b",
+    "semantic_hash": ""
+  },
+  "android/app/src/main/java/io/github/pendiego/livescreen/ScreenEncoder.kt": {
+    "mtime": 1793379277.3050284,
+    "seen": 1793382490.0616193,
+    "ast_hash": "602d476192ed74cffc436bff02e2b82f",
+    "semantic_hash": ""
+  },
+  "crates/livescreen-core/src/host/mod.rs": {
+    "mtime": 1793393482.656641,
+    "seen": 1793393810.2390153,
+    "ast_hash": "cf55d2f8460a7c38a7165950cee19f45",
+    "semantic_hash": ""
+  },
+  "crates/livescreen-core/src/host/web.rs": {
+    "mtime": 1793393468.1165662,
+    "seen": 1793393810.2390172,
+    "ast_hash": "5c4a4c57409125f902c24ac15dcbeaef",
     "semantic_hash": ""
   },
   "web/package-lock.json": {

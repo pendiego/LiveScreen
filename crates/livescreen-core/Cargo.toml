@@ -16,5 +16,15 @@ noq-proto = "1.4.0"
 ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 tracing = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+http = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio-websockets = { version = "0.13", default-features = false, features = ["client", "ring", "rustls-webpki-roots", "getrandom", "sha1_smol"] }
+
+[target.'cfg(windows)'.dependencies]
+str0m = { version = "0.24.1", default-features = false, features = ["wincrypto"] }
+
+[target.'cfg(not(windows))'.dependencies]
+str0m = { version = "0.24.1", default-features = false, features = ["rust-crypto"] }

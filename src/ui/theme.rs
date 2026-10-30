@@ -1,7 +1,7 @@
 //! Tema "Sinal" (só escuro): fontes Inter, Space Grotesk e JetBrains Mono embutidas, ícones Lucide como fonte.
 //!
 //! Subconjunto dos glifos Lucide gerado com:
-//! python -m fontTools.subset <tmp>/lucide.ttf --unicodes=U+E14F,U+E195,U+E11D,U+E426,U+E048,U+E145,U+E13C,U+E09E,U+E3E8,U+E19F,U+E1A4,U+E1A2,U+E1B2,U+E18E,U+E112,U+E11A,U+E1AB,U+E1AC,U+E118,U+E119,U+E06C,U+E226,U+E193,U+E084,U+E0F9,U+E151,U+E0B2,U+E154,U+E06F,U+E06D,U+E070,U+E138,U+E29A,U+E11C,U+E13D --no-hinting --layout-features='' --output-file=assets/fonts/lucide.ttf
+//! python -m fontTools.subset <tmp>/lucide.ttf --unicodes=U+E14F,U+E195,U+E11D,U+E426,U+E048,U+E145,U+E13C,U+E09E,U+E3E8,U+E19F,U+E1A4,U+E1A2,U+E1B2,U+E18E,U+E112,U+E11A,U+E1AB,U+E1AC,U+E118,U+E119,U+E06C,U+E226,U+E193,U+E084,U+E0F9,U+E151,U+E0B2,U+E154,U+E06F,U+E06D,U+E070,U+E138,U+E29A,U+E11C,U+E13D,U+E117 --no-hinting --layout-features='' --output-file=assets/fonts/lucide.ttf
 //! Regra: ícone novo = acrescentar o codepoint de https://unpkg.com/lucide-static@1.62.0/font/codepoints.json ao comando e regenerar lucide.ttf.
 //! Depois do subset, o cmap é remapeado para o plano 15 (U+F0000 + codepoint − U+E000, tabela formato 12 via fontTools),
 //! porque Inter e JetBrains Mono já ocupam os codepoints U+E000.. e sombreariam os ícones; as constantes `I_*` usam esse plano.
@@ -61,6 +61,7 @@ pub const I_CHEVRON_DOWN: &str = "\u{F006D}";
 pub const I_CHEVRON_UP: &str = "\u{F0070}";
 pub const I_QUALITY: &str = "\u{F029A}";
 pub const I_MINUS: &str = "\u{F011C}";
+pub const I_CHAT: &str = "\u{F0117}";
 pub const I_PLUS: &str = "\u{F013D}";
 
 #[derive(Clone, Copy)]
@@ -314,7 +315,7 @@ pub fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> Inner
         .fill(P.surface)
         .stroke(Stroke::new(1.0, P.border))
         .corner_radius(R_LG)
-        .inner_margin(16)
+        .inner_margin(20)
         .show(ui, add)
 }
 

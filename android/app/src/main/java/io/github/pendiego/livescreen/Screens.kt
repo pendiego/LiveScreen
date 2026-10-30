@@ -1,14 +1,19 @@
 package io.github.pendiego.livescreen
 
+import android.Manifest
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.content.pm.ActivityInfo
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,6 +51,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -94,7 +103,9 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val LEGACY_MSG = "Código sem chave de sala: só conecta em quem transmite com o LiveScreen 0.4. Se veio de uma versão mais nova, falta o final do código (a parte depois do ponto)."
 
@@ -103,7 +114,9 @@ private const val OVERLAY_TIMEOUT_MS = 2500L
 
 @Composable
 fun App(vm: ViewerModel) {
-    if (vm.status == null) {
+    if (Hosting.active) {
+        HostScreen(vm)
+    } else if (vm.status == null) {
         HomeScreen(vm)
     } else {
         WatchScreen(vm)
@@ -340,6 +353,16 @@ fun HomeScreen(vm: ViewerModel) {
 
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val d = r.data
+        if (r.resultCode == Activity.RESULT_OK && d != null) vm.beginHost(context, r.resultCode, d)
+    }
+    // O resultado das permissões é ignorado: sem áudio ou notificação a transmissão ainda funciona.
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        projectionLauncher.launch(
+            context.getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent()
+        )
+    }
     val paste: () -> Unit = {
         val inv = clipboardText(context)?.let(Native::findInvite)
         if (inv == null) {
@@ -383,14 +406,33 @@ fun HomeScreen(vm: ViewerModel) {
                     .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                     .padding(horizontal = 24.dp, vertical = 12.dp)
             ) {
-                SinalButton(
-                    if (vm.starting) "Conectando…" else "Assistir pelo convite",
-                    onClick = { vm.connect() },
-                    height = 56.dp,
-                    hPad = 24.dp,
-                    enabled = isTicketValid && !vm.starting,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SinalButton(
+                        "Transmitir tela",
+                        onClick = {
+                            permLauncher.launch(
+                                buildList {
+                                    add(Manifest.permission.RECORD_AUDIO)
+                                    if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+                                }.toTypedArray()
+                            )
+                        },
+                        kind = BtnKind.Secondary,
+                        height = 56.dp,
+                        hPad = 24.dp,
+                        enabled = !vm.starting,
+                        icon = R.drawable.ic_cast,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    SinalButton(
+                        if (vm.starting) "Conectando…" else "Assistir pelo convite",
+                        onClick = { vm.connect() },
+                        height = 56.dp,
+                        hPad = 24.dp,
+                        enabled = isTicketValid && !vm.starting,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         }
     ) { inner ->
@@ -429,7 +471,7 @@ fun HomeScreen(vm: ViewerModel) {
 
                 UpdateBanner(vm)
 
-                vm.lastEnd?.let { end ->
+                (vm.lastEnd ?: Hosting.lastError)?.let { end ->
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -685,13 +727,14 @@ fun WatchScreen(vm: ViewerModel) {
     var showOverlay by remember { mutableStateOf(true) }
     var addHost by remember { mutableStateOf(false) }
     var qualitySheet by remember { mutableStateOf(false) }
+    var chatSheet by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
     var landscape by remember { mutableStateOf(false) }
     var lastTouchTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val bump = { lastTouchTime = System.currentTimeMillis() }
 
-    LaunchedEffect(showOverlay, qualitySheet, lastTouchTime) {
-        if (showOverlay && !qualitySheet) {
+    LaunchedEffect(showOverlay, qualitySheet, chatSheet, lastTouchTime) {
+        if (showOverlay && !qualitySheet && !chatSheet) {
             delay(OVERLAY_TIMEOUT_MS)
             showOverlay = false
         }
@@ -842,6 +885,14 @@ fun WatchScreen(vm: ViewerModel) {
                             description = "Qualidade",
                             onClick = { qualitySheet = true; bump() }
                         )
+                        if (status?.chat == true) {
+                            CallButton(
+                                icon = R.drawable.ic_message_square,
+                                description = "Chat",
+                                onClick = { chatSheet = true; vm.chatOpen = true; vm.chatPreview = null; bump() },
+                                state = if (chatSheet) CallState.Active else CallState.Neutral
+                            )
+                        }
                         CallButton(
                             icon = R.drawable.ic_chart,
                             description = "Estatísticas",
@@ -931,6 +982,38 @@ fun WatchScreen(vm: ViewerModel) {
             }
         }
 
+        val preview = vm.chatPreview
+        if (preview != null && !chatSheet) {
+            LaunchedEffect(preview) {
+                delay(4000)
+                vm.chatPreview = null
+            }
+            Text(
+                "${preview.label}: ${preview.text}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Sinal.text,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .padding(top = 72.dp, start = 24.dp, end = 24.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Sinal.raised)
+                    .border(1.dp, Sinal.border, RoundedCornerShape(16.dp))
+                    .clickable { chatSheet = true; vm.chatOpen = true; vm.chatPreview = null; bump() }
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            )
+        }
+
+        if (chatSheet) {
+            ChatSheet(
+                items = vm.chat,
+                onSend = { vm.sendChat(it) },
+                onDismiss = { chatSheet = false; vm.chatOpen = false; bump() }
+            )
+        }
+
         if (addHost) {
             AddFriendDialog(
                 vm = vm,
@@ -948,6 +1031,305 @@ fun WatchScreen(vm: ViewerModel) {
                 }
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatSheet(items: List<ChatItem>, onSend: (String) -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetMaxWidth = 560.dp,
+        containerColor = Sinal.raised,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        scrimColor = Color.Black.copy(alpha = 0.6f),
+        dragHandle = { SheetHandle() }
+    ) {
+        var draft by remember { mutableStateOf("") }
+        val listState = rememberLazyListState()
+        val send = {
+            onSend(draft)
+            draft = ""
+        }
+        LaunchedEffect(items.size) {
+            if (items.isNotEmpty()) listState.animateScrollToItem(items.size - 1)
+        }
+        Column(
+            Modifier
+                .imePadding()
+                .padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Chat", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
+            if (items.isEmpty()) {
+                Text(
+                    "Nenhuma mensagem ainda",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Sinal.textMuted
+                )
+            } else {
+                LazyColumn(
+                    Modifier.heightIn(max = 360.dp),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(items, key = { it.seq }) { m ->
+                        Column {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    if (m.mine) "Você" else m.label,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = if (m.host) Sinal.accent else Sinal.text
+                                )
+                                if (m.host) {
+                                    Text("anfitrião", style = MaterialTheme.typography.bodySmall, color = Sinal.accent)
+                                }
+                                if (m.friend) {
+                                    Text("amigo", style = MaterialTheme.typography.bodySmall, color = Sinal.success)
+                                }
+                            }
+                            Text(m.text, style = MaterialTheme.typography.bodyLarge, color = Sinal.text)
+                        }
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SinalField(
+                    value = draft,
+                    onValueChange = { if (it.length <= 500) draft = it },
+                    placeholder = "Escreva uma mensagem",
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { send() })
+                )
+                SinalButton("Enviar", { send() }, hPad = 16.dp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetHandle() {
+    Box(
+        Modifier
+            .padding(top = 12.dp, bottom = 8.dp)
+            .size(width = 36.dp, height = 4.dp)
+            .background(Sinal.textFaint, RoundedCornerShape(2.dp))
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HostScreen(vm: ViewerModel) {
+    val ctx = LocalContext.current
+    BackHandler { (ctx as? Activity)?.moveTaskToBack(true) }
+    val st = Hosting.status
+    var qualitySheet by remember { mutableStateOf(false) }
+    var webHidden by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val copy: (String) -> Unit = { t ->
+        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .setPrimaryClip(ClipData.newPlainText("LiveScreen", t))
+        Toast.makeText(ctx, "Copiado", Toast.LENGTH_SHORT).show()
+    }
+    val io: ((Long) -> Unit) -> Unit = { block ->
+        val h = Hosting.handle
+        if (h != 0L) scope.launch(Dispatchers.IO) { Hosting.withHandle(h, block) }
+    }
+
+    Scaffold(containerColor = Sinal.bg) { inner ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .consumeWindowInsets(inner),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Column(
+                Modifier
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Transmitindo", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
+                if (st == null) {
+                    Text("Iniciando…", style = MaterialTheme.typography.bodyLarge, color = Sinal.textMuted)
+                } else {
+                    Text(
+                        "${st.width}×${st.height} · ${st.fps} fps · ${st.kbps} kbps · ${st.viewers.size} assistindo",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Sinal.text
+                    )
+                    Text(
+                        "Áudio: " + when (st.audio) {
+                            "on" -> "ligado"
+                            "unavailable" -> "indisponível: ${st.audioError}"
+                            else -> "desligado"
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Sinal.textMuted
+                    )
+                    if (st.overloaded) {
+                        Text("Aparelho sem fôlego para esta qualidade", style = MaterialTheme.typography.bodyLarge, color = Sinal.warn)
+                    }
+                    if (st.onlineWarning) {
+                        Text(
+                            "Sem conexão com o relay: o convite pode não funcionar fora da sua rede",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Sinal.warn
+                        )
+                    }
+                    when (st.web) {
+                        "connecting" -> "Conectando"
+                        "online" -> "Online"
+                        "retrying" -> "Tentando de novo: ${st.webError}"
+                        else -> null
+                    }?.let {
+                        Text("Navegador: $it", style = MaterialTheme.typography.bodyLarge, color = Sinal.textMuted)
+                    }
+                }
+                Hosting.notice?.let {
+                    Text(it, style = MaterialTheme.typography.bodyLarge, color = Sinal.warn)
+                }
+
+                SinalButton(
+                    "Copiar convite",
+                    onClick = { st?.ticket?.let(copy) },
+                    icon = R.drawable.ic_copy,
+                    enabled = st?.ticket != null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (!webHidden) {
+                    SinalButton(
+                        "Copiar link do navegador",
+                        onClick = {
+                            val h = Hosting.handle
+                            if (h != 0L) scope.launch {
+                                val link = withContext(Dispatchers.IO) { Hosting.withHandle(h) { Native.hostWebLink(it) } }
+                                if (link == null) webHidden = true else copy(link)
+                            }
+                        },
+                        icon = R.drawable.ic_copy,
+                        kind = BtnKind.Secondary,
+                        enabled = st != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                SinalButton(
+                    "Novo convite",
+                    onClick = { io { Native.hostNewInvite(it) } },
+                    icon = R.drawable.ic_user_plus,
+                    kind = BtnKind.Secondary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                SinalButton(
+                    "Qualidade",
+                    onClick = { qualitySheet = true },
+                    icon = R.drawable.ic_sliders,
+                    kind = BtnKind.Secondary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                SinalButton(
+                    "Chat",
+                    onClick = { Hosting.chatOpen = true },
+                    icon = R.drawable.ic_message_square,
+                    kind = BtnKind.Secondary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (st != null && st.viewers.isNotEmpty()) {
+                    Text("Assistindo", style = MaterialTheme.typography.titleSmall, color = Sinal.textMuted)
+                    for (v in st.viewers) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Sinal.raised, RoundedCornerShape(12.dp))
+                                .border(1.dp, Sinal.border, RoundedCornerShape(12.dp))
+                                .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(v.label, style = MaterialTheme.typography.titleSmall, color = Sinal.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (v.friend) Text("amigo", style = MaterialTheme.typography.bodySmall, color = Sinal.success)
+                                }
+                                Text(
+                                    listOfNotNull(v.path, v.rttMs?.let { "$it ms" }).joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Sinal.textMuted
+                                )
+                            }
+                            SinalButton("Remover", { io { h -> Native.hostKick(h, v.id) } }, kind = BtnKind.Ghost, height = 32.dp, hPad = 12.dp)
+                        }
+                    }
+                }
+
+                SinalButton(
+                    "Parar transmissão",
+                    onClick = { Hosting.stop(ctx) },
+                    kind = BtnKind.Danger,
+                    height = 56.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+
+    if (qualitySheet) {
+        ModalBottomSheet(
+            onDismissRequest = { qualitySheet = false },
+            sheetMaxWidth = 560.dp,
+            containerColor = Sinal.raised,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            scrimColor = Color.Black.copy(alpha = 0.6f),
+            dragHandle = { SheetHandle() }
+        ) {
+            Column(
+                Modifier.padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Qualidade", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
+                for ((id, name) in vm.presets) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Sinal.surface)
+                            .border(1.dp, Sinal.border, RoundedCornerShape(12.dp))
+                            .clickable {
+                                Hosting.setPreset(ctx, id)
+                                qualitySheet = false
+                            }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(name, style = MaterialTheme.typography.titleSmall, color = Sinal.text, modifier = Modifier.weight(1f))
+                        if (id == Hosting.presetId) {
+                            Icon(painterResource(R.drawable.ic_circle_check), "Atual", tint = Sinal.accent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (Hosting.chatOpen) {
+        ChatSheet(
+            items = Hosting.chat,
+            onSend = { t -> if (t.isNotBlank()) io { h -> Native.hostSendChat(h, t.trim()) } },
+            onDismiss = { Hosting.chatOpen = false }
+        )
     }
 }
 

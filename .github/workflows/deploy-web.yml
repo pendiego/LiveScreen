@@ -1,9 +1,9 @@
 name: deploy-web
 
-# Publica o Worker do link do navegador quando web/ muda na branch publish.
+# Publica o Worker do link do navegador quando web/ muda na branch main.
 on:
   push:
-    branches: [publish]
+    branches: [main]
     paths: ["web/**"]
   workflow_dispatch:
 

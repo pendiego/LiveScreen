@@ -140,7 +140,7 @@ impl App {
             p.set_ids(ids.clone());
         }
         if let Some(s) = self.share.as_ref() {
-            s.set_friends(ids.into_iter().collect());
+            s.host.set_friends(ids.into_iter().collect());
         }
     }
 

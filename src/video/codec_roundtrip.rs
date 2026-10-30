@@ -15,7 +15,8 @@ use livescreen_core::protocol::EncodedFrame;
 use livescreen_core::viewer::DecodeStats;
 use crate::video::convert::Converter;
 use crate::video::decoder::{self, RgbaFrame, VideoFrame};
-use crate::video::encoder::{self, EncoderKind, EncoderStats, Nv12Frame};
+use crate::video::encoder::{self, EncoderKind, Nv12Frame};
+use livescreen_core::host::HostStats;
 use crate::video::mf;
 
 const W: u32 = 1280;
@@ -177,7 +178,7 @@ fn roundtrip(
         rx,
         btx,
         Arc::new(AtomicBool::new(false)),
-        Arc::new(EncoderStats::default()),
+        Arc::new(HostStats::default()),
     )?;
     let slot: Arc<Mutex<Option<VideoFrame>>> = Arc::default();
     let (dtx, drx) = std::sync::mpsc::channel::<EncodedFrame>();

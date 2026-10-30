@@ -21,7 +21,7 @@ async function iceServers(env) {
   const keyId = env?.TURN_KEY_ID;
   const token = env?.TURN_KEY_API_TOKEN;
   if (!keyId || !token) {
-    return fallback;
+    return { list: fallback, fresh: false };
   }
   try {
     const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`, {
@@ -31,10 +31,11 @@ async function iceServers(env) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ ttl: 14400 }),
+      signal: AbortSignal.timeout(3000),
     });
-    if (!res.ok) return fallback;
+    if (!res.ok) return { list: fallback, fresh: false };
     const j = await res.json();
-    if (!j || !j.iceServers) return fallback;
+    if (!j || !j.iceServers) return { list: fallback, fresh: false };
     const list = [].concat(j.iceServers);
     const filtered = list
       .map((entry) => {
@@ -47,9 +48,9 @@ async function iceServers(env) {
         if (!entry.urls) return false;
         return Array.isArray(entry.urls) ? entry.urls.length > 0 : true;
       });
-    return filtered.length > 0 ? filtered : fallback;
+    return filtered.length > 0 ? { list: filtered, fresh: true } : { list: fallback, fresh: false };
   } catch {
-    return fallback;
+    return { list: fallback, fresh: false };
   }
 }
 
@@ -89,7 +90,8 @@ export class Room extends DurableObject {
     const role = match[1];
     const room = match[2];
 
-    if (this.ctx.getWebSockets().length >= 64) {
+    const tag = role === "host" ? "host" : "view";
+    if (this.ctx.getWebSockets(tag).length >= (role === "host" ? 4 : 64)) {
       return new Response("Too Many Requests", { status: 429 });
     }
 
@@ -102,13 +104,16 @@ export class Room extends DurableObject {
       tags = ["host"];
     } else {
       const bytes = new Uint8Array(4);
-      crypto.getRandomValues(bytes);
-      id = bytesToHex(bytes);
+      do {
+        crypto.getRandomValues(bytes);
+        id = bytesToHex(bytes);
+      } while (this.ctx.getWebSockets("v:" + id).length > 0);
       tags = ["view", "v:" + id];
     }
 
     this.ctx.acceptWebSocket(server, tags);
-    server.serializeAttachment({ role, room, id, ok: false, offered: false });
+    server.serializeAttachment({ role, room, id, ok: false, offered: false, at: Date.now() });
+    await this._armReaper();
 
     if (role === "view") {
       const hosts = this.ctx.getWebSockets("host");
@@ -121,7 +126,7 @@ export class Room extends DurableObject {
         }
       });
       if (hostOk) {
-        const ice = await iceServers(this.env);
+        const ice = await this._iceServers();
         server.send(JSON.stringify({ t: "hello", iceServers: ice }));
       } else {
         server.send(JSON.stringify({ t: "nohost" }));
@@ -181,6 +186,8 @@ export class Room extends DurableObject {
         for (const v of viewers) {
           try {
             v.send(JSON.stringify({ t: "answer", sdp: data.sdp }));
+            const a = v.deserializeAttachment();
+            if (a) { a.answered = true; v.serializeAttachment(a); }
           } catch {}
         }
       } else if (data.t === "reject" && typeof data.reason === "string") {
@@ -205,7 +212,7 @@ export class Room extends DurableObject {
       if (data.t !== "offer") return;
       if (att.offered) return;
       if (typeof data.sdp !== "string" || typeof data.proof !== "string") return;
-      const name = typeof data.name === "string" ? data.name : "";
+      const name = typeof data.name === "string" ? data.name.slice(0, 64) : "";
 
       const hosts = this.ctx.getWebSockets("host");
       const verifiedHost = hosts.find((h) => {
@@ -242,6 +249,41 @@ export class Room extends DurableObject {
     this._handleLeave(ws);
   }
 
+  // Credencial vale 4 h (ttl 14400); reusar por 1 h garante ≥3 h de validade a quem entra.
+  async _iceServers() {
+    if (this.ice && Date.now() < this.ice.until) return this.ice.list;
+    if (!this.icePending) {
+      this.icePending = iceServers(this.env)
+        .then(({ list, fresh }) => {
+          if (fresh) this.ice = { list, until: Date.now() + 3600000 };
+          return list;
+        })
+        .finally(() => { this.icePending = null; });
+    }
+    return this.icePending;
+  }
+
+  async _armReaper() {
+    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now() + 10000);
+  }
+
+  // Host que não se autentica em 10 s e espectador que não manda oferta em 30 s ocupam vaga à toa.
+  async alarm() {
+    const now = Date.now();
+    let pending = false;
+    for (const ws of this.ctx.getWebSockets()) {
+      let a;
+      try { a = ws.deserializeAttachment(); } catch { continue; }
+      if (!a || (a.role === "host" ? a.ok : a.offered)) continue;
+      if (now - (a.at || 0) >= (a.role === "host" ? 10000 : 30000)) {
+        try { ws.close(4008, "tempo esgotado"); } catch {}
+      } else {
+        pending = true;
+      }
+    }
+    if (pending) await this.ctx.storage.setAlarm(now + 10000);
+  }
+
   _handleLeave(ws) {
     let att;
     try {
@@ -255,9 +297,10 @@ export class Room extends DurableObject {
       for (const v of this.ctx.getWebSockets("view")) {
         try {
           const a = v.deserializeAttachment();
-          if (a && a.role === "view") {
-            v.send(JSON.stringify({ t: "closed", reason: "a transmissão terminou" }));
-            v.close(1000, "a transmissão terminou");
+          if (a && a.role === "view" && !a.answered) {
+            const why = "a conexão com quem transmite caiu; tente de novo";
+            v.send(JSON.stringify({ t: "closed", reason: why }));
+            v.close(1000, why);
           }
         } catch {}
       }

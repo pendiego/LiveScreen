@@ -1,30 +1,30 @@
-# Graph Report - LiveScreen-publish  (2026-10-28)
+# Graph Report - LiveScreen-publish  (2026-10-30)
 
 ## Corpus Check
-- 68 files · ~82,777 words
+- 75 files · ~93,611 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 51 file(s) not represented in the graph (top: .xml 22, .woff2 10, .ttf 7)
+- Unclassified: 54 file(s) not represented in the graph (top: .xml 24, .woff2 10, .ttf 7)
 
 ## Summary
-- 2022 nodes · 4030 edges · 98 communities (76 shown, 22 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 110 edges (avg confidence: 0.76)
+- 2256 nodes · 4678 edges · 107 communities (82 shown, 25 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 140 edges (avg confidence: 0.77)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `cfae3fc5`
+- Built from commit: `22511a26`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - decoder.rs
-- config.rs
-- capture.rs
-- Shared
+- Ui
+- Hosting.kt
+- host/mod.rs
 - ToastKind
 - convert.rs
-- App
-- dxgi.rs
+- settings.rs
 - sources.rs
+- sharing
 - mf.rs
 - protocol.rs
 - steps
@@ -32,142 +32,149 @@
 - ViewerModel
 - playback.rs
 - theme.rs
-- watch_view.rs
+- share_view.rs
 - gpu.rs
-- run
-- probe.rs
+- host/web.rs
+- Host
 - with
 - ui/mod.rs
 - ShareSession
-- SourceInfo
+- SourceId
 - ShareSession
-- Shared
+- .start
 - share.rs
 - steps
 - LiveScreen
-- Encoder
-- HMONITOR
+- encoder.rs
+- HostService.kt
 - wgc.rs
 - test-changelog.sh
 - rust/src/lib.rs
 - Native
 - src/friends.rs
-- Display
+- Updater.kt
+- App
 - capture/mod.rs
 - main.rs
 - present.rs
 - icon.rs
 - livescreen-core
 - Sendable<IDirect3DDevice>
-- wgc.rs
+- capture/mod.rs
 - codec_roundtrip.rs
 - Native
-- encoder.rs
+- SourceId
 - Theme.kt
 - preset.rs
 - Dib
 - format_invite
 - viewer.rs
-- Android (`android/`)
+- MainActivity.kt
 - BudgetExceeded
 - Resources
-- VideoDecoder
-- Preset
 - Callback
-- omp config sync via private GitHub repo
-- SourceId
+- Preset
+- run
+- capture.rs
+- config.rs
 - HomeScreen
 - LiveScreen
 - DxgiCapture
-- UpdateInfo
+- Converter
 - read_video_frame
+- ScreenEncoder
 - handle_frame
+- e2e_window.rs
 - Callback
 - HostMsg
-- WgcCapture
-- start
-- share_view.rs
+- src/chat.rs
+- home.rs
+- sharing
 - pages.yml
 - watch_view.rs
-- capture_loop
-- peer
-- run
+- OutputResult
+- toast.rs
+- .ui
 - SignalOut
+- DxgiCapture
 - BtnKind
-- .start
-- Target
-- SignalIn
+- enumerate_mfts
+- controls
+- WebState
+- Tab
 - CallState
-- WebPeer
-- AudioTarget
+- FieldTone
+- variant_with
+- run
 - SinalSnack
 - Mmcss
-- FieldTone
+- frame_from_body
 - BudgetExceeded
+- write_msg
+- chevron_icon
+- room_proof
+- AudioState
+- Target
 
 ## God Nodes (most connected - your core abstractions)
 1. `App` - 73 edges
-2. `Preset` - 48 edges
-3. `ViewerModel` - 41 edges
-4. `Converter` - 33 edges
-5. `ShareSession` - 32 edges
-6. `Codec` - 29 edges
-7. `EncoderKind` - 26 edges
-8. `SourceId` - 25 edges
-9. `EncodeParams` - 24 edges
-10. `Shared` - 24 edges
+2. `Preset` - 53 edges
+3. `ViewerModel` - 45 edges
+4. `Native` - 42 edges
+5. `Converter` - 33 edges
+6. `Codec` - 30 edges
+7. `Shared` - 28 edges
+8. `Host` - 26 edges
+9. `EncodeParams` - 26 edges
+10. `ShareSession` - 26 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `Web (`web/`)` --references--> `Room`  [INFERRED]
+  AGENTS.md → web/src/worker.js
+- `Android (`android/`)` --references--> `AudioEncoder`  [INFERRED]
+  AGENTS.md → android/app/src/main/java/io/github/pendiego/livescreen/AudioEncoder.kt
 - `Android (`android/`)` --references--> `AudioPlayer`  [INFERRED]
   AGENTS.md → android/app/src/main/java/io/github/pendiego/livescreen/AudioPlayer.kt
-- `Android (`android/`)` --references--> `MainActivity`  [INFERRED]
-  AGENTS.md → android/app/src/main/java/io/github/pendiego/livescreen/MainActivity.kt
-- `Android (`android/`)` --references--> `Native`  [INFERRED]
-  AGENTS.md → android/app/src/main/java/io/github/pendiego/livescreen/Native.kt
-- `Android (`android/`)` --references--> `VideoDecoder`  [INFERRED]
-  AGENTS.md → android/app/src/main/java/io/github/pendiego/livescreen/VideoDecoder.kt
-- `Android (`android/`)` --references--> `ViewerModel`  [INFERRED]
-  AGENTS.md → android/app/src/main/java/io/github/pendiego/livescreen/ViewerModel.kt
+- `Android (`android/`)` --references--> `HostService`  [INFERRED]
+  AGENTS.md → android/app/src/main/java/io/github/pendiego/livescreen/HostService.kt
+- `Regras` --references--> `HostService`  [INFERRED]
+  AGENTS.md → android/app/src/main/java/io/github/pendiego/livescreen/HostService.kt
 
 ## Import Cycles
 - None detected.
 
-## Communities (98 total, 22 thin omitted)
+## Communities (107 total, 25 thin omitted)
 
 ### Community 0 - "decoder.rs"
 Cohesion: 0.13
-Nodes (21): EncodedFrame, DecodeStats, as_bytes(), attach_gpu(), convert_planes(), create(), create_mft(), drain() (+13 more)
+Nodes (20): EncodedFrame, as_bytes(), attach_gpu(), convert_planes(), create(), create_mft(), drain(), frame_size() (+12 more)
 
-### Community 1 - "config.rs"
-Cohesion: 0.10
-Nodes (17): app_dir(), Config, Identity, identity(), identity_persistence_and_bad_recovery(), load(), load_identity(), Overrides (+9 more)
-
-### Community 2 - "capture.rs"
+### Community 1 - "Ui"
 Cohesion: 0.12
-Nodes (10): conceal(), conceal_matches_lost_duration(), DECODE_FLOATS, decode_loop(), MAX_BUFFER_FLOATS, output_loop(), PlaybackHandle, PREBUFFER_FLOATS (+2 more)
+Nodes (27): button(), button_full(), call_button(), CallTone, Active, Alert, Neutral, Plain (+19 more)
 
-### Community 3 - "Shared"
-Cohesion: 0.10
-Nodes (12): sanitize(), admit(), answer_presence(), CountGuard, handle_viewer(), Peer, PeerConn, Iroh (+4 more)
+### Community 2 - "Hosting.kt"
+Cohesion: 0.07
+Nodes (7): HostRequest, HostStatus, HostViewer, parseHostStatus(), strOrNull(), ChatItem, parseChatItems()
+
+### Community 3 - "host/mod.rs"
+Cohesion: 0.07
+Nodes (20): Abr, ABR_FLOOR, admit(), answer_presence(), CountGuard, Feeds, handle_viewer(), HANDSHAKE_TIMEOUT (+12 more)
 
 ### Community 4 - "ToastKind"
-Cohesion: 0.14
+Cohesion: 0.13
 Nodes (18): bgra(), codec_roundtrip(), collect(), create_bgra(), fingerprint(), forward(), H, luma() (+10 more)
 
-### Community 5 - "convert.rs"
-Cohesion: 0.05
-Nodes (7): Converter, create_output(), letterbox(), POOL, Target, Nv12, Rgb
+### Community 6 - "settings.rs"
+Cohesion: 0.19
+Nodes (20): button(), diagnostics(), FORCED, hint(), icon_button(), open_help(), open_logs(), SETTINGS_LABEL (+12 more)
 
-### Community 7 - "dxgi.rs"
-Cohesion: 0.05
-Nodes (13): Composer, create_duplication(), dxgi_draws_cursor(), DxgiCapture, Grab, GrabSink, run(), start() (+5 more)
-
-### Community 10 - "mf.rs"
-Cohesion: 0.07
-Nodes (17): enumerate_mfts(), friendly_name(), is_async(), OutputResult, NeedMoreInput, Sample, StreamChange, OutSample (+9 more)
+### Community 9 - "sharing"
+Cohesion: 0.21
+Nodes (12): EncodeParams, is_reduction(), viewers_for(), Upload, Done, Failed, Measuring, Unknown (+4 more)
 
 ### Community 11 - "protocol.rs"
-Cohesion: 0.09
+Cohesion: 0.08
 Nodes (12): ALPN, CLOSE_DENIED, CLOSE_FULL, CLOSE_KICKED, CLOSE_NORMAL, CLOSE_PROTOCOL, CLOSE_STOPPED, LEGACY_PROTOCOL_VERSION (+4 more)
 
 ### Community 12 - "steps"
@@ -179,56 +186,52 @@ Cohesion: 0.10
 Nodes (25): dib(), main(), push_entry(), res_file(), RT_GROUP_ICON, RT_ICON, SIZES, API (+17 more)
 
 ### Community 14 - "ViewerModel"
-Cohesion: 0.18
+Cohesion: 0.13
 Nodes (3): Friend, Status, ViewerModel
 
 ### Community 15 - "playback.rs"
-Cohesion: 0.06
-Nodes (30): ChildGuard, e2e_android(), e2e_window(), find(), find_text(), PY, tap_text(), tap_xy() (+22 more)
+Cohesion: 0.09
+Nodes (21): conn(), connection_dropped_mid_upload_fails_measurement(), http_error_fails_measurement(), MAX_BYTES, MAX_CHUNK, measure(), measure_upload(), MIN_CHUNK (+13 more)
 
 ### Community 16 - "theme.rs"
 Cohesion: 0.05
-Nodes (57): app_icon(), badge(), button(), button_full(), call_bar(), CALL_BAR_BOTTOM, CALL_BAR_CLEARANCE, call_button() (+49 more)
+Nodes (33): app_icon(), badge(), call_bar(), CALL_BAR_BOTTOM, CALL_BAR_CLEARANCE, call_title(), card(), field() (+25 more)
 
-### Community 17 - "watch_view.rs"
+### Community 17 - "share_view.rs"
 Cohesion: 0.06
-Nodes (23): Draft, MAX_LIST, ended(), footer(), home(), left_column(), pill(), share_tile() (+15 more)
+Nodes (20): ChatRole, Host, Viewer, panel(), Draft, MAX_LIST, AUTO_QUALITY_COOLDOWN, I_ADD_FRIEND (+12 more)
 
 ### Community 18 - "gpu.rs"
-Cohesion: 0.08
+Cohesion: 0.09
 Nodes (3): create_device(), Sendable, winrt_device()
 
-### Community 19 - "run"
-Cohesion: 0.07
-Nodes (5): CONNECT_TIMEOUT, INIT_CRYPTO, MAX_SDP, STUN_SERVER, WEB_BASE
+### Community 19 - "host/web.rs"
+Cohesion: 0.06
+Nodes (10): rtt_congested(), CONNECT_TIMEOUT, drain_outputs(), INIT_CRYPTO, MAX_SDP, MAX_WEB_CHAT, peer(), STUN_SERVER (+2 more)
 
-### Community 20 - "probe.rs"
-Cohesion: 0.29
-Nodes (4): frame_from_body(), parse_video_body(), roundtrip(), video_frame_header()
+### Community 20 - "Host"
+Cohesion: 0.09
+Nodes (5): Host, HostConfig, invite_addr(), Overload, ViewerInfo
 
 ### Community 21 - "with"
 Cohesion: 0.06
-Nodes (33): runs-on, steps, KS, LIVESCREEN_KEYSTORE_PASSWORD, jobs, android, release, name (+25 more)
+Nodes (34): runs-on, steps, GIT_CLIFF_TAG_PATTERN, KS, LIVESCREEN_KEYSTORE_PASSWORD, jobs, android, release (+26 more)
 
-### Community 23 - "ShareSession"
-Cohesion: 0.19
-Nodes (3): is_reduction(), ShareSession, unpack_size()
-
-### Community 24 - "SourceInfo"
-Cohesion: 0.32
-Nodes (5): exe_name(), inspect_window(), source_size(), window_cb(), window_rect()
+### Community 24 - "SourceId"
+Cohesion: 0.39
+Nodes (7): SourceId, Monitor, Window, SourceInfo, Picker, Starting, Update
 
 ### Community 25 - "ShareSession"
-Cohesion: 0.12
-Nodes (14): Preset, .ALL, Native60, NativeHigh, P1080p30, P1080p60, P1440p60, P2160p60 (+6 more)
+Cohesion: 0.11
+Nodes (15): preset_id(), Preset, .ALL, Native60, NativeHigh, P1080p30, P1080p60, P1440p60 (+7 more)
 
-### Community 26 - "Shared"
-Cohesion: 0.40
-Nodes (7): device_name(), enumerate(), monitor_cb(), monitor_info(), monitors(), primary_monitor(), refresh_rate()
+### Community 26 - ".start"
+Cohesion: 0.20
+Nodes (3): Hosting, Callback, Run
 
 ### Community 27 - "share.rs"
-Cohesion: 0.08
-Nodes (15): Abr, ABR_FLOOR, cut_feed(), HANDSHAKE_TIMEOUT, ids(), invite_addr_keeps_only_relay(), invite_addr_without_relay_keeps_ips(), MAX_HANDSHAKES (+7 more)
+Cohesion: 0.10
+Nodes (9): cut_feed(), pack_size(), PendingReconf, Reconf, Resources, Sink, SinkTx, start_encoder() (+1 more)
 
 ### Community 28 - "steps"
 Cohesion: 0.09
@@ -236,18 +239,14 @@ Nodes (29): runs-on, steps, runs-on, steps, runs-on, steps, jobs, android (+21 m
 
 ### Community 29 - "LiveScreen"
 Cohesion: 0.15
-Nodes (12): Android (só para assistir), Avançado, Como funciona, Como usar, Conexões que o app faz, Configurações, Download e atualização, Licença (+4 more)
+Nodes (12): Android (assistir e transmitir), Avançado, Como funciona, Como usar, Conexões que o app faz, Configurações, Download e atualização, Licença (+4 more)
 
-### Community 30 - "Encoder"
-Cohesion: 0.16
-Nodes (12): Codec, Av1, H264, Hevc, pick_encoder(), supported_codecs(), EncoderKind, Hardware (+4 more)
-
-### Community 31 - "HMONITOR"
-Cohesion: 0.15
-Nodes (24): button(), diagnostics(), FORCED, hint(), icon_button(), open_help(), open_logs(), SETTINGS_LABEL (+16 more)
+### Community 30 - "encoder.rs"
+Cohesion: 0.08
+Nodes (17): Codec, Av1, H264, Hevc, pick_encoder(), supported_codecs(), EncoderKind, Hardware (+9 more)
 
 ### Community 32 - "wgc.rs"
-Cohesion: 0.10
+Cohesion: 0.11
 Nodes (7): border_removable(), handle_frame(), PIXEL_FORMAT, property_present(), SESSION_TYPE, start(), WgcCapture
 
 ### Community 33 - "test-changelog.sh"
@@ -255,156 +254,160 @@ Cohesion: 0.70
 Nodes (4): commit(), has(), lacks(), test-changelog.sh script
 
 ### Community 34 - "rust/src/lib.rs"
-Cohesion: 0.08
-Nodes (33): AbortOnDrop, __android_log_write(), audio_loop(), get_session(), init_logging(), INIT_LOGGING, Java_io_github_pendiego_livescreen_Native_decoderFailed(), Java_io_github_pendiego_livescreen_Native_findInvite() (+25 more)
+Cohesion: 0.07
+Nodes (58): AbortOnDrop, __android_log_write(), audio_loop(), get_host(), get_session(), HostSession, init_logging(), INIT_LOGGING (+50 more)
 
 ### Community 35 - "Native"
-Cohesion: 0.12
-Nodes (4): Amigos e presença, Regras, Native, Presence
+Cohesion: 0.09
+Nodes (5): Amigos e presença, Chat, Regras, Native, Presence
 
 ### Community 36 - "src/friends.rs"
 Cohesion: 0.06
 Nodes (31): AbortJoinSet, denied_reason(), dial_endpoint(), friend_code(), friend_code_roundtrip_and_normalization(), new_secret_key(), parse_friend_code(), Presence (+23 more)
 
-### Community 38 - "Display"
-Cohesion: 0.18
-Nodes (3): Display, GpuFrame, Imported
+### Community 37 - "Updater.kt"
+Cohesion: 0.08
+Nodes (11): Android (`android/`), GhAsset, UpdateInfo, Updater, Available, Downloading, Failed, Idle (+3 more)
+
+### Community 38 - "App"
+Cohesion: 0.11
+Nodes (4): App, classify(), connect(), sync_visible()
 
 ### Community 39 - "capture/mod.rs"
-Cohesion: 0.30
-Nodes (9): Backend, Dxgi, GraphicsCapture, CaptureHandle, Dxgi, Wgc, run_backend(), selftest() (+1 more)
+Cohesion: 0.15
+Nodes (5): CountSink, FirstFrameSink, FrameSink, selftest(), SinkHandle
 
 ### Community 40 - "main.rs"
 Cohesion: 0.50
 Nodes (3): GLOBAL, init_logging(), main()
 
 ### Community 41 - "present.rs"
-Cohesion: 0.10
-Nodes (5): NEXT_SURFACES_ID, Producer, SLOTS, Surfaces, Target
+Cohesion: 0.07
+Nodes (8): Display, GpuFrame, Imported, NEXT_SURFACES_ID, Producer, SLOTS, Surfaces, Target
 
 ### Community 44 - "livescreen-core"
 Cohesion: 0.67
 Nodes (3): livescreen, livescreen-android, livescreen-core
 
-### Community 48 - "wgc.rs"
-Cohesion: 0.40
-Nodes (3): encode_msg(), read_msg(), write_msg()
+### Community 48 - "capture/mod.rs"
+Cohesion: 0.30
+Nodes (8): Backend, Dxgi, GraphicsCapture, CaptureHandle, Dxgi, Wgc, run_backend(), start()
 
 ### Community 49 - "codec_roundtrip.rs"
 Cohesion: 0.24
 Nodes (4): AbortJoinSet<T>, Target, Friend, Invite
 
 ### Community 50 - "Native"
-Cohesion: 0.17
-Nodes (12): classify(), EndKind, Error, Info, Warn, Screen, Ended, Home (+4 more)
+Cohesion: 0.18
+Nodes (11): EndKind, Error, Info, Warn, Screen, Ended, Home, SharePicker (+3 more)
 
-### Community 51 - "encoder.rs"
-Cohesion: 0.15
-Nodes (6): EncoderStats, black_nv12(), candidates(), hardware_kinds(), run_child(), try_encoder()
+### Community 51 - "SourceId"
+Cohesion: 0.20
+Nodes (12): device_name(), enumerate(), exe_name(), inspect_window(), monitor_cb(), monitor_info(), monitors(), primary_monitor() (+4 more)
 
 ### Community 52 - "Theme.kt"
-Cohesion: 0.10
-Nodes (4): MainActivity, inter(), LiveScreenTheme(), Sinal
+Cohesion: 0.18
+Nodes (3): inter(), LiveScreenTheme(), Sinal
 
 ### Community 53 - "preset.rs"
 Cohesion: 0.12
 Nodes (26): bitrate(), encode_params(), extreme_shapes_never_break_limits(), fit_level(), label(), light_presets_are_reductions_and_fall_back(), lighter_is_accepted_equal_and_heavier_are_not(), LIMIT_FPS (+18 more)
 
 ### Community 54 - "Dib"
-Cohesion: 0.29
+Cohesion: 0.33
 Nodes (5): Dib, fit(), thumbnail(), thumbnail_monitor(), thumbnail_window()
 
 ### Community 55 - "format_invite"
-Cohesion: 0.19
-Nodes (11): find_invite(), find_invite_in_pasted_text(), format_invite(), invite_roundtrip_and_proof_binding(), new_room_key(), parse_invite(), room_proof(), verify_room_proof() (+3 more)
+Cohesion: 0.27
+Nodes (8): find_invite(), find_invite_in_pasted_text(), format_invite(), new_room_key(), parse_invite(), is_valid_invite(), input(), normalize_ticket()
 
 ### Community 56 - "viewer.rs"
 Cohesion: 0.05
-Nodes (21): ViewerMsg, Hello, RequestKeyframe, SetQuality, SetVisible, BUDGET_MSG, CLOSE_DENIED_U64, CLOSE_FULL_U64 (+13 more)
-
-### Community 57 - "Android (`android/`)"
-Cohesion: 0.27
-Nodes (4): Android (`android/`), GhAsset, Updater, UpdaterTest
+Nodes (23): ViewerMsg, Chat, Hello, RequestKeyframe, SetQuality, SetVisible, BUDGET_MSG, CLOSE_DENIED_U64 (+15 more)
 
 ### Community 58 - "BudgetExceeded"
-Cohesion: 0.11
-Nodes (10): ROOM_KEY_LEN, stun_binding_request(), STUN_MAGIC_COOKIE, stun_mapped_addr(), test_stun_binding_request(), test_stun_rfc5769_vector(), test_viewer_url_no_duplicate_slash(), test_web_proof_verification() (+2 more)
+Cohesion: 0.08
+Nodes (20): ROOM_KEY_LEN, host_ws_url(), sdp_fingerprint(), SignalIn, Left, Offer, Pong, Ready (+12 more)
 
 ### Community 59 - "Resources"
 Cohesion: 0.12
-Nodes (14): EncodeParams, configure(), CpuCopy, create_mft(), Encoder, Feed, Frame, Idle (+6 more)
+Nodes (12): configure(), CpuCopy, create_mft(), Encoder, Feed, Idle, Stop, Nv12Frame (+4 more)
 
-### Community 63 - "omp config sync via private GitHub repo"
-Cohesion: 0.12
-Nodes (11): FRAME_BYTES, FRAME_FLOATS, FRAME_SAMPLES, MAX_LAG_BYTES, mix(), mix_clamps(), OPUS_MAX_PACKET, take_frame() (+3 more)
+### Community 62 - "run"
+Cohesion: 0.24
+Nodes (7): Composer, create_duplication(), Grab, GrabSink, run(), start(), texture()
 
-### Community 64 - "SourceId"
-Cohesion: 0.53
-Nodes (6): SourceId, Monitor, Window, SourceInfo, Picker, Update
+### Community 63 - "capture.rs"
+Cohesion: 0.05
+Nodes (40): AudioHandle, AudioRequest, AudioTarget, Process, System, capture_loop(), FRAME_BYTES, FRAME_FLOATS (+32 more)
+
+### Community 64 - "config.rs"
+Cohesion: 0.10
+Nodes (17): app_dir(), Config, Identity, identity(), identity_persistence_and_bad_recovery(), load(), load_identity(), Overrides (+9 more)
 
 ### Community 65 - "HomeScreen"
-Cohesion: 0.23
-Nodes (13): AddFriendDialog(), App(), Badge(), CallButton(), clipboardText(), FriendsSection(), HomeScreen(), SinalButton() (+5 more)
+Cohesion: 0.22
+Nodes (16): AddFriendDialog(), App(), Badge(), CallButton(), ChatSheet(), clipboardText(), FriendsSection(), HomeScreen() (+8 more)
 
 ### Community 66 - "LiveScreen"
-Cohesion: 0.20
-Nodes (9): CI, Comandos, Desktop (`src/`), Estilo, graphify, LiveScreen, Mapa do código, Núcleo (`crates/livescreen-core/src/`) (+1 more)
+Cohesion: 0.18
+Nodes (10): CI, Comandos, Desktop (`src/`), Estilo, graphify, LiveScreen, Mapa do código, Núcleo (`crates/livescreen-core/src/`) (+2 more)
 
 ### Community 67 - "DxgiCapture"
-Cohesion: 0.23
-Nodes (4): bytesToHex(), hexToBytes(), iceServers(), Room
-
-### Community 68 - "UpdateInfo"
-Cohesion: 0.36
-Nodes (7): UpdateInfo, Available, Downloading, Failed, Idle, Ready, UpdateState
+Cohesion: 0.19
+Nodes (5): Navegador (web), bytesToHex(), hexToBytes(), iceServers(), Room
 
 ### Community 69 - "read_video_frame"
-Cohesion: 0.24
+Cohesion: 0.28
 Nodes (5): budget_released_on_drop(), Budgeted, check_len(), FrameBudget, read_video_frame()
+
+### Community 70 - "ScreenEncoder"
+Cohesion: 0.05
+Nodes (4): AudioEncoder, ScreenEncoder, CodecState, VideoDecoder
 
 ### Community 71 - "handle_frame"
 Cohesion: 0.20
 Nodes (10): wrangler, devDependencies, wrangler@^4, name, private, scripts, check, deploy (+2 more)
 
+### Community 72 - "e2e_window.rs"
+Cohesion: 0.18
+Nodes (9): ChildGuard, e2e_android(), e2e_window(), find(), find_text(), PY, tap_text(), tap_xy() (+1 more)
+
 ### Community 73 - "Callback"
-Cohesion: 0.19
-Nodes (16): addOpusStereo(), bytesToHex(), cleanup(), computeProof(), connect(), hexToBytes(), refreshStats(), row() (+8 more)
+Cohesion: 0.15
+Nodes (19): addOpusStereo(), appendChat(), bytesToHex(), cleanup(), collectStats(), computeProof(), connect(), hexToBytes() (+11 more)
 
 ### Community 74 - "HostMsg"
-Cohesion: 0.40
-Nodes (5): HostMsg, Rejected, StreamEnded, StreamParams, Welcome
+Cohesion: 0.29
+Nodes (7): chat_msg_json_shape(), HostMsg, Chat, Rejected, StreamEnded, StreamParams, Welcome
 
-### Community 75 - "WgcCapture"
-Cohesion: 0.22
-Nodes (7): Mic, Default, Device, open(), open_mic(), pump(), Source
+### Community 75 - "src/chat.rs"
+Cohesion: 0.13
+Nodes (12): CHAT_HISTORY, ChatLimiter, ChatLine, ChatLog, clean_chat(), HOST_SENDER, labels_never_impersonate_host(), limiter_burst_and_refill() (+4 more)
 
-### Community 77 - "start"
-Cohesion: 0.25
-Nodes (6): spawn_share_job(), ToastKind, Info, Success, Warn, Toasts
+### Community 77 - "home.rs"
+Cohesion: 0.16
+Nodes (12): ended(), footer(), home(), left_column(), pill(), share_tile(), update_prompt(), I_CHEVRON (+4 more)
 
-### Community 78 - "share_view.rs"
-Cohesion: 0.06
-Nodes (44): viewers_for(), AudioState, Off, On, Unavailable, ShareStatus, WebState, Connecting (+36 more)
+### Community 78 - "sharing"
+Cohesion: 0.14
+Nodes (16): ShareStatus, begin_start(), chat_card(), invite_card(), overload_banner(), picker(), poll_starting(), Preview (+8 more)
 
 ### Community 79 - "pages.yml"
 Cohesion: 0.08
 Nodes (24): concurrency, cancel-in-progress, group, environment, runs-on, steps, name, url (+16 more)
 
 ### Community 83 - "watch_view.rs"
-Cohesion: 0.07
-Nodes (24): CallTone, Active, Alert, Neutral, Plain, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_HANGUP (+16 more)
+Cohesion: 0.11
+Nodes (10): I_CHAT, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_HANGUP, I_MUTE, I_PASTE, I_PERSON, I_QUALITY (+2 more)
 
-### Community 84 - "capture_loop"
-Cohesion: 0.50
-Nodes (6): AudioRequest, capture_loop(), mic_error_text(), Opened, run(), start()
-
-### Community 85 - "peer"
+### Community 84 - "OutputResult"
 Cohesion: 0.25
-Nodes (3): rtt_congested(), drain_outputs(), peer()
+Nodes (8): is_async(), OutputResult, NeedMoreInput, Sample, StreamChange, OutSample, process_output(), sample_bytes()
 
-### Community 86 - "run"
-Cohesion: 0.33
-Nodes (6): host_ws_url(), test_host_ws_url(), base_url(), init_crypto(), run(), super::ShareSession
+### Community 85 - "toast.rs"
+Cohesion: 0.13
+Nodes (10): I_CIRCLE_CHECK, I_INFO, I_WARN, LIFETIME, MAX_VISIBLE, ToastKind, Info, Success (+2 more)
 
 ### Community 87 - "SignalOut"
 Cohesion: 0.33
@@ -414,49 +417,81 @@ Nodes (6): SignalOut, Answer, Close, Host, Ping, Reject
 Cohesion: 0.40
 Nodes (5): BtnKind, Danger, Ghost, Primary, Secondary
 
-### Community 90 - ".start"
-Cohesion: 0.15
-Nodes (4): invite_addr(), Overload, pack_size(), ViewerInfo
+### Community 90 - "enumerate_mfts"
+Cohesion: 0.22
+Nodes (4): enumerate_mfts(), friendly_name(), set_codec_value(), subtype()
 
-### Community 93 - "SignalIn"
+### Community 91 - "controls"
+Cohesion: 0.33
+Nodes (6): ControlAction, Leave, None, ToggleFullscreen, controls(), watching()
+
+### Community 92 - "WebState"
 Cohesion: 0.40
-Nodes (5): SignalIn, Left, Offer, Pong, Ready
+Nodes (5): WebState, Connecting, Off, Online, Retrying
+
+### Community 93 - "Tab"
+Cohesion: 0.33
+Nodes (6): Tab, Diagnostics, Share, Updates, Video, TABS
 
 ### Community 94 - "CallState"
 Cohesion: 0.40
 Nodes (5): CallState, Active, Alert, HangUp, Neutral
 
-### Community 97 - "AudioTarget"
+### Community 95 - "FieldTone"
 Cohesion: 0.50
-Nodes (4): AudioTarget, Process, System, open_loopback()
+Nodes (4): FieldTone, Error, Normal, Warn
+
+### Community 96 - "variant_with"
+Cohesion: 0.47
+Nodes (3): variant_bool(), variant_u32(), variant_with()
+
+### Community 97 - "run"
+Cohesion: 0.50
+Nodes (4): base_url(), init_crypto(), run(), super::Host
 
 ### Community 98 - "SinalSnack"
 Cohesion: 0.40
 Nodes (4): SinalSnack, SnackTone, Error, Success
 
-### Community 100 - "FieldTone"
+### Community 100 - "frame_from_body"
+Cohesion: 0.29
+Nodes (4): frame_from_body(), parse_video_body(), roundtrip(), video_frame_header()
+
+### Community 102 - "write_msg"
+Cohesion: 0.40
+Nodes (3): encode_msg(), read_msg(), write_msg()
+
+### Community 104 - "room_proof"
+Cohesion: 0.40
+Nodes (3): invite_roundtrip_and_proof_binding(), room_proof(), verify_room_proof()
+
+### Community 109 - "AudioState"
 Cohesion: 0.50
-Nodes (4): FieldTone, Error, Normal, Warn
+Nodes (4): AudioState, Off, On, Unavailable
+
+### Community 111 - "Target"
+Cohesion: 0.67
+Nodes (3): Target, Nv12, Rgb
 
 ## Knowledge Gaps
-- **114 isolated node(s):** `livescreen`, `Primary`, `Secondary`, `Ghost`, `Danger` (+109 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 795 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **118 isolated node(s):** `livescreen`, `Primary`, `Secondary`, `Ghost`, `Danger` (+113 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 848 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **25 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `App` connect `App` to `SourceId`, `config.rs`, `start`, `share_view.rs`, `update.rs`, `watch_view.rs`, `Native`, `watch_view.rs`, `format_invite`, `ui/mod.rs`, `ShareSession`, `viewer.rs`, `Encoder`, `HMONITOR`?**
-  _High betweenness centrality (0.058) - this node is a cross-community bridge._
+- **Why does `Preset` connect `ShareSession` to `config.rs`, `rust/src/lib.rs`, `host/mod.rs`, `settings.rs`, `sharing`, `sharing`, `share_view.rs`, `Host`, `preset.rs`, `ShareSession`, `viewer.rs`, `SourceId`, `share.rs`?**
+  _High betweenness centrality (0.062) - this node is a cross-community bridge._
 - **Are the 11 inferred relationships involving `App` (e.g. with `Upload` and `Draft`) actually correct?**
   _`App` has 11 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `livescreen`, `Primary`, `Secondary` to the rest of the system?**
-  _114 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _118 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `decoder.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.12692307692307692 - nodes in this community are weakly interconnected._
-- **Why does `ViewerModel` connect `ViewerModel` to `HomeScreen`, `Native`, `UpdateInfo`, `ViewerModel.kt`, `Theme.kt`, `Android (`android/`)`, `VideoDecoder`, `Preset`?**
-  _High betweenness centrality (0.041) - this node is a cross-community bridge._
-- **Should `config.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.09841269841269841 - nodes in this community are weakly interconnected._
-- **Why does `Preset` connect `ShareSession` to `SourceId`, `config.rs`, `Shared`, `share_view.rs`, `preset.rs`, `ShareSession`, `viewer.rs`, `.start`, `share.rs`, `HMONITOR`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+  _Cohesion score 0.1337126600284495 - nodes in this community are weakly interconnected._
+- **Why does `Regras` connect `Native` to `LiveScreen`, `DxgiCapture`, `ViewerModel`, `ShareSession`, `.start`, `HostService.kt`?**
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
+- **Should `Ui` be split into smaller, more focused modules?**
+  _Cohesion score 0.12258064516129032 - nodes in this community are weakly interconnected._
+- **Why does `App` connect `App` to `settings.rs`, `sharing`, `update.rs`, `share_view.rs`, `ui/mod.rs`, `ShareSession`, `SourceId`, `encoder.rs`, `Native`, `format_invite`, `viewer.rs`, `config.rs`, `home.rs`, `sharing`, `watch_view.rs`, `toast.rs`, `.ui`, `controls`, `Tab`?**
+  _High betweenness centrality (0.057) - this node is a cross-community bridge._

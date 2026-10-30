@@ -1,3 +1,4 @@
+mod chat;
 mod friends;
 mod home;
 mod prefs;
@@ -86,6 +87,7 @@ pub struct App {
     background: Vec<std::thread::JoinHandle<()>>,
     pub starting: Option<share_view::Starting>,
     pub share_started: Instant,
+    pub share_chat_draft: String,
     pub share_source: Option<SourceId>,
     pub share_preview: Option<share_view::Preview>,
     pub known_viewers: HashMap<String, String>,
@@ -155,6 +157,7 @@ impl App {
             background: vec![],
             starting: None,
             share_started: Instant::now(),
+            share_chat_draft: String::new(),
             share_source: None,
             share_preview: None,
             known_viewers: HashMap::new(),

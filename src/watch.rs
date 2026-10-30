@@ -19,6 +19,7 @@ pub struct WatchSession {
     pub frame: Arc<Mutex<Option<VideoFrame>>>,
     gain: Arc<AtomicU32>,
     readback_only: Arc<AtomicBool>,
+    pub chat: Arc<Mutex<livescreen_core::chat::ChatLog>>,
 }
 
 impl WatchSession {
@@ -90,17 +91,23 @@ impl WatchSession {
         )?;
 
         let status = inner.status.clone();
+        let chat = inner.chat.clone();
         Ok(WatchSession {
             inner,
             status,
             frame,
             gain,
             readback_only,
+            chat,
         })
     }
 
     pub fn request_quality(&self, preset: livescreen_core::preset::Preset) {
         self.inner.request_quality(preset);
+    }
+
+    pub fn send_chat(&self, text: &str) {
+        self.inner.send_chat(text);
     }
 
     /// Avisa o host que a janela foi minimizada/restaurada: escondido, ele para de mandar vídeo.
