@@ -16,3 +16,6 @@ plan.md
 web/node_modules/
 web/dist/
 web/.wrangler/
+
+# vídeo de lançamento (fontes e render local)
+/video/
