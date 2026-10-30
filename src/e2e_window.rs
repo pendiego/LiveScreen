@@ -150,7 +150,7 @@ fn e2e_window() {
     snap("start");
     w.request_quality(Preset::P480p30);
     std::thread::sleep(Duration::from_secs(1));
-    let (asked, _) = share.take_quality_request().expect("pedido de qualidade não chegou ao host");
+    let (asked, _) = share.host.take_quality_request().expect("pedido de qualidade não chegou ao host");
     assert_eq!(asked, Preset::P480p30);
     share.apply_quality_request(asked).unwrap();
     std::thread::sleep(Duration::from_secs(2));
@@ -159,7 +159,7 @@ fn e2e_window() {
     std::thread::sleep(Duration::from_secs(5));
     w.request_quality(Preset::P1080p60);
     std::thread::sleep(Duration::from_secs(1));
-    let (heavier, _) = share.take_quality_request().expect("pedido não chegou");
+    let (heavier, _) = share.host.take_quality_request().expect("pedido não chegou");
     assert_eq!(heavier, Preset::P1080p60);
     assert!(share.apply_quality_request(heavier).is_err(), "pedido mais pesado deveria ser recusado");
     assert_eq!(share.current().0, Preset::P480p30);
@@ -381,7 +381,7 @@ fn e2e_android() {
     // Host applies the quality request
     let mut applied_quality = None;
     for _ in 0..20 {
-        if let Some((preset, who)) = share.take_quality_request() {
+        if let Some((preset, who)) = share.host.take_quality_request() {
             let res = share.apply_quality_request(preset);
             println!("HOST APPLIED QUALITY: who='{who}', preset={preset:?}, res={res:?}");
             assert_eq!(preset, Preset::P480p30);
@@ -591,7 +591,7 @@ fn e2e_friends() {
         "mensagem inesperada para estranho: {m}"
     );
 
-    share.kick(&id_short_amigo);
+    share.host.kick(&id_short_amigo);
     let start_wait_kick = std::time::Instant::now();
     let mut kicked = false;
     while start_wait_kick.elapsed() < Duration::from_secs(5) {

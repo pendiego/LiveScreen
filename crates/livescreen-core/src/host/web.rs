@@ -10,8 +10,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use futures_util::{SinkExt, StreamExt};
-use livescreen_core::protocol::sanitize;
-use livescreen_core::web::{
+use crate::protocol::sanitize;
+use crate::chat::{ChatLimiter, ChatLine};
+use crate::protocol::ViewerMsg;
+use str0m::channel::ChannelId;
+use crate::web::{
     SignalIn, SignalOut, host_ws_url, sdp_fingerprint, valid_peer_id, verify_web_proof,
 };
 use ring::rand::SecureRandom;
@@ -28,6 +31,8 @@ const WEB_BASE: &str = "https://livescreen.pendiego.com";
 const STUN_SERVER: &str = "stun.cloudflare.com:3478";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_SDP: usize = 32 * 1024;
+/// Tamanho máximo, em bytes, de uma mensagem do canal de chat.
+const MAX_WEB_CHAT: usize = 4096;
 
 fn base_url() -> String {
     std::env::var("LIVESCREEN_WEB_URL")
@@ -52,13 +57,13 @@ pub(crate) struct WebPeer {
     pub(super) rtt_ms: AtomicU32,
 }
 
-impl super::ShareSession {
+impl super::Host {
     pub fn web_link(&self) -> String {
         init_crypto();
         if !self.shared.web_started.swap(true, Ordering::SeqCst) {
             self.rt.spawn(run(self.shared.clone()));
         }
-        livescreen_core::web::viewer_url(
+        crate::web::viewer_url(
             &base_url(),
             &self.shared.web_secret,
             &*self.shared.room_key.lock().unwrap(),
@@ -309,7 +314,7 @@ async fn peer(
     let mut mapped = None;
     let mut txid = [0u8; 12];
     if ring::rand::SystemRandom::new().fill(&mut txid).is_ok() {
-        let req = livescreen_core::web::stun_binding_request(&txid);
+        let req = crate::web::stun_binding_request(&txid);
         if let Ok(mut addrs) = tokio::net::lookup_host(STUN_SERVER).await {
             if let Some(target) = addrs.next() {
                 let _ = sock.send_to(&req, target).await;
@@ -319,7 +324,7 @@ async fn peer(
                     let left = stun_deadline.saturating_duration_since(Instant::now());
                     match tokio::time::timeout(left, sock.recv_from(&mut sbuf)).await {
                         Ok(Ok((n, _src))) => {
-                            if let Some(addr) = livescreen_core::web::stun_mapped_addr(&sbuf[..n], &txid) {
+                            if let Some(addr) = crate::web::stun_mapped_addr(&sbuf[..n], &txid) {
                                 mapped = Some(addr);
                                 break;
                             }
@@ -394,6 +399,12 @@ async fn peer(
 
     let connect_deadline = Instant::now() + CONNECT_TIMEOUT;
 
+    let chat_id = sh.next_chat_id.fetch_add(1, Ordering::Relaxed);
+    let mut crx = sh.chat_tx.subscribe();
+    let mut chat_ch: Option<ChannelId> = None;
+    let mut chat_limiter = ChatLimiter::default();
+    let mut flush_now = false;
+
     let mut events = Vec::new();
     let mut next_timeout = match drain_outputs(&mut rtc, &sock, &mut events).await {
         Ok(t) => t,
@@ -416,7 +427,11 @@ async fn peer(
                           connected: &mut bool,
                           min_rtt: &mut Option<Duration>,
                           close_reason: &mut Option<String>,
-                          stop_requested: &mut bool| {
+                          stop_requested: &mut bool,
+                          chat_ch: &mut Option<ChannelId>,
+                          chat_limiter: &mut ChatLimiter,
+                          chat_id: u32,
+                          flush_now: &mut bool| {
         for e in events.drain(..) {
             match e {
                 Event::MediaAdded(m) => {
@@ -485,6 +500,25 @@ async fn peer(
                     *stop_requested = true;
                     break;
                 }
+                Event::ChannelOpen(cid, label) if label == "chat" => {
+                    *chat_ch = Some(cid);
+                    if let Some(mut ch) = rtc.channel(cid) {
+                        let _ = ch.write(false, serde_json::json!({"type":"chat_ready","chat_id":chat_id}).to_string().as_bytes());
+                    }
+                    *flush_now = true;
+                }
+                Event::ChannelData(d) if Some(d.id) == *chat_ch => {
+                    if d.data.len() <= MAX_WEB_CHAT && chat_limiter.allow(Instant::now()) {
+                        if let Ok(ViewerMsg::Chat { text }) = serde_json::from_slice(&d.data) {
+                            if let Some(l) = ChatLine::from_viewer(chat_id, name, false, &text) {
+                                sh.post_chat(l);
+                            }
+                        }
+                    }
+                }
+                Event::ChannelClose(cid) if Some(cid) == *chat_ch => {
+                    *chat_ch = None;
+                }
                 _ => {}
             }
         }
@@ -508,6 +542,10 @@ async fn peer(
         &mut min_rtt,
         &mut close_reason,
         &mut stop_requested,
+        &mut chat_ch,
+        &mut chat_limiter,
+        chat_id,
+        &mut flush_now,
     );
 
     let mut buf = [0u8; 2000];
@@ -517,6 +555,10 @@ async fn peer(
             break;
         }
 
+        if flush_now {
+            flush_now = false;
+            next_timeout = Instant::now();
+        }
         let sleep_dur = next_timeout.saturating_duration_since(Instant::now());
         let conn_timeout_fut = async {
             if !connected {
@@ -530,6 +572,7 @@ async fn peer(
 
         tokio::select! {
             _ = conn_timeout_fut => {
+                tracing::warn!("peer {id}: ICE sem conexão em {CONNECT_TIMEOUT:?}");
                 close_reason = Some("não foi possível conectar: a rede bloqueou a conexão direta".into());
                 break;
             }
@@ -561,6 +604,10 @@ async fn peer(
                                     &mut min_rtt,
                                     &mut close_reason,
                                     &mut stop_requested,
+                                    &mut chat_ch,
+                                    &mut chat_limiter,
+                                    chat_id,
+                                    &mut flush_now,
                                 );
                             }
                         }
@@ -593,6 +640,10 @@ async fn peer(
                         &mut min_rtt,
                         &mut close_reason,
                         &mut stop_requested,
+                        &mut chat_ch,
+                        &mut chat_limiter,
+                        chat_id,
+                        &mut flush_now,
                     );
                 }
             }
@@ -605,7 +656,7 @@ async fn peer(
                         let (Some(mid), Some(pt)) = (video_mid, video_pt) else {
                             continue;
                         };
-                        if f.codec != livescreen_core::protocol::Codec::H264 {
+                        if f.codec != crate::protocol::Codec::H264 {
                             waiting_key = true;
                             if last_kf.elapsed() >= Duration::from_secs(1) {
                                 last_kf = Instant::now();
@@ -649,6 +700,10 @@ async fn peer(
                             &mut min_rtt,
                             &mut close_reason,
                             &mut stop_requested,
+                            &mut chat_ch,
+                            &mut chat_limiter,
+                            chat_id,
+                            &mut flush_now,
                         );
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -667,7 +722,7 @@ async fn peer(
                         let (Some(mid), Some(pt), Some(freq)) = (audio_mid, audio_pt, audio_clock_rate) else {
                             continue;
                         };
-                        if let Some((seq, opus)) = livescreen_core::protocol::parse_audio_datagram(&pkt) {
+                        if let Some((seq, opus)) = crate::protocol::parse_audio_datagram(&pkt) {
                             let rtp_time = MediaTime::new(seq as u64 * 960, freq);
                             let data = Arc::<[u8]>::from(opus);
                             if let Some(w) = rtc.writer(mid) {
@@ -695,6 +750,10 @@ async fn peer(
                                 &mut min_rtt,
                                 &mut close_reason,
                                 &mut stop_requested,
+                                &mut chat_ch,
+                                &mut chat_limiter,
+                                chat_id,
+                                &mut flush_now,
                             );
                         }
                     }
@@ -702,6 +761,12 @@ async fn peer(
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
+            r = crx.recv() => if let (Ok(m), Some(cid)) = (r, chat_ch) {
+                if let (Ok(json), Some(mut ch)) = (serde_json::to_string(&*m), rtc.channel(cid)) {
+                    let _ = ch.write(false, json.as_bytes());
+                }
+                flush_now = true;
+            },
             _ = peer.stop.notified() => {
                 let r = peer.reason.lock().unwrap().clone();
                 close_reason = r;

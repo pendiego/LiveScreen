@@ -14,7 +14,8 @@ use windows::Win32::Media::MediaFoundation::*;
 use crate::config::Overrides;
 use livescreen_core::preset::EncodeParams;
 use livescreen_core::protocol::Codec;
-use crate::video::encoder::{self, EncoderKind, EncoderStats, Nv12Frame};
+use crate::video::encoder::{self, EncoderKind, Nv12Frame};
+use livescreen_core::host::HostStats;
 use crate::video::mf;
 
 /// Escolha do encoder: hardware só se o probe fora do processo aprovar.
@@ -126,7 +127,7 @@ fn try_encoder(device: &ID3D11Device, params: EncodeParams, kind: &EncoderKind) 
         rx,
         btx,
         Arc::new(AtomicBool::new(false)),
-        Arc::new(EncoderStats::default()),
+        Arc::new(HostStats::default()),
     )?;
     let start = Instant::now();
     let mut ok = false;
