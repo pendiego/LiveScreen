@@ -3,9 +3,10 @@ use std::time::{Duration, Instant};
 use egui::{Align, Align2, Color32, CursorIcon, Layout, RichText, Sense, vec2};
 
 use super::theme::{
-    self, CallTone, I_ADD_FRIEND, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_HANGUP, I_MUTE, I_PASTE,
-    I_PERSON, I_QUALITY, I_SETTINGS, I_VOLUME, I_WATCH,
+    self, CallTone, I_ADD_FRIEND, I_CHAT, I_EXIT_FULLSCREEN, I_FULLSCREEN, I_HANGUP, I_MUTE,
+    I_PASTE, I_PERSON, I_QUALITY, I_SETTINGS, I_VOLUME, I_WATCH,
 };
+use livescreen_core::chat::ChatRole;
 use super::toast::ToastKind;
 use super::{App, Screen};
 use livescreen_core::protocol::{find_invite, parse_invite};
@@ -13,6 +14,11 @@ use livescreen_core::viewer::{Phase, WatchStatus};
 use crate::video::decoder::VideoFrame;
 use crate::video::present::Display;
 use crate::watch::WatchSession;
+
+/// Corta por caracteres, com reticências.
+fn trunc(s: &str, n: usize) -> String {
+    if s.chars().count() <= n { s.to_string() } else { format!("{}…", s.chars().take(n).collect::<String>()) }
+}
 
 const OVERLAY_TIMEOUT: Duration = Duration::from_millis(2500);
 
@@ -24,6 +30,9 @@ pub struct WatchView {
     started: Instant,
     sent_visible: Option<bool>,
     bar_rect: Option<egui::Rect>,
+    chat_open: bool,
+    chat_seen: u64,
+    chat_draft: String,
 }
 
 impl Default for WatchView {
@@ -36,6 +45,9 @@ impl Default for WatchView {
             started: Instant::now(),
             sent_visible: None,
             bar_rect: None,
+            chat_open: false,
+            chat_seen: 0,
+            chat_draft: String::new(),
         }
     }
 }
@@ -78,6 +90,8 @@ pub fn connect(app: &mut App, ctx: &egui::Context, target: String) {
             app.watch = Some(w);
             app.error = None;
             app.watch_view = Default::default();
+            app.watch_view.fullscreen = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
             app.screen = Screen::Watching;
         }
         Err(e) => app.error = Some(e.to_string()),
@@ -335,6 +349,18 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
         }
     }
 
+    if st.chat
+        && theme::call_button(
+            ui,
+            I_CHAT,
+            "Chat",
+            if app.watch_view.chat_open { CallTone::Active } else { CallTone::Neutral },
+        )
+        .clicked()
+    {
+        app.watch_view.chat_open = !app.watch_view.chat_open;
+    }
+
     if theme::call_button(
         ui,
         I_SETTINGS,
@@ -400,6 +426,7 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
         return;
     }
     w.set_gain(app.prefs.gain());
+    let chat_log = w.chat.clone();
 
     if let Some(f) = w.frame.lock().unwrap().take() {
         match f {
@@ -438,6 +465,52 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
         action = ControlAction::ToggleFullscreen;
     }
     let mut double = false;
+    let mut chat_out: Option<String> = None;
+    if st.chat {
+        let log = chat_log.lock().unwrap();
+        let last = log.last_seq();
+        if last > app.watch_view.chat_seen {
+            if !app.watch_view.chat_open {
+                let mine = |l: &livescreen_core::chat::ChatLine| {
+                    l.role == ChatRole::Viewer && l.sender == st.chat_id
+                };
+                if let Some(l) = log
+                    .since(app.watch_view.chat_seen)
+                    .map(|(_, l)| l)
+                    .filter(|l| !mine(l))
+                    .last()
+                {
+                    app.toasts
+                        .push(format!("{}: {}", l.label(), trunc(&l.text, 80)), ToastKind::Info);
+                }
+            }
+            app.watch_view.chat_seen = last;
+        }
+        if app.watch_view.chat_open {
+            egui::Panel::right("watch_chat")
+                .resizable(true)
+                .default_size((ui.available_width() * 0.4).clamp(320.0, 400.0))
+                .size_range(320.0..=520.0)
+                .frame(egui::Frame::new().fill(theme::P.surface).inner_margin(20))
+                .show(ui, |ui| {
+                    theme::heading(ui, "Chat");
+                    ui.add_space(12.0);
+                    chat_out = super::chat::panel(
+                        ui,
+                        &log,
+                        (ChatRole::Viewer, st.chat_id),
+                        &mut app.watch_view.chat_draft,
+                        // a barra de chamada flutua sobre o canto inferior do painel
+                        ui.available_height() - theme::CALL_BAR_CLEARANCE + 16.0,
+                    );
+                });
+        }
+    }
+    if let Some(t) = chat_out
+        && let Some(w) = app.watch.as_ref()
+    {
+        w.send_chat(&t);
+    }
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(Color32::BLACK))
         .show(ui, |ui| {
@@ -541,11 +614,14 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
         .zip(ctx.pointer_hover_pos())
         .is_some_and(|(r, p)| r.contains(p));
     // sem imagem, com menu/modal aberto ou mouse na barra, os controles não somem
+    // digitando no chat, os controles não somem
+    let typing = app.watch_view.chat_open && ctx.memory(|m| m.focused().is_some());
     let keep = app.watch_view.shown.is_none()
         || over_bar
         || egui::Popup::is_any_open(&ctx)
         || app.settings_open
-        || app.add_friend.is_some();
+        || app.add_friend.is_some()
+        || typing;
     let idle = app.watch_view.last_activity.elapsed();
     if keep || idle < OVERLAY_TIMEOUT {
         egui::Area::new(egui::Id::unique("watch_path_badge"))

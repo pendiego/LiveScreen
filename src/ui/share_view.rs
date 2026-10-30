@@ -3,6 +3,7 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use livescreen_core::chat::{ChatLog, ChatRole, HOST_SENDER};
 use egui::{
     Align, Align2, Color32, CursorIcon, Layout, RichText, Sense, Stroke, UiBuilder,
     pos2, vec2,
@@ -18,7 +19,8 @@ use super::{App, Screen};
 use crate::audio::capture::Mic;
 use crate::capture::{self, SourceId, SourceInfo};
 use livescreen_core::preset::{self, EncodeParams, Preset, viewers_for};
-use crate::share::{AudioState, ShareSession, ShareStatus, WebState};
+use crate::share::ShareSession;
+use livescreen_core::host::{AudioState, ShareStatus, WebState};
 use crate::speedtest::Upload;
 
 type Thumb = Option<(u32, u32, Vec<u8>)>;
@@ -1177,7 +1179,15 @@ fn viewers_card(
         }
         let p = theme::P;
         for v in &st.viewers {
-            ui.horizontal(|ui| {
+            // uma linha só quando cabe; com ids longos, os itens quebram para a linha de baixo
+            ui.horizontal_wrapped(|ui| {
+                // botão sem espaço no resto da linha vai inteiro para a próxima (senão o texto quebra letra a letra)
+                let fit = |ui: &mut egui::Ui, w: f32| {
+                    // available_width() em layout quebrável não desconta o que a linha já usou
+                    if ui.max_rect().right() - ui.next_widget_position().x < w {
+                        ui.end_row();
+                    }
+                };
                 ui.label(
                     RichText::new(format!("{I_PERSON}  {}", v.label()))
                         .family(egui::FontFamily::Name("semibold".into()))
@@ -1190,39 +1200,12 @@ fn viewers_card(
                         .size(12.0)
                         .color(p.text_muted),
                 );
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let is_pending = kick_pending.as_ref().map_or(false, |(id, t)| {
-                        id == &v.id_short && t.elapsed() < Duration::from_secs(3)
-                    });
-                    if is_pending {
-                        if theme::small_button(ui, theme::Kind::Danger, "Confirmar?").clicked() {
-                            *kick = Some(v.id_short.clone());
-                            *kick_pending = None;
-                        }
-                    } else {
-                        let mut btn = theme::small_button(
-                            ui,
-                            theme::Kind::Ghost,
-                            RichText::new(format!("{I_REMOVE}  Remover"))
-                                .small()
-                                .color(p.text_muted),
-                        );
-                        if v.id.is_none() {
-                            btn = btn.on_hover_text(
-                                "Pelo navegador dá para voltar com o mesmo link: use Novo convite para impedir",
-                            );
-                        }
-                        if btn.clicked() {
-                            *kick_pending = Some((v.id_short.clone(), Instant::now()));
-                        }
-                    }
-                });
-            });
-            // segunda linha: com ids longos, nome + id + selos + botões não cabem numa só
-            ui.horizontal(|ui| {
                 if v.friend {
                     theme::badge(ui, "Amigo", p.accent);
                 } else if let Some(pid) = v.id {
+                    if can_add_friend {
+                        fit(ui, 100.0);
+                    }
                     if can_add_friend
                         && theme::small_button(ui, theme::Kind::Secondary, format!("{I_ADD_FRIEND}  Amigo"))
                             .on_hover_text("Adicionar aos amigos")
@@ -1245,9 +1228,46 @@ fn viewers_card(
                     format!("{} ms", v.rtt_ms)
                 };
                 theme::badge(ui, text, color).on_hover_text(tip);
+                let is_pending = kick_pending.as_ref().map_or(false, |(id, t)| {
+                    id == &v.id_short && t.elapsed() < Duration::from_secs(3)
+                });
+                fit(ui, 92.0);
+                if is_pending {
+                    if theme::small_button(ui, theme::Kind::Danger, "Confirmar?").clicked() {
+                        *kick = Some(v.id_short.clone());
+                        *kick_pending = None;
+                    }
+                } else {
+                    let mut btn = theme::small_button(
+                        ui,
+                        theme::Kind::Ghost,
+                        RichText::new(format!("{I_REMOVE}  Remover"))
+                            .small()
+                            .color(p.text_muted),
+                    );
+                    if v.id.is_none() {
+                        btn = btn.on_hover_text(
+                            "Pelo navegador dá para voltar com o mesmo link: use Novo convite para impedir",
+                        );
+                    }
+                    if btn.clicked() {
+                        *kick_pending = Some((v.id_short.clone(), Instant::now()));
+                    }
+                }
             });
         }
     });
+}
+
+fn chat_card(ui: &mut egui::Ui, log: &ChatLog, draft: &mut String, height: f32) -> Option<String> {
+    theme::card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        theme::heading(ui, "Chat");
+        ui.add_space(8.0);
+        // `height` é o card inteiro; descontados título e margens
+        super::chat::panel(ui, log, (ChatRole::Host, HOST_SENDER), draft, height - 40.0 - 8.0 - 40.0)
+    })
+    .inner
 }
 
 fn preview_card(
@@ -1255,10 +1275,12 @@ fn preview_card(
     st: &ShareStatus,
     source: &Option<SourceId>,
     preview: &Option<Preview>,
+    max_img_h: f32,
 ) {
     theme::card(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.label(RichText::new("O que está sendo transmitido").small().color(theme::P.text_muted));
+        ui.add_space(4.0);
         let is_window = matches!(source, Some(SourceId::Window { .. }));
         match preview
             .as_ref()
@@ -1266,10 +1288,13 @@ fn preview_card(
         {
             Some(t) => {
                 let sz = t.size_vec2();
-                let w = ui.available_width();
-                ui.add(
-                    egui::Image::new((t.id(), vec2(w, w * sz.y / sz.x.max(1.0)))).corner_radius(theme::R_SM),
-                );
+                // largura limitada pela altura máxima: em tela grande a prévia não empurra o resto para fora
+                let w = ui.available_width().min(max_img_h * sz.x / sz.y.max(1.0));
+                ui.vertical_centered(|ui| {
+                    ui.add(
+                        egui::Image::new((t.id(), vec2(w, w * sz.y / sz.x.max(1.0)))).corner_radius(theme::R_SM),
+                    );
+                });
             }
             None => {
                 let msg = if is_window {
@@ -1340,6 +1365,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
     let st = share.status.lock().unwrap().clone();
+    let chat = share.host.chat.clone();
     if let Some(msg) = st.ended.clone() {
         app.end(msg, false);
         return;
@@ -1415,6 +1441,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     let mut picked: Option<Preset> = None;
     let mut stop = false;
     let mut kick: Option<String> = None;
+    let mut chat_out: Option<String> = None;
     let mut toggle_mic = false;
     let mut new_invite = false;
     let mut copy_web = false;
@@ -1422,7 +1449,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     let busy = app.share_job.is_some();
     let status = format!(
         "{} · {} · {}×{} @ {} fps · {} fps · {} kbps",
-        st.backend.label(),
+        st.backend,
         st.encoder,
         st.width,
         st.height,
@@ -1452,12 +1479,14 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             });
         });
     egui::CentralPanel::default().show(ui, |ui| {
+        let view_h = ui.available_height();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 egui::Frame::new()
-                    .inner_margin(egui::Margin::symmetric(32, 0))
+                    .inner_margin(egui::Margin { left: 32, right: 32, top: 4, bottom: 0 })
                     .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 10.0;
                         if st.overloaded {
                             overload_banner(
                                 ui,
@@ -1467,8 +1496,8 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                         }
                         if ui.available_width() >= 900.0 {
                             let total_w = ui.available_width();
-                            let right_w = 360.0;
-                            let gap = 24.0;
+                            let right_w = 380.0;
+                            let gap = 32.0;
                             let left_w = (total_w - right_w - gap).max(100.0);
                             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                                 let sp = ui.spacing().item_spacing;
@@ -1479,7 +1508,14 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                                     |ui| {
                                         ui.spacing_mut().item_spacing = sp;
                                         ui.set_width(left_w);
-                                        preview_card(ui, &st, &app.share_source, &app.share_preview);
+                                        let top0 = ui.cursor().top();
+                                        preview_card(ui, &st, &app.share_source, &app.share_preview, (view_h * 0.38).max(240.0));
+                                        ui.add_space(24.0);
+                                        // chat ocupa o espaço que sobra na tela, com um mínimo confortável
+                                        let h = (view_h - (ui.cursor().top() - top0) - theme::CALL_BAR_CLEARANCE).max(340.0);
+                                        if let Some(t) = chat_card(ui, &chat.lock().unwrap(), &mut app.share_chat_draft, h) {
+                                            chat_out = Some(t);
+                                        }
                                     },
                                 );
                                 ui.add_space(gap);
@@ -1490,7 +1526,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                                         ui.spacing_mut().item_spacing = sp;
                                         ui.set_width(right_w);
                                         invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web);
-                                        ui.add_space(16.0);
+                                        ui.add_space(24.0);
                                         viewers_card(
                                             ui,
                                             &st,
@@ -1507,10 +1543,10 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                             });
                             ui.add_space(theme::CALL_BAR_CLEARANCE);
                         } else {
-                            preview_card(ui, &st, &app.share_source, &app.share_preview);
-                            ui.add_space(16.0);
+                            preview_card(ui, &st, &app.share_source, &app.share_preview, f32::INFINITY);
+                            ui.add_space(24.0);
                             invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web);
-                            ui.add_space(16.0);
+                            ui.add_space(24.0);
                             viewers_card(
                                 ui,
                                 &st,
@@ -1522,6 +1558,10 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                                 &mut add_friend,
                                 !app.identity_temporary,
                             );
+                            ui.add_space(24.0);
+                            if let Some(t) = chat_card(ui, &chat.lock().unwrap(), &mut app.share_chat_draft, 380.0) {
+                                chat_out = Some(t);
+                            }
                             ui.add_space(theme::CALL_BAR_CLEARANCE);
                         }
                     });
@@ -1614,7 +1654,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     if room != app.prefs.room_limit {
         app.prefs.room_limit = room;
         if let Some(s) = app.share.as_ref() {
-            s.set_max_viewers(room);
+            s.host.set_max_viewers(room);
         }
         app.save_prefs();
     }
@@ -1701,7 +1741,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     if app.share_job.is_none()
         && let Some(share) = app.share.clone()
     {
-        if share.codec_pending() {
+        if share.host.codec_pending() {
             spawn_share_job(app, &ctx, share, |s| match s.apply_codec() {
                 Some(Ok(c)) => Some((format!("Codec da sala: {}", c.label()), ToastKind::Info)),
                 Some(Err(e)) => Some((format!("Não foi possível trocar o codec: {e}"), ToastKind::Warn)),
@@ -1709,7 +1749,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             });
         } else {
             let mut check_auto = true;
-            if let Some((preset, who)) = share.take_quality_request() {
+            if let Some((preset, who)) = share.host.take_quality_request() {
                 let name = preset.name();
                 let who = if who.is_empty() { "Alguém".to_string() } else { who };
                 if !app.prefs.accept_quality_requests {
@@ -1740,12 +1780,17 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             }
         }
     }
+    if let Some(t) = chat_out
+        && let Some(share) = app.share.as_ref()
+    {
+        share.host.send_chat(&t);
+    }
     if let Some(id) = kick {
         let is_web = app.share.as_ref().is_some_and(|share| {
             share.status.lock().unwrap().viewers.iter().any(|v| v.id_short == id && v.id.is_none())
         });
         if let Some(share) = app.share.as_ref() {
-            share.kick(&id);
+            share.host.kick(&id);
         }
         let label = app.known_viewers.remove(&id).unwrap_or_else(|| id.clone());
         app.toasts.push(
@@ -1766,7 +1811,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     }
     if new_invite {
         if let Some(share) = app.share.as_ref() {
-            share.new_invite();
+            share.host.new_invite();
             let (ticket, web_on) = {
                 let s = share.status.lock().unwrap();
                 (s.ticket.clone(), s.web != WebState::Off)
@@ -1788,7 +1833,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     }
     if copy_web {
         if let Some(share) = app.share.as_ref() {
-            ctx.copy_text(share.web_link());
+            ctx.copy_text(share.host.web_link());
             app.toasts.push(
                 "Link do navegador copiado: quem abrir assiste sem instalar nada",
                 ToastKind::Info,
