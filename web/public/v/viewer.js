@@ -141,6 +141,7 @@
     }
     prevBytes = null;
     prevTs = null;
+    if (statsDd) statsDd.forEach((d) => { d.textContent = "—"; });
   }
 
   function cleanup() {
@@ -441,15 +442,33 @@
   pipBtn.addEventListener("click", togglePip);
 
   // Estatísticas
-  function row(dt, dd) {
-    const a = document.createElement("dt");
-    a.textContent = dt;
-    const b = document.createElement("dd");
-    b.textContent = dd;
-    statsPanel.append(a, b);
+  const STAT_LABELS = ["Resolução", "Quadros", "Taxa", "Perda", "Latência", "Caminho"];
+  let statsDd = null;
+  let statsBusy = false;
+  function renderStats(values) {
+    if (!statsDd) {
+      statsDd = STAT_LABELS.map((label) => {
+        const a = document.createElement("dt");
+        a.textContent = label;
+        const b = document.createElement("dd");
+        statsPanel.append(a, b);
+        return b;
+      });
+    }
+    values.forEach((v, i) => { if (statsDd[i].textContent !== v) statsDd[i].textContent = v; });
   }
 
   async function refreshStats() {
+    if (!pc || statsBusy) return;
+    statsBusy = true;
+    try {
+      await collectStats();
+    } finally {
+      statsBusy = false;
+    }
+  }
+
+  async function collectStats() {
     if (!pc) return;
     let report;
     try {
@@ -493,13 +512,7 @@
     const local = pair ? locals.get(pair.localCandidateId) : null;
     const path = local && local.candidateType ? (local.candidateType === "relay" ? "Via TURN" : "Direto") : "—";
 
-    statsPanel.replaceChildren();
-    row("Resolução", res);
-    row("Quadros", fps);
-    row("Taxa", rate);
-    row("Perda", loss);
-    row("Latência", rtt);
-    row("Caminho", path);
+    renderStats([res, fps, rate, loss, rtt, path]);
   }
 
   function toggleStats() {
