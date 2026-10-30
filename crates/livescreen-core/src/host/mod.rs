@@ -704,6 +704,7 @@ impl Host {
                     let b = stats.bytes.load(Ordering::Relaxed);
                     let mut samples: Vec<(String, iroh::endpoint::PathId, Duration)> = Vec::new();
                     let friends_snap = shared.friends.lock().unwrap().clone();
+                    let mut has_web = false;
                     let viewers = shared
                         .conns
                         .lock()
@@ -739,14 +740,17 @@ impl Host {
                                         rtt_ms: rtt,
                                     }
                                 }
-                                PeerConn::Web(w) => ViewerInfo {
-                                    id: None,
-                                    id_short: id.clone(),
-                                    name: name.clone(),
-                                    friend: false,
-                                    path: "Navegador".into(),
-                                    rtt_ms: w.rtt_ms.load(Ordering::Relaxed),
-                                },
+                                PeerConn::Web(w) => {
+                                    has_web = true;
+                                    ViewerInfo {
+                                        id: None,
+                                        id_short: id.clone(),
+                                        name: name.clone(),
+                                        friend: false,
+                                        path: "Navegador".into(),
+                                        rtt_ms: w.rtt_ms.load(Ordering::Relaxed),
+                                    }
+                                }
                             }
                         })
                         .collect();
@@ -766,7 +770,7 @@ impl Host {
                     }
                     min_rtt.retain(|id, _| samples.iter().any(|(s, _, _)| s == id));
                     let ceiling = stats.ceiling_bps.load(Ordering::Relaxed);
-                    if samples.is_empty() {
+                    if samples.is_empty() && !has_web {
                         stats.target_bps.store(0, Ordering::Relaxed);
                         abr = Abr::default();
                     } else {
