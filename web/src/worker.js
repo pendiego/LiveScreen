@@ -21,7 +21,7 @@ async function iceServers(env) {
   const keyId = env?.TURN_KEY_ID;
   const token = env?.TURN_KEY_API_TOKEN;
   if (!keyId || !token) {
-    return fallback;
+    return { list: fallback, fresh: false };
   }
   try {
     const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`, {
@@ -31,10 +31,11 @@ async function iceServers(env) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ ttl: 14400 }),
+      signal: AbortSignal.timeout(3000),
     });
-    if (!res.ok) return fallback;
+    if (!res.ok) return { list: fallback, fresh: false };
     const j = await res.json();
-    if (!j || !j.iceServers) return fallback;
+    if (!j || !j.iceServers) return { list: fallback, fresh: false };
     const list = [].concat(j.iceServers);
     const filtered = list
       .map((entry) => {
@@ -47,9 +48,9 @@ async function iceServers(env) {
         if (!entry.urls) return false;
         return Array.isArray(entry.urls) ? entry.urls.length > 0 : true;
       });
-    return filtered.length > 0 ? filtered : fallback;
+    return filtered.length > 0 ? { list: filtered, fresh: true } : { list: fallback, fresh: false };
   } catch {
-    return fallback;
+    return { list: fallback, fresh: false };
   }
 }
 
@@ -125,7 +126,7 @@ export class Room extends DurableObject {
         }
       });
       if (hostOk) {
-        const ice = await iceServers(this.env);
+        const ice = await this._iceServers();
         server.send(JSON.stringify({ t: "hello", iceServers: ice }));
       } else {
         server.send(JSON.stringify({ t: "nohost" }));
@@ -244,6 +245,20 @@ export class Room extends DurableObject {
 
   async webSocketError(ws, error) {
     this._handleLeave(ws);
+  }
+
+  // Credencial vale 4 h (ttl 14400); reusar por 1 h garante ≥3 h de validade a quem entra.
+  async _iceServers() {
+    if (this.ice && Date.now() < this.ice.until) return this.ice.list;
+    if (!this.icePending) {
+      this.icePending = iceServers(this.env)
+        .then(({ list, fresh }) => {
+          if (fresh) this.ice = { list, until: Date.now() + 3600000 };
+          return list;
+        })
+        .finally(() => { this.icePending = null; });
+    }
+    return this.icePending;
   }
 
   async _armReaper() {
