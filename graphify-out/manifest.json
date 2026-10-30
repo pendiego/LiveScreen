@@ -216,9 +216,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793392633.5232415,
-    "seen": 1793392637.066284,
-    "ast_hash": "4205e2382e984af3a1428dd21ce584b1",
+    "mtime": 1793393504.872786,
+    "seen": 1793393810.239071,
+    "ast_hash": "ccf6300acd34baaae7f97430b0c67820",
     "semantic_hash": ""
   },
   ".github/scripts/test-changelog.sh": {
@@ -480,21 +480,21 @@
     "semantic_hash": ""
   },
   "web/public/v/viewer.js": {
-    "mtime": 1793392520.8885312,
-    "seen": 1793392637.0662801,
-    "ast_hash": "f79738c21d84541e12825d2feeab6172",
+    "mtime": 1793393497.9606378,
+    "seen": 1793393810.239067,
+    "ast_hash": "62af0f1f9953b42abc1ce4d1d0612923",
     "semantic_hash": ""
   },
   "web/src/worker.js": {
-    "mtime": 1793240594.7098503,
-    "seen": 1793240601.013713,
-    "ast_hash": "5cdd3bfb125e98bf523bf6b150e28213",
+    "mtime": 1793393449.47181,
+    "seen": 1793393810.2390687,
+    "ast_hash": "201301f735155a534925f1765503bcea",
     "semantic_hash": ""
   },
   "web/public/v/index.html": {
-    "mtime": 1793392520.8492715,
-    "seen": 1793392637.0663013,
-    "ast_hash": "9251943e0dd7d2623a4fb48211935fc2",
+    "mtime": 1793393457.558208,
+    "seen": 1793393810.2390885,
+    "ast_hash": "92bdc30eb8b838bad87d212db04fcb0c",
     "semantic_hash": ""
   },
   ".github/workflows/deploy-web.yml": {
@@ -564,15 +564,21 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/host/mod.rs": {
-    "mtime": 1793377563.947317,
-    "seen": 1793382490.0616424,
-    "ast_hash": "c0af74250556bb648c500f0248d4d2ea",
+    "mtime": 1793393482.656641,
+    "seen": 1793393810.2390153,
+    "ast_hash": "cf55d2f8460a7c38a7165950cee19f45",
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/host/web.rs": {
-    "mtime": 1793380386.4168186,
-    "seen": 1793382490.061644,
-    "ast_hash": "4fe7cc6289ff8d61a7e50b10519b08e5",
+    "mtime": 1793393468.1165662,
+    "seen": 1793393810.2390172,
+    "ast_hash": "5c4a4c57409125f902c24ac15dcbeaef",
+    "semantic_hash": ""
+  },
+  "crates/livescreen-core/examples/web_smoke.rs": {
+    "mtime": 1793393565.757578,
+    "seen": 1793393810.2390099,
+    "ast_hash": "c7c158ee36b4d578c77b978a6699476c",
     "semantic_hash": ""
   },
   "web/package-lock.json": {
