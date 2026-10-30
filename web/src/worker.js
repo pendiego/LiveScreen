@@ -186,6 +186,8 @@ export class Room extends DurableObject {
         for (const v of viewers) {
           try {
             v.send(JSON.stringify({ t: "answer", sdp: data.sdp }));
+            const a = v.deserializeAttachment();
+            if (a) { a.answered = true; v.serializeAttachment(a); }
           } catch {}
         }
       } else if (data.t === "reject" && typeof data.reason === "string") {
@@ -295,9 +297,10 @@ export class Room extends DurableObject {
       for (const v of this.ctx.getWebSockets("view")) {
         try {
           const a = v.deserializeAttachment();
-          if (a && a.role === "view") {
-            v.send(JSON.stringify({ t: "closed", reason: "a transmissão terminou" }));
-            v.close(1000, "a transmissão terminou");
+          if (a && a.role === "view" && !a.answered) {
+            const why = "a conexão com quem transmite caiu; tente de novo";
+            v.send(JSON.stringify({ t: "closed", reason: why }));
+            v.close(1000, why);
           }
         } catch {}
       }

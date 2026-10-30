@@ -54,6 +54,8 @@
 
   let ws = null;
   let pc = null;
+  let answered = false;
+  let everConnected = false;
   let pingTimer = null;
   let answerTimer = null;
   let currentName = "";
@@ -158,6 +160,8 @@
       clearTimeout(idleTimer);
       idleTimer = null;
     }
+    answered = false;
+    everConnected = false;
     stopStats();
     netBadge.hidden = true;
     if (pc) {
@@ -220,10 +224,11 @@
         if (!pc) return;
         const st = pc.connectionState;
         if (st === "failed") {
-          stopWithReason("Não foi possível conectar: a rede pode estar bloqueando a conexão direta.");
+          stopWithReason(everConnected ? "A conexão com quem transmite caiu." : "Não foi possível conectar: a rede pode estar bloqueando a conexão direta.");
         } else if (st === "disconnected") {
           netBadge.hidden = false;
         } else if (st === "connected") {
+          everConnected = true;
           netBadge.hidden = true;
         }
       };
@@ -331,6 +336,7 @@
         if (pc && typeof data.sdp === "string") {
           try {
             await pc.setRemoteDescription({ type: "answer", sdp: data.sdp });
+            answered = true;
             card.hidden = true;
             playerBox.hidden = false;
             waitOverlay.hidden = false;
@@ -359,6 +365,10 @@
 
     sock.onclose = () => {
       if (ws !== sock) return;
+      ws = null;
+      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+      // depois da resposta o vídeo é P2P: a sinalização pode cair sem encerrar
+      if (answered && pc) return;
       stopWithReason(playerBox.hidden ? "A conexão com o servidor do link caiu." : "A transmissão terminou.");
     };
   }

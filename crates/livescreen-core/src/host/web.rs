@@ -76,6 +76,9 @@ async fn run(sh: Arc<Shared>) {
     let backoff_secs = [1, 2, 4, 8, 16, 30];
     let mut retry_idx = 0;
 
+    // canal e mapa duram a transmissão inteira: peers abertos sobrevivem à queda da sinalização
+    let (tx, mut rx) = mpsc::channel::<SignalOut>(64);
+    let mut peers: HashMap<String, Weak<WebPeer>> = HashMap::new();
     while !*shutdown.borrow() {
         let base = base_url();
         let ws_url = host_ws_url(&base, &sh.web_secret);
@@ -145,10 +148,8 @@ async fn run(sh: Arc<Shared>) {
         }
 
         sh.status.lock().unwrap().web = WebState::Online;
-        retry_idx = 0;
-
-        let (tx, mut rx) = mpsc::channel::<SignalOut>(64);
-        let mut peers: HashMap<String, Weak<WebPeer>> = HashMap::new();
+        let online_at = Instant::now();
+        let mut last_pong = Instant::now();
         let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
         ping_interval.tick().await;
 
@@ -164,6 +165,9 @@ async fn run(sh: Arc<Shared>) {
                     }
                 }
                 _ = ping_interval.tick() => {
+                    if last_pong.elapsed() > Duration::from_secs(75) {
+                        break;
+                    }
                     if let Ok(json) = serde_json::to_string(&SignalOut::Ping) {
                         if ws.send(Message::text(json)).await.is_err() {
                             break;
@@ -175,7 +179,8 @@ async fn run(sh: Arc<Shared>) {
                     let Ok(msg) = msg_res else { break };
                     if let Some(text) = msg.as_text() {
                         match serde_json::from_str::<SignalIn>(text) {
-                            Ok(SignalIn::Ready) | Ok(SignalIn::Pong) => {}
+                            Ok(SignalIn::Ready) => {}
+                            Ok(SignalIn::Pong) => last_pong = Instant::now(),
                             Ok(SignalIn::Left { id }) => {
                                 if let Some(w) = peers.remove(&id) {
                                     if let Some(p) = w.upgrade() {
@@ -246,6 +251,21 @@ async fn run(sh: Arc<Shared>) {
                     break;
                 }
             }
+        }
+
+        if *shutdown.borrow() {
+            break;
+        }
+        // só zera o backoff se a sessão durou; senão um servidor que derruba logo após o ready vira laço quente
+        if online_at.elapsed() >= Duration::from_secs(60) {
+            retry_idx = 0;
+        }
+        sh.status.lock().unwrap().web = WebState::Retrying("conexão com o servidor do link caiu".into());
+        let delay = Duration::from_secs(backoff_secs[retry_idx.min(backoff_secs.len() - 1)]);
+        retry_idx += 1;
+        tokio::select! {
+            _ = tokio::time::sleep(delay) => {}
+            _ = shutdown.changed() => break,
         }
     }
 }
