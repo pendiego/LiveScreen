@@ -6,6 +6,15 @@ use tracing::warn;
 use crate::config::Overrides;
 use livescreen_core::preset::Preset;
 
+/// Recursos experimentais (aba "Experimental"); todos desligados por padrão.
+/// Recurso novo: um campo aqui e um checkbox em `settings::experimental`.
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Experimental {
+    /// Espectadores podem mandar doações simuladas (moedas fictícias) no chat.
+    pub fake_donate: bool,
+}
+
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -34,6 +43,7 @@ pub struct Prefs {
     pub check_updates: bool,
     pub graphics_capture: bool,
     pub dxgi_capture: bool,
+    pub experimental: Experimental,
 }
 
 impl Default for Prefs {
@@ -57,6 +67,7 @@ impl Default for Prefs {
             check_updates: true,
             graphics_capture: true,
             dxgi_capture: true,
+            experimental: Experimental::default(),
         }
     }
 }
@@ -139,6 +150,7 @@ mod tests {
         assert!(p.hardware_decode && p.hardware_encoder && p.check_updates);
         assert!(p.graphics_capture && p.dxgi_capture);
         assert!(!p.show_stats);
+        assert!(!p.experimental.fake_donate);
     }
 
     #[test]

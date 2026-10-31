@@ -105,6 +105,7 @@ fn e2e_window() {
         livescreen_core::friends::new_secret_key(),
         String::new(),
         std::collections::HashSet::new(),
+        false,
     )
     .unwrap();
     let ticket = loop {
@@ -306,6 +307,7 @@ fn e2e_android() {
         livescreen_core::friends::new_secret_key(),
         String::new(),
         std::collections::HashSet::new(),
+        false,
     )
     .unwrap();
     let ticket = loop {
@@ -494,6 +496,7 @@ fn e2e_friends() {
         host_key,
         "Host".into(),
         friends,
+        false,
     )
     .unwrap();
 

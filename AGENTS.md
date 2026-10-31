@@ -81,7 +81,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 
 |Caminho|Papel|
 |---|---|
-|`web/src/worker.js`|Cloudflare Worker + Durable Object `Room` (um por sala): sinalização WebSocket entre host (`/ws/host/<sala>`) e espectadores (`/ws/view/<sala>`), credenciais TURN, limites e expiração de sockets|
+|`web/src/worker.js`|Cloudflare Worker + Durable Object `Room` (um por sala): sinalização WebSocket entre host (`/ws/host/<sala>`) e espectadores (`/ws/view/<sala>`), sem TURN (só entrega STUN), limites e expiração de sockets|
 |`web/public/v/`|página do espectador (`index.html`, `viewer.js`, `viewer.css`, fontes): WebRTC, player, estatísticas e chat; sem build, servida como asset estático|
 |`web/public/_headers`|CSP e cabeçalhos de segurança; cache longo só para `/v/fonts/*`|
 |`web/wrangler.jsonc`|configuração do Worker (assets, binding `ROOM`, migrations)|
@@ -109,7 +109,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 - Limites do Worker (`Room`): até 4 sockets de host e 64 de espectador por sala, mensagem até 64 KiB, host sem autenticação em 10 s e espectador sem oferta em 30 s são fechados (código 4008, `alarm()`). Viewer id tem 8 hex (`valid_peer_id`).
 - Depois da resposta o vídeo é P2P: queda do WebSocket de sinalização não encerra quem já assiste. O host mantém o canal e o mapa de peers web durante a transmissão inteira e reconecta com backoff.
 - CSP estrita em `web/public/_headers` (sem inline, só `'self'` e o Cloudflare Web Analytics). A página não usa script/estilo inline nem `innerHTML`; dados que chegam pela rede (nome, texto, motivo) são validados e cortados antes de ir ao DOM via `textContent`. Nova origem externa exige entrada na CSP e na tabela de conexões do `README.md`.
-- Credenciais TURN (`TURN_KEY_ID`/`TURN_KEY_API_TOKEN` no Worker, opcionais) ficam em cache por sala por 1 h; sem elas, só STUN.
+- Sem TURN: o Worker só entrega STUN; o host fura o NAT com IPv6, portas previstas do navegador e do host.
 
 ### Chat
 

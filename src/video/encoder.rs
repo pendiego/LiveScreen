@@ -72,6 +72,7 @@ pub fn spawn(
     kind: EncoderKind,
     device: &ID3D11Device,
     params: EncodeParams,
+    baseline: bool,
     input: Receiver<Nv12Frame>,
     out: broadcast::Sender<Arc<EncodedFrame>>,
     force_key: Arc<AtomicBool>,
@@ -85,7 +86,7 @@ pub fn spawn(
             .name("encoder".into())
             .spawn(move || {
                 let _mmcss = crate::gpu::Mmcss::new(windows::core::w!("Capture"));
-                match Encoder::new(kind, &device, params, input, out, force_key, stats) {
+                match Encoder::new(kind, &device, params, baseline, input, out, force_key, stats) {
                     Ok(mut enc) => {
                         let _ = ready_tx.send(Ok(()));
                         enc.run();
@@ -201,6 +202,7 @@ impl Encoder {
         kind: EncoderKind,
         device: &ID3D11Device,
         params: EncodeParams,
+        baseline: bool,
         input: Receiver<Nv12Frame>,
         out: broadcast::Sender<Arc<EncodedFrame>>,
         force_key: Arc<AtomicBool>,
@@ -212,7 +214,7 @@ impl Encoder {
         let (t, is_async) = create_mft(&kind, device)?;
         let (input_id, output_id) = stream_ids(&t);
         let codec = kind.codec();
-        let api = configure(&t, &params, codec)?;
+        let api = configure(&t, &params, codec, baseline)?;
         let seq_header = read_seq_header(&t);
         let events_gen = if is_async {
             t.cast::<IMFMediaEventGenerator>().ok()
@@ -534,7 +536,7 @@ fn stream_ids(t: &IMFTransform) -> (u32, u32) {
     }
 }
 
-fn configure(t: &IMFTransform, params: &EncodeParams, codec: Codec) -> Result<Option<ICodecAPI>> {
+fn configure(t: &IMFTransform, params: &EncodeParams, codec: Codec, baseline: bool) -> Result<Option<ICodecAPI>> {
     unsafe {
         let api = t.cast::<ICodecAPI>().ok();
         if let Some(api) = &api {
@@ -558,6 +560,7 @@ fn configure(t: &IMFTransform, params: &EncodeParams, codec: Codec) -> Result<Op
         out.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, mf::pack_pair(1, 1))?;
         out.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
         let profile = match codec {
+            Codec::H264 if baseline => eAVEncH264VProfile_Base.0 as u32,
             Codec::H264 => eAVEncH264VProfile_High.0 as u32,
             Codec::Hevc => eAVEncH265VProfile_Main_420_8.0 as u32,
             Codec::Av1 => eAVEncAV1VProfile_Main_420_8.0 as u32,

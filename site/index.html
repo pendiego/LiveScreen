@@ -338,7 +338,7 @@
               <tr>
                 <td><code>livescreen.pendiego.com</code> (Cloudflare Worker) e <code>stun.cloudflare.com</code></td>
                 <td>ao clicar em &quot;Copiar link do navegador&quot; durante uma transmissão</td>
-                <td>Sinalização do espectador no navegador (só o offer/answer WebRTC, sem vídeo) e descoberta do endereço público por STUN. O vídeo vai direto do PC para o navegador (WebRTC); o TURN da Cloudflare só entra se o operador do Worker o configurar.</td>
+                <td>Sinalização do espectador no navegador (só o offer/answer WebRTC, sem vídeo) e descoberta do endereço público por STUN (o host consulta <code>stun.cloudflare.com</code>, <code>stun.l.google.com</code>, <code>global.stun.twilio.com</code>, <code>stun.nextcloud.com</code> e <code>stun.sipgate.net</code> a cada espectador do navegador para achar o endereço público e prever portas). O vídeo vai direto do PC para o navegador (WebRTC), sem TURN.</td>
               </tr>
             </tbody>
           </table>

@@ -36,6 +36,8 @@ struct Resources {
     params: EncodeParams,
     /// Tamanho da fonte quando `params` foi calculado.
     applied_src: (u32, u32),
+    /// Encoder H.264 em perfil Baseline (algum navegador não decodifica High).
+    baseline: bool,
 }
 
 pub struct ShareSession {
@@ -174,6 +176,7 @@ fn start_encoder(
     kind: EncoderKind,
     device: &windows::Win32::Graphics::Direct3D11::ID3D11Device,
     params: EncodeParams,
+    baseline: bool,
     out: broadcast::Sender<Arc<EncodedFrame>>,
     force_key: Arc<AtomicBool>,
     stats: Arc<HostStats>,
@@ -187,6 +190,7 @@ fn start_encoder(
         kind.clone(),
         device,
         params,
+        baseline,
         rx,
         out.clone(),
         force_key.clone(),
@@ -200,6 +204,7 @@ fn start_encoder(
                 EncoderKind::Software,
                 device,
                 params,
+                baseline,
                 rx,
                 out,
                 force_key,
@@ -224,6 +229,7 @@ impl ShareSession {
         identity: iroh::SecretKey,
         host_name: String,
         friends: HashSet<iroh::EndpointId>,
+        donate: bool,
     ) -> Result<ShareSession> {
         let (device, context) = crate::gpu::create_device(None)?;
         let (sw, sh) = capture::source_size(&source.id)?;
@@ -242,6 +248,7 @@ impl ShareSession {
             initial_kind,
             &device,
             params,
+            false,
             feeds.video.clone(),
             feeds.force_key.clone(),
             feeds.stats.clone(),
@@ -252,6 +259,7 @@ impl ShareSession {
             ticket: None,
             online_warning: false,
             web: WebState::Off,
+            web_vpn: None,
             backend: Backend::GraphicsCapture.label(),
             encoder: used_kind.label(),
             viewers: vec![],
@@ -349,6 +357,7 @@ impl ShareSession {
                 height: params.height,
                 fps: params.fps,
                 audio: audio_h.is_some(),
+                donate,
             },
             &feeds,
             status.clone(),
@@ -411,6 +420,7 @@ impl ShareSession {
                 preset,
                 params,
                 applied_src: (sw, sh),
+                baseline: false,
             })),
             applied: Mutex::new((preset, params, (sw, sh))),
             src_size,
@@ -450,7 +460,7 @@ impl ShareSession {
 
     /// Troca a qualidade com a transmissão no ar. Bloqueia a thread chamadora (nunca chamar de
     /// dentro do runtime). Se o encoder novo falhar, volta ao anterior e devolve o erro.
-    fn reconfigure(&self, r: &mut Resources, preset: Preset, kind: EncoderKind) -> Result<()> {
+    fn reconfigure(&self, r: &mut Resources, preset: Preset, kind: EncoderKind, baseline: bool) -> Result<()> {
         let (sw, sh) = unpack_size(r.src_size.load(Ordering::Relaxed));
         let params = encode_params(preset, sw, sh, r.hz);
         let conv = Converter::new(
@@ -464,20 +474,21 @@ impl ShareSession {
         if let Some(e) = r.encoder.take() {
             e.stop();
         }
-        let start = |k: &EncoderKind, p: livescreen_core::preset::EncodeParams| {
+        let start = |k: &EncoderKind, p: livescreen_core::preset::EncodeParams, b: bool| {
             start_encoder(
                 k.clone(),
                 &r.device,
                 p,
+                b,
                 self.feeds.video.clone(),
                 self.feeds.force_key.clone(),
                 self.feeds.stats.clone(),
             )
         };
-        let (enc, tx, used_kind, applied, applied_preset, failed) = match start(&kind, params) {
-            Ok((h, tx, uk)) => (h, tx, uk, params, preset, None),
-            Err(e) => match start(&r.kind, r.params) {
-                Ok((h, tx, uk)) => (h, tx, uk, r.params, r.preset, Some(e)),
+        let (enc, tx, used_kind, applied, applied_preset, applied_baseline, failed) = match start(&kind, params, baseline) {
+            Ok((h, tx, uk)) => (h, tx, uk, params, preset, baseline, None),
+            Err(e) => match start(&r.kind, r.params, r.baseline) {
+                Ok((h, tx, uk)) => (h, tx, uk, r.params, r.preset, r.baseline, Some(e)),
                 Err(e2) => {
                     self.status
                         .lock()
@@ -501,7 +512,12 @@ impl ShareSession {
         }
         *self.applied.lock().unwrap() = (r.preset, r.params, r.applied_src);
         self.feeds.force_key.store(true, Ordering::SeqCst);
-        self.status.lock().unwrap().encoder = used_kind.label();
+        r.baseline = applied_baseline;
+        let mut label = used_kind.label();
+        if applied_baseline && used_kind.codec() == Codec::H264 {
+            label.push_str(" · H.264 Baseline (navegador)");
+        }
+        self.status.lock().unwrap().encoder = label;
         self.host
             .set_stream(applied.width, applied.height, applied.fps, r.audio.is_some());
         failed.map_or(Ok(()), Err)
@@ -515,7 +531,7 @@ impl ShareSession {
         if r.preset == preset && r.params == params {
             return Ok(());
         }
-        self.reconfigure(r, preset, r.kind.clone())
+        self.reconfigure(r, preset, r.kind.clone(), r.baseline)
     }
 
     pub fn apply_codec(&self) -> Option<Result<Codec>> {
@@ -523,10 +539,11 @@ impl ShareSession {
         let mut g = self.res.lock().unwrap();
         let r = g.as_mut()?;
         let want = pick_encoder(&r.kinds, &viewers_decoders)?;
-        if want == r.kind {
+        let baseline = self.host.needs_h264_baseline();
+        if want == r.kind && baseline == r.baseline {
             return None;
         }
-        let res = self.reconfigure(r, r.preset, want.clone());
+        let res = self.reconfigure(r, r.preset, want.clone(), baseline);
         if res.is_err() || r.kind != want {
             r.kinds.retain(|k| k != &want);
             let err = res.err().unwrap_or_else(|| anyhow!("encoder {} indisponível", want.label()));
