@@ -86,7 +86,7 @@
 
           <section id="versoes">
             <h2>Versões</h2>
-            <p>O host 0.5 só aceita viewers 0.5 (protocolo 5). Viewers 0.5.x conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com &ldquo;versão incompatível&rdquo;. O chat exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona normalmente, só sem chat (o botão não aparece). O número do protocolo continua 5.</p>
+            <p>Hosts 0.5 e 0.6 aceitam viewers 0.5 e 0.6 (protocolo 5). Viewers 0.5 e 0.6 conectam também a hosts 0.4 (protocolo 4). Com protocolos incompatíveis a conexão é recusada (veja <a href="#problemas">Solução de problemas</a>). O chat exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona normalmente, só sem chat (o botão não aparece). O número do protocolo continua 5.</p>
             <div class="table">
               <table>
                 <thead>
@@ -110,7 +110,7 @@
                   <tr>
                     <td><code>0.5</code></td>
                     <td><code>0.4</code></td>
-                    <td>Não: &ldquo;versão incompatível&rdquo;</td>
+                    <td>Não: atualize quem assiste</td>
                   </tr>
                   <tr>
                     <td><code>0.6</code></td>
@@ -126,6 +126,16 @@
                     <td><code>0.5</code></td>
                     <td><code>0.6 (desktop ou Android)</code></td>
                     <td>Sim, sem chat</td>
+                  </tr>
+                  <tr>
+                    <td><code>0.6.1</code></td>
+                    <td><code>navegador</code></td>
+                    <td>Sim, com chat, menu Qualidade e pausa do vídeo com a aba escondida</td>
+                  </tr>
+                  <tr>
+                    <td><code>0.6.0</code></td>
+                    <td><code>navegador</code></td>
+                    <td>Sim, com chat, sem menu Qualidade</td>
                   </tr>
                 </tbody>
               </table>
@@ -212,6 +222,15 @@
               </li>
             </ul>
 
+            <h3>Experimental</h3>
+            <p class="small">Recursos em teste: podem mudar ou sumir em qualquer versão.</p>
+            <ul>
+              <li>
+                <strong>Doações simuladas no chat</strong>
+                <p class="small">Função só para teste, sem utilidade real: quem assiste pelo PC ou pelo navegador manda moedas de mentira junto com a mensagem; nenhum dinheiro de verdade. No Android aparece só a linha da doação. Vale na próxima transmissão.</p>
+              </li>
+            </ul>
+
             <h3>Diagnóstico</h3>
             <ul>
               <li>
@@ -235,7 +254,7 @@
           <section id="android">
             <h2>Android (assistir e transmitir)</h2>
             <p>O app Android <strong>assiste</strong>: cole o código de convite e toque em <strong>Assistir</strong>. Ele conecta a hosts 0.5 e 0.6 e também a hosts 0.4 (convite sem chave de sala).</p>
-            <p>Também <strong>transmite</strong> a tela: toque em <strong>Transmitir tela</strong> na Home, aceite o pedido de captura e a notificação (a transmissão roda num serviço em primeiro plano, com a ação <strong>Parar</strong>). A tela mostra o convite, o link do navegador, a qualidade (padrão 720p 30 fps), quem assiste (com <strong>Remover</strong>) e o chat. A sala começa com 4 pessoas, e amigos adicionados assistem sem convite. Girar o aparelho não muda o tamanho da transmissão. Se um espectador pedir qualidade menor, o app reduz sozinho. O link do navegador depende de o navegador alcançar o aparelho (NAT, emuladores). O áudio do sistema exige Android 10 ou superior e só captura apps que permitem; o microfone não é transmitido.</p>
+            <p>Também <strong>transmite</strong> a tela: toque em <strong>Transmitir tela</strong> na Home, aceite o pedido de captura e a notificação (a transmissão roda num serviço em primeiro plano, com a ação <strong>Parar</strong>). A tela mostra o convite, o link do navegador, a qualidade (padrão 720p 30 fps), quem assiste (com <strong>Remover</strong>) e o chat. A sala começa com 4 pessoas, e amigos adicionados assistem sem convite. Girar o aparelho não muda o tamanho da transmissão. Se um espectador pedir qualidade menor, o app reduz sozinho. O link do navegador depende de o navegador alcançar o aparelho (NAT, emuladores). O áudio do sistema exige Android 10 ou superior e só inclui sons de mídia e jogos de apps que permitem a captura; chamadas, alarmes e o microfone não são transmitidos.</p>
             <p>
               <a class="btn btn-primary" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen-android.apk">
                 <svg
@@ -266,8 +285,10 @@
           <section id="arquivos">
             <h2>Arquivos em %APPDATA%\LiveScreen\ e config.json</h2>
             <ul>
-              <li><strong><code>ui.json</code>:</strong> preferências (qualidade, áudio, nome, volume, limite da sala, posição da janela, decodificação/codificação por hardware, estatísticas, tema, atualização, backends de captura).</li>
+              <li><strong><code>ui.json</code>:</strong> preferências (qualidade, áudio, microfone, nome, volume e mudo, limite da sala, posição da janela, decodificação/codificação por hardware, vídeo sem cópia, estatísticas, baixar a qualidade sozinho, pedidos de qualidade, atualização, backends de captura e recursos experimentais).</li>
               <li><strong><code>livescreen.log</code>:</strong> registro para diagnóstico.</li>
+              <li><strong><code>identity.key</code>:</strong> a identidade do PC, que os amigos usam para te reconhecer. Apagar cria outra identidade e os amigos precisam te adicionar de novo. <code>identity.lock</code> impede que duas janelas usem a mesma identidade: a segunda janela abre sem amigos.</li>
+              <li><strong><code>friends.json</code>:</strong> sua lista de amigos. Um arquivo ilegível (este ou o <code>identity.key</code>) nunca é sobrescrito: vira <code>.bad</code>.</li>
               <li>
                 <strong><code>config.json</code></strong> (opcional): desliga partes da captura ou do encoder para contornar problemas de driver:
                 <pre><code>{ "capture_overrides": ["deny-hardware-encoder"] }</code></pre>
@@ -302,13 +323,16 @@
           <section id="problemas">
             <h2>Solução de problemas</h2>
             <h3>Aparece Via servidor e o vídeo trava</h3>
-            <p>O servidor de retransmissão padrão é a infraestrutura pública e gratuita da n0 (equipe do iroh), compartilhada com outros apps e com limite de taxa. Quando alguém aparece como <strong>Via servidor</strong>, qualidades altas podem travar: baixe a qualidade da transmissão ou peça uma mais leve no menu <strong>Qualidade</strong> de quem assiste.</p>
+            <p>O servidor de retransmissão padrão é a infraestrutura pública e gratuita da n0 (equipe do iroh), compartilhada com outros apps e com limite de taxa. Quando alguém aparece como <strong>Via servidor</strong>, qualidades altas podem travar: baixe a qualidade da transmissão ou peça uma mais leve no menu <strong>Qualidade</strong> de quem assiste. Isso só vale para o app; quem assiste pelo navegador nunca passa pelo servidor.</p>
 
             <h3>Recusado: sala cheia</h3>
             <p>Quem transmite pode aumentar o limite da sala durante a transmissão na janela do app.</p>
 
-            <h3>&ldquo;versão incompatível&rdquo;</h3>
-            <p>As versões do LiveScreen em uso possuem protocolos incompatíveis. Atualize ambos os lados para a mesma versão (consulte <a href="#versoes">Versões</a>).</p>
+            <h3>&ldquo;LiveScreen desatualizado&rdquo; ou &ldquo;Versão incompatível&rdquo;</h3>
+            <p>Quem transmite e quem assiste usam protocolos diferentes. Atualize o lado indicado na mensagem, ou os dois, para a mesma versão (veja <a href="#versoes">Versões</a>). A mesma mensagem aparece quando o código de convite foi colado incompleto.</p>
+
+            <h3>O link do navegador não conecta</h3>
+            <p>O navegador não usa servidor de retransmissão: a conexão com o PC precisa ser direta. A página explica quando a rede bloqueia (comum em 4G e redes de empresa ou escola). Tente trocar entre Wi-Fi e dados móveis ou desligar a VPN; quem transmite pode liberar o LiveScreen no firewall do Windows. Se uma VPN for a rota padrão do PC, o app avisa na tela da transmissão e o link também tenta pela placa de rede física.</p>
 
             <h3>O botão Atualizar não funciona</h3>
             <p>Para conseguir substituir o executável durante a atualização automática, o aplicativo precisa estar numa pasta com permissão de escrita (fora de <code>Program Files</code>, por exemplo).</p>
