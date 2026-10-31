@@ -79,7 +79,7 @@
             <h2>Requisitos</h2>
             <ul>
               <li><strong>Host (quem transmite):</strong> Windows 10 versão 2004 ou superior, 64 bits.</li>
-              <li><strong>Viewer (quem assiste):</strong> Windows 10 2004+ x64, Android 8.0 (API 26) ou superior, ou o navegador (link gerado com &ldquo;Copiar link do navegador&rdquo; durante a transmissão).</li>
+              <li><strong>Viewer (quem assiste):</strong> Windows 10 2004+ x64, Android 8.0 (API 26) ou superior, ou o navegador (Chrome, Edge, Firefox ou Safari, pelo link gerado com &ldquo;Copiar link do navegador&rdquo; durante a transmissão). O link do navegador não usa servidor de retransmissão (sem TURN): conecta direto por IPv6 ou IPv4, e o PC avisa quando uma VPN é a rota padrão.</li>
               <li><strong>Host Android (quem transmite):</strong> Android 8.0 (API 26) ou superior; a transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior, a permissão de microfone/áudio e só captura apps que permitem; o microfone não é transmitido. O aparelho precisa de um codificador Opus; sem ele a transmissão segue sem áudio.</li>
             </ul>
           </section>
@@ -229,7 +229,7 @@
 
           <section id="qualidade-pelo-espectador">
             <h2>Qualidade pelo espectador</h2>
-            <p>Quem assiste pode pedir ao host uma qualidade mais leve (menu &ldquo;Qualidade&rdquo;), inclusive as faixas 240p 30, 360p 30 e 480p 15 (hosts mais antigos, que não conhecem essas faixas, recebem 480p 30). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda. O host pode desligar os pedidos em Configurações (&ldquo;Aceitar pedidos de qualidade mais leve de quem assiste&rdquo;); desligado, eles só aparecem como aviso.</p>
+            <p>Quem assiste (no app ou no navegador, com host 0.6.1 ou mais novo) pode pedir ao host uma qualidade mais leve (menu &ldquo;Qualidade&rdquo;), inclusive as faixas 240p 30, 360p 30 e 480p 15 (hosts mais antigos, que não conhecem essas faixas, recebem 480p 30). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda. O host pode desligar os pedidos em Configurações (&ldquo;Aceitar pedidos de qualidade mais leve de quem assiste&rdquo;); desligado, eles só aparecem como aviso.</p>
           </section>
 
           <section id="android">
