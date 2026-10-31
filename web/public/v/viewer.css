@@ -121,6 +121,9 @@ h1 {
 .btn-primary:active { background: color-mix(in srgb, var(--accent) 86%, white); }
 .btn-primary:focus-visible { outline-color: var(--text); }
 .btn-full { width: 100%; height: 48px; }
+.btn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
+.btn-secondary:hover { background: var(--raised); }
+.card > .btn-secondary { margin-top: var(--s3); }
 
 .card {
   width: 100%;
@@ -194,6 +197,8 @@ h1 {
   max-height: calc(100dvh - 160px);
   object-fit: contain;
 }
+/* antes do primeiro quadro o vídeo não tem altura: reserva 16:9 para o player não virar uma faixa */
+.player:has(#waitOverlay:not([hidden])) video { aspect-ratio: 16 / 9; }
 .watch:fullscreen .player { border-radius: 0; border: 0; display: flex; align-items: center; }
 .watch:fullscreen .player video { max-height: 100dvh; height: 100%; }
 .watch:fullscreen .chat { border-radius: 0; border-width: 0 0 0 1px; }
@@ -290,6 +295,57 @@ h1 {
 .stats dt { color: var(--text-muted); }
 .stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 
+.qmenu {
+  position: absolute;
+  right: var(--s3);
+  bottom: 64px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  max-width: calc(100% - 2 * var(--s3));
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+  padding: var(--s2);
+  background: rgb(11 13 16 / .92);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.qmenu-note { margin: 0 0 var(--s2); padding: 0 var(--s2); font-size: 12px; line-height: 16px; color: var(--text-muted); }
+.qmenu button {
+  flex: none;
+  height: 40px;
+  padding: 0 var(--s3);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: 500 14px/1 var(--font-body);
+  cursor: pointer;
+}
+.qmenu button:hover, .qmenu button:focus-visible { background: rgb(255 255 255 / .1); }
+.q-badge { top: 48px; color: var(--text); max-width: calc(100% - 2 * var(--s3)); white-space: normal; text-align: center; }
+/* celular: o player é baixo demais para um menu flutuante; vira uma folha presa embaixo da tela */
+@media (max-width: 600px), (max-height: 500px) {
+  .qmenu {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    width: auto;
+    max-width: none;
+    max-height: 80dvh;
+    padding: var(--s3) var(--s3) max(var(--s3), env(safe-area-inset-bottom));
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    border-width: 1px 0 0;
+    background: var(--surface);
+    box-shadow: var(--shadow-m);
+  }
+  .qmenu button { height: 44px; }
+}
+
 .chat {
   flex: 0 0 320px;
   contain: size; /* a altura é a do player; a lista rola por dentro */
@@ -330,6 +386,10 @@ h1 {
 }
 .chat-form input:focus { outline: none; border-color: var(--accent); }
 .chat-form .btn { height: 40px; padding: 0 var(--s4); }
+.chat-donate { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s3) 0; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 13px; }
+.chat-donate[hidden] { display: none; }
+.chat-donate .btn { height: 32px; padding: 0 var(--s3); border-color: var(--border); color: var(--text); background: transparent; }
+.chat-msg.donate { border-left: 2px solid var(--warn); padding-left: var(--s2); }
 .ctrl { position: relative; }
 .ctrl[data-unread="true"]::after {
   content: "";
@@ -355,7 +415,7 @@ h1 {
 }
 
 @media (max-width: 600px) {
-  .shell { padding: var(--s4); }
+  .shell { padding: var(--s4); padding-left: max(var(--s4), env(safe-area-inset-left)); padding-right: max(var(--s4), env(safe-area-inset-right)); }
   .card { padding: var(--s5); }
   .player video { max-height: 55dvh; }
 }
@@ -367,6 +427,27 @@ h1 {
   .chat-form .btn { height: 44px; }
   .chat-head .ctrl { width: 44px; height: 44px; }
 }
+
+/* toque: alvos de 44px, sem atraso de duplo toque nem realce cinza, notch/barra de gestos respeitados */
+@media (pointer: coarse), (max-width: 600px) {
+  button, .btn, input { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .ctrl { width: 44px; height: 44px; }
+  .btn:not(.btn-full) { height: 44px; }
+  .chat-donate .btn { height: 40px; min-width: 44px; }
+  .controls { gap: var(--s1); }
+  .stats { max-width: calc(100% - 2 * var(--s3)); }
+}
+.shell {
+  padding-left: max(var(--s5), env(safe-area-inset-left));
+  padding-right: max(var(--s5), env(safe-area-inset-right));
+}
+.controls {
+  padding-left: max(var(--s3), env(safe-area-inset-left));
+  padding-right: max(var(--s3), env(safe-area-inset-right));
+  padding-bottom: max(var(--s3), env(safe-area-inset-bottom));
+}
+.live-badge { left: max(var(--s3), env(safe-area-inset-left)); }
+.chat-list { overscroll-behavior: contain; }
 
 /* retrato: o chat desce para baixo do vídeo, inclusive em tela cheia */
 @media (max-width: 600px) and (orientation: portrait) {
