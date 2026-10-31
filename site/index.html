@@ -106,7 +106,7 @@
     <section id="como-funciona">
       <div class="wrap">
         <h2>Como funciona</h2>
-        <p style="margin-bottom: var(--s5);">Cada pessoa que assiste recebe do seu PC a própria cópia do vídeo e do áudio. Quando a conexão direta não é possível, os pacotes passam por um servidor de retransmissão, que só repassa dados criptografados de ponta a ponta.</p>
+        <p style="margin-bottom: var(--s5);">Cada pessoa que assiste recebe do seu PC a própria cópia do vídeo e do áudio. Quando a conexão direta não é possível, os pacotes passam por um servidor de retransmissão, que só repassa dados criptografados de ponta a ponta. Quem assiste pelo navegador não passa por retransmissão: a conexão é sempre direta (IPv6 ou IPv4) e, se ela não for possível, a página mostra o motivo e dicas.</p>
         <div style="text-align: center; margin-bottom: var(--s5);">
           <svg role="img" aria-label="Seu PC envia direto para os amigos 1 e 2 e, pelo servidor de retransmissão, para o amigo 3" viewBox="0 0 720 280" width="100%" style="max-width: 720px; height: auto; display: inline-block;">
             <rect x="24" y="100" width="200" height="80" rx="12" style="fill:var(--surface);stroke:var(--border);stroke-width:1"/>
@@ -135,7 +135,7 @@
           </svg>
         </div>
         <div class="note note-warn">
-          O servidor de retransmissão padrão é a infraestrutura pública e gratuita da n0 (equipe do iroh). Ela é compartilhada com outros apps, <a href="https://docs.iroh.computer/add-a-relay">feita para desenvolvimento e testes e tem limite de taxa</a>. Com conexão direta, nada passa por ela. Quando alguém aparece como <strong>Via servidor</strong>, qualidades altas podem travar: baixe a qualidade da transmissão ou peça uma mais leve no menu <strong>Qualidade</strong> de quem assiste.
+          O servidor de retransmissão padrão é a infraestrutura pública e gratuita da n0 (equipe do iroh). Ela é compartilhada com outros apps, <a href="https://docs.iroh.computer/add-a-relay">feita para desenvolvimento e testes e tem limite de taxa</a>. Com conexão direta, nada passa por ela. Quando alguém aparece como <strong>Via servidor</strong>, qualidades altas podem travar: baixe a qualidade da transmissão ou peça uma mais leve no menu <strong>Qualidade</strong> de quem assiste. Quem assiste pelo navegador nunca passa por esse servidor.
         </div>
       </div>
     </section>
@@ -306,7 +306,7 @@
               <svg aria-hidden="true" focusable="false" class="lucide lucide-globe" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" /> </svg>
             </div>
             <h3>Navegador</h3>
-            <p class="small">&quot;Copiar link do navegador&quot; gera um link para assistir sem instalar nada, com estatísticas, chat, mudo, Picture-in-Picture e tela cheia.</p>
+            <p class="small">&quot;Copiar link do navegador&quot; gera um link para assistir sem instalar nada, no Chrome, Edge, Firefox ou Safari, com estatísticas, chat, mudo, menu Qualidade, Picture-in-Picture e tela cheia.</p>
           </div>
         </div>
       </div>
@@ -324,7 +324,7 @@
               <span>Baixar o APK</span>
             </a>
           </div>
-          <p class="small">Android 8.0 ou superior. A transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior; o microfone não é transmitido.</p>
+          <p class="small">Android 8.0 ou superior. A transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior e só inclui sons de mídia e jogos de apps que permitem a captura; chamadas, alarmes e o microfone não são transmitidos.</p>
         </div>
       </div>
     </section>
@@ -356,7 +356,7 @@
               <tr>
                 <td><code>speed.cloudflare.com</code></td>
                 <td>ao abrir a escolha de tela, uma vez por execução, e ao clicar em &quot;Medir de novo&quot;</td>
-                <td>Medir o upload. O teste dura ~5 s e envia dados de teste: cerca de 60 MB numa fibra de 100 Mbps, com teto de 150 MB.</td>
+                <td>Medir o upload. O teste dura ~5 s e envia dados de teste: cerca de 60 MB numa fibra de 100 Mbps, com teto de 150 MiB.</td>
               </tr>
               <tr>
                 <td><code>livescreen.pendiego.com</code> (Cloudflare Worker) e <code>stun.cloudflare.com</code></td>
