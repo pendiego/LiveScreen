@@ -115,6 +115,8 @@ pub struct ShareStatus {
     pub ticket: Option<String>,
     pub online_warning: bool,
     pub web: WebState,
+    /// VPN que é a rota padrão (nome do adaptador); o link do navegador também tenta pela placa física.
+    pub web_vpn: Option<String>,
     pub backend: &'static str,
     pub encoder: String,
     pub viewers: Vec<ViewerInfo>,
@@ -164,6 +166,7 @@ pub(crate) struct Peer {
     pub(crate) conn: PeerConn,
     pub(crate) name: String,
     pub(crate) decoders: Vec<Codec>,
+    pub(crate) h264_baseline: bool,
 }
 
 pub(crate) struct Shared {
@@ -200,6 +203,8 @@ pub(crate) struct Shared {
     pub(crate) chat: Arc<Mutex<ChatLog>>,
     /// Ids de remetente de chat; o 0 é do host.
     pub(crate) next_chat_id: AtomicU32,
+    /// Doações simuladas ligadas nesta transmissão.
+    pub(crate) donate: bool,
 }
 
 impl Shared {
@@ -402,6 +407,7 @@ async fn handle_viewer(
             conn: PeerConn::Iroh(conn.clone()),
             name: sanitize(&name, 32),
             decoders,
+            h264_baseline: false,
         },
     );
     sh.codec_dirty.store(true, Ordering::Release);
@@ -423,6 +429,7 @@ async fn handle_viewer(
                 light_presets: true,
                 chat: true,
                 chat_id,
+                donate: sh.donate,
             },
         ),
     )
@@ -448,11 +455,11 @@ async fn handle_viewer(
                 ViewerMsg::RequestKeyframe => sh2.request_keyframe(),
                 ViewerMsg::SetQuality { preset } => sh2.request_quality(preset, &who),
                 ViewerMsg::SetVisible { visible: v } => visible2.store(v, Ordering::Relaxed),
-                ViewerMsg::Chat { text } => {
-                    if limiter.allow(Instant::now()) {
-                        if let Some(l) = ChatLine::from_viewer(chat_id, &sender_name, is_friend, &text) {
-                            sh2.post_chat(l);
-                        }
+                ViewerMsg::Chat { text, donate } => {
+                    if limiter.allow(Instant::now())
+                        && let Some(l) = ChatLine::incoming(chat_id, &sender_name, is_friend, &text, donate, sh2.donate)
+                    {
+                        sh2.post_chat(l);
                     }
                 }
                 _ => {}
@@ -560,6 +567,8 @@ pub struct HostConfig {
     pub height: u32,
     pub fps: u32,
     pub audio: bool,
+    /// Doações simuladas no chat (experimental); vale pela transmissão inteira.
+    pub donate: bool,
 }
 
 /// Entradas do encoder e da captura de áudio da plataforma. Áudio: datagrama `[seq u32 LE][Opus 20 ms]`.
@@ -651,6 +660,7 @@ impl Host {
             chat_tx: broadcast::channel(64).0,
             chat: Arc::new(Mutex::new(ChatLog::default())),
             next_chat_id: AtomicU32::new(1),
+            donate: cfg.donate,
         });
         {
             let (ep, shared, status) = (ep.clone(), shared.clone(), status.clone());
@@ -878,6 +888,11 @@ impl Host {
         }
         let conns = self.shared.conns.lock().unwrap();
         Some(conns.values().map(|p| p.decoders.clone()).collect())
+    }
+
+    /// Algum espectador do navegador só decodifica H.264 Baseline/Main (Firefox): o encoder deve gerar Baseline.
+    pub fn needs_h264_baseline(&self) -> bool {
+        self.shared.conns.lock().unwrap().values().any(|p| p.h264_baseline)
     }
 
     /// Novo tamanho no ar, repassado aos espectadores e ao status.

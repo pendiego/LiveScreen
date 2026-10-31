@@ -1,12 +1,13 @@
 //! Painel de chat compartilhado entre host e espectador: lista rolável + campo de envio.
 
 use egui::{Align, Layout, RichText};
-use livescreen_core::chat::{ChatLog, ChatRole, MAX_CHAT_CHARS};
+use livescreen_core::chat::{ChatLog, ChatRole, DONATE_AMOUNTS, MAX_CHAT_CHARS};
 
 use super::theme::{self, Kind, P};
 
 /// Desenha o chat ocupando exatamente `height` (lista rolável + campo de envio); devolve o
-/// texto a enviar quando a pessoa confirma (botão ou Enter).
+/// texto a enviar e as moedas (0 = mensagem comum) quando a pessoa confirma (botão ou Enter).
+/// `donate` mostra a linha de botões de doação simulada.
 /// `me` identifica as linhas próprias, mostradas como "Você".
 pub fn panel(
     ui: &mut egui::Ui,
@@ -14,10 +15,12 @@ pub fn panel(
     me: (ChatRole, u32),
     draft: &mut String,
     height: f32,
-) -> Option<String> {
+    donate: bool,
+) -> Option<(String, u32)> {
     const INPUT_H: f32 = 40.0;
+    const DONATE_H: f32 = 32.0;
     const GAP: f32 = 12.0;
-    let list_h = (height - INPUT_H - GAP).max(120.0);
+    let list_h = (height - INPUT_H - GAP - if donate { DONATE_H + GAP } else { 0.0 }).max(120.0);
     egui::ScrollArea::vertical()
         .max_height(list_h)
         .min_scrolled_height(list_h)
@@ -45,6 +48,9 @@ pub fn panel(
                     }
                     if l.friend {
                         theme::badge(ui, "amigo", P.success);
+                    }
+                    if l.donate > 0 {
+                        theme::badge(ui, "doação", P.warn);
                     }
                 });
                 ui.add_space(3.0);
@@ -80,11 +86,23 @@ pub fn panel(
         if enter || click {
             let t = draft.trim().to_string();
             if !t.is_empty() {
-                out = Some(t);
+                out = Some((t, 0));
             }
             draft.clear();
             resp.request_focus();
         }
     });
+    if donate {
+        ui.add_space(GAP);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Doar").size(13.0).color(P.text_muted));
+            for n in DONATE_AMOUNTS {
+                if theme::small_button(ui, Kind::Secondary, n.to_string()).on_hover_text(format!("Doar {n} moedas de mentira")).clicked() {
+                    out = Some((draft.trim().to_string(), n));
+                    draft.clear();
+                }
+            }
+        });
+    }
     out
 }

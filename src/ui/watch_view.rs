@@ -465,7 +465,7 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
         action = ControlAction::ToggleFullscreen;
     }
     let mut double = false;
-    let mut chat_out: Option<String> = None;
+    let mut chat_out: Option<(String, u32)> = None;
     if st.chat {
         let log = chat_log.lock().unwrap();
         let last = log.last_seq();
@@ -480,8 +480,8 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
                     .filter(|l| !mine(l))
                     .last()
                 {
-                    app.toasts
-                        .push(format!("{}: {}", l.label(), trunc(&l.text, 80)), ToastKind::Info);
+                    let kind = if l.donate > 0 { ToastKind::Success } else { ToastKind::Info };
+                    app.toasts.push(format!("{}: {}", l.label(), trunc(&l.text, 80)), kind);
                 }
             }
             app.watch_view.chat_seen = last;
@@ -502,14 +502,19 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
                         &mut app.watch_view.chat_draft,
                         // a barra de chamada flutua sobre o canto inferior do painel
                         ui.available_height() - theme::CALL_BAR_CLEARANCE + 16.0,
+                        st.donate,
                     );
                 });
         }
     }
-    if let Some(t) = chat_out
+    if let Some((t, n)) = chat_out
         && let Some(w) = app.watch.as_ref()
     {
-        w.send_chat(&t);
+        if n == 0 {
+            w.send_chat(&t);
+        } else {
+            w.donate(n, &t);
+        }
     }
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(Color32::BLACK))

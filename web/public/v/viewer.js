@@ -31,8 +31,14 @@
   const chatList = document.getElementById("chatList");
   const chatForm = document.getElementById("chatForm");
   const chatInput = document.getElementById("chatInput");
+  const donateRow = document.getElementById("donateRow");
   let chatCh = null;
   let myChatId = null;
+  const qualityBtn = document.getElementById("qualityBtn");
+  const qualityMenu = document.getElementById("qualityMenu");
+  const qualityNote = document.getElementById("qualityNote");
+  let hostCtl = false; // host novo: entende set_visible e set_quality pelo canal do chat
+  let sentVisible = true; // o host começa considerando a aba visível
   const unmuteBtn = document.getElementById("unmuteBtn");
   const waitOverlay = document.getElementById("waitOverlay");
   const netBadge = document.getElementById("netBadge");
@@ -182,6 +188,12 @@
     answered = false;
     everConnected = false;
     stopStats();
+    releaseAwake();
+    hostCtl = false;
+    sentVisible = true;
+    qualityBtn.hidden = true;
+    qualityMenu.hidden = true;
+    qualityBtn.setAttribute("aria-expanded", "false");
     netBadge.hidden = true;
     if (pc) {
       try { pc.close(); } catch {}
@@ -213,6 +225,7 @@
     chatCh = null;
     myChatId = null;
     chatBtn.hidden = true;
+    donateRow.hidden = true;
     chatBtn.setAttribute("aria-pressed", "false");
     delete chatBtn.dataset.unread;
     chatPanel.hidden = true;
@@ -221,6 +234,16 @@
     joinForm.hidden = true;
     document.title = TITLE;
     showStatus(sentence(text), "error");
+  }
+
+  // sem TURN, só o caminho direto existe: explica o que o espectador pode tentar
+  // srflx só prova que o STUN respondeu; a causa real pode ser NAT de qualquer lado, firewall ou DTLS
+  function connectTips() {
+    const hasSrflx = /^a=candidate:.* typ srflx/m.test(pc?.localDescription?.sdp || "");
+    const base = "Não foi possível estabelecer a conexão direta; a rede de um dos lados pode estar bloqueando (comum em 4G e redes de empresa ou escola). Tente trocar entre Wi-Fi e dados móveis ou desligar a VPN; quem transmite também pode liberar o LiveScreen no firewall do Windows.";
+    return hasSrflx
+      ? base
+      : `${base} Seu navegador também não reportou endereço público, o que pode indicar VPN, bloqueador de WebRTC ou economia de dados.`;
   }
 
   async function start(iceServers) {
@@ -243,7 +266,11 @@
         if (!pc) return;
         const st = pc.connectionState;
         if (st === "failed") {
-          stopWithReason(everConnected ? "A conexão com quem transmite caiu." : "Não foi possível conectar: a rede pode estar bloqueando a conexão direta.");
+          const types = {};
+          for (const m of (pc.localDescription?.sdp || "").matchAll(/^a=candidate:.* typ (\w+)/gm)) types[m[1]] = (types[m[1]] || 0) + 1;
+          // diagnóstico para quem reporta o erro: ICE x DTLS e quais candidatos foram oferecidos
+          console.warn("LiveScreen: conexão falhou", { ice: pc.iceConnectionState, gathering: pc.iceGatheringState, candidatos: types });
+          stopWithReason(everConnected ? "A conexão com quem transmite caiu. Tente entrar de novo." : `${connectTips()} (ICE ${pc.iceConnectionState}; candidatos ${JSON.stringify(types)})`);
         } else if (st === "disconnected") {
           netBadge.hidden = false;
         } else if (st === "connected") {
@@ -374,7 +401,10 @@
       }
 
       if (data.t === "reject" || data.t === "closed") {
-        stopWithReason(typeof data.reason === "string" ? data.reason.slice(0, 200) : "");
+        let reason = typeof data.reason === "string" ? data.reason.slice(0, 200) : "";
+        // o host dá o timeout de ICE antes do navegador: acrescenta a orientação
+        if (!everConnected && /^não foi possível conectar/i.test(reason)) reason = connectTips();
+        stopWithReason(reason);
       }
     };
 
@@ -498,7 +528,7 @@
     let bytes = 0;
     let ts = 0;
     let pair = null;
-    const locals = new Map();
+    const remotes = new Map();
     report.forEach((r) => {
       if (r.type === "inbound-rtp") {
         bytes += r.bytesReceived || 0;
@@ -506,8 +536,8 @@
         if (r.kind === "video") vid = r;
       } else if (r.type === "candidate-pair" && r.state === "succeeded" && r.nominated) {
         pair = r;
-      } else if (r.type === "local-candidate") {
-        locals.set(r.id, r);
+      } else if (r.type === "remote-candidate") {
+        remotes.set(r.id, r);
       }
     });
 
@@ -527,8 +557,8 @@
       loss = `${nf.format(total ? (vid.packetsLost / total) * 100 : 0)} %`;
     }
     const rtt = pair && pair.currentRoundTripTime != null ? `${nf.format(pair.currentRoundTripTime * 1000)} ms` : "—";
-    const local = pair ? locals.get(pair.localCandidateId) : null;
-    const path = local && local.candidateType ? (local.candidateType === "relay" ? "Via TURN" : "Direto") : "—";
+    const remote = pair ? remotes.get(pair.remoteCandidateId) : null;
+    const path = pair ? "Direto" + (remote && remote.address ? (remote.address.includes(":") ? " · IPv6" : " · IPv4") : "") : "—";
 
     renderStats([res, fps, rate, loss, rtt, path]);
   }
@@ -553,6 +583,12 @@
       if (!Number.isInteger(data.chat_id)) return;
       myChatId = data.chat_id;
       chatBtn.hidden = false;
+      donateRow.hidden = data.donate !== true;
+      if (data.ctl === true) {
+        hostCtl = true;
+        qualityBtn.hidden = false;
+        sendVisibility();
+      }
     } else if (data.type === "chat") {
       appendChat(data);
     }
@@ -562,10 +598,11 @@
     if (typeof m.text !== "string" || (!Number.isInteger(m.sender) && m.role !== "host")) return;
     const mine = m.role === "viewer" && m.sender === myChatId;
     const host = m.role === "host";
+    const donate = Number.isInteger(m.donate) && m.donate > 0;
     const name = typeof m.name === "string" ? m.name.slice(0, 32) : "";
     const label = mine ? "Você" : host ? (name || "Anfitrião") : `${name || "Anônimo"} #${m.sender}`;
     const li = document.createElement("li");
-    li.className = host ? "chat-msg host" : "chat-msg";
+    li.className = (host ? "chat-msg host" : "chat-msg") + (donate ? " donate" : "");
     const who = document.createElement("span");
     who.className = "who";
     who.textContent = label;
@@ -575,6 +612,12 @@
       const t = document.createElement("span");
       t.className = "chat-tag";
       t.textContent = tag;
+      li.append(t);
+    }
+    if (donate) {
+      const t = document.createElement("span");
+      t.className = "chat-tag";
+      t.textContent = "doação";
       li.append(t);
     }
     const text = document.createElement("span");
@@ -611,6 +654,12 @@
       chatInput.value = "";
     }
   });
+  donateRow.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-amount]");
+    if (!b || !chatCh || chatCh.readyState !== "open") return;
+    chatCh.send(JSON.stringify({ type: "chat", text: chatInput.value.trim(), donate: Number(b.dataset.amount) }));
+    chatInput.value = "";
+  });
 
   // Controles que somem sozinhos
   function wake() {
@@ -618,14 +667,107 @@
     clearTimeout(idleTimer);
     if (playerBox.hidden) return;
     idleTimer = setTimeout(() => {
-      if (!statsPanel.hidden || controls.matches(":focus-within") || chatPanel.matches(":focus-within")) return;
+      if (!statsPanel.hidden || !qualityMenu.hidden || controls.matches(":focus-within") || chatPanel.matches(":focus-within")) return;
       playerBox.classList.add("idle");
-    }, 2500);
+    }, touchUi ? 4000 : 2500);
   }
   const controls = playerBox.querySelector(".controls");
+  // Toque: mostrar os controles com um toque e escondê-los com outro; some mais devagar que com mouse.
+  let touchUi = false;
+  let idleAtDown = false;
+  playerBox.addEventListener("pointerdown", (e) => {
+    touchUi = e.pointerType === "touch";
+    idleAtDown = playerBox.classList.contains("idle");
+  }, true);
   ["pointermove", "pointerdown", "keydown"].forEach((ev) => playerBox.addEventListener(ev, wake));
+  video.addEventListener("click", () => {
+    if (touchUi && !idleAtDown) playerBox.classList.add("idle");
+  });
   playerBox.addEventListener("pointerleave", (e) => {
     if (e.pointerType === "mouse") playerBox.classList.add("idle");
+  });
+
+  // Mantém a tela do celular acesa enquanto assiste.
+  let wakeLock = null;
+  let wakeAsk = -1; // geração com request em voo: impede pedidos simultâneos
+  let wakeGen = 0; // muda em releaseAwake: pedidos em voo de sessões encerradas são soltos ao chegar
+  async function holdAwake() {
+    if (!navigator.wakeLock || wakeLock || wakeAsk === wakeGen || playerBox.hidden || document.visibilityState !== "visible") return;
+    const gen = wakeGen;
+    wakeAsk = gen;
+    try {
+      const s = await navigator.wakeLock.request("screen");
+      if (gen !== wakeGen) {
+        s.release().catch(() => {});
+        return;
+      }
+      wakeLock = s;
+      s.addEventListener("release", () => { if (wakeLock === s) wakeLock = null; });
+    } catch {} finally {
+      if (wakeAsk === gen) wakeAsk = -1;
+    }
+  }
+  function releaseAwake() {
+    wakeGen++;
+    if (wakeLock) wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+  video.addEventListener("playing", holdAwake);
+  document.addEventListener("visibilitychange", holdAwake);
+
+  // Aba escondida (sem PiP): avisa o host para parar o vídeo e economizar dados e bateria; o áudio segue.
+  function pageVisible() {
+    return document.visibilityState === "visible" || document.pictureInPictureElement === video;
+  }
+  function sendVisibility() {
+    if (!hostCtl || !chatCh || chatCh.readyState !== "open") return;
+    const v = pageVisible();
+    if (v === sentVisible) return;
+    sentVisible = v;
+    chatCh.send(JSON.stringify({ type: "set_visible", visible: v }));
+  }
+  document.addEventListener("visibilitychange", sendVisibility);
+  video.addEventListener("enterpictureinpicture", sendVisibility);
+  video.addEventListener("leavepictureinpicture", sendVisibility);
+
+  // Qualidade: pedido ao host, que só aplica se for mais leve e no máximo um a cada 5 s.
+  let lastQualityAt = -Infinity;
+  let qualityNoteTimer = null;
+  function showQualityNote(text) {
+    qualityNote.textContent = text;
+    qualityNote.hidden = false;
+    clearTimeout(qualityNoteTimer);
+    qualityNoteTimer = setTimeout(() => { qualityNote.hidden = true; }, 4000);
+  }
+  function setQualityMenu(open) {
+    qualityMenu.hidden = !open;
+    qualityBtn.setAttribute("aria-expanded", String(open));
+    if (open) qualityMenu.querySelector("button").focus();
+  }
+  qualityBtn.addEventListener("click", () => setQualityMenu(qualityMenu.hidden));
+  qualityMenu.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-preset]");
+    if (!b) return;
+    setQualityMenu(false);
+    qualityBtn.focus();
+    if (!chatCh || chatCh.readyState !== "open") return;
+    if (performance.now() - lastQualityAt < 5000) {
+      showQualityNote("Espere alguns segundos antes de pedir de novo.");
+      return;
+    }
+    lastQualityAt = performance.now();
+    chatCh.send(JSON.stringify({ type: "set_quality", preset: b.dataset.preset }));
+    showQualityNote(`Pedido enviado: ${b.textContent}. O host aplica se for mais leve que a atual.`);
+  });
+  qualityMenu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      setQualityMenu(false);
+      qualityBtn.focus();
+    }
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!qualityMenu.hidden && !qualityMenu.contains(e.target) && !qualityBtn.contains(e.target)) setQualityMenu(false);
   });
 
   // Atalhos

@@ -175,6 +175,7 @@ fn roundtrip(
         kind,
         device,
         params,
+        false,
         rx,
         btx,
         Arc::new(AtomicBool::new(false)),

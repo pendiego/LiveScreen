@@ -16,13 +16,15 @@ pub enum Tab {
     Video,
     Share,
     Updates,
+    Experimental,
     Diagnostics,
 }
 
-const TABS: [(Tab, &str); 4] = [
+const TABS: [(Tab, &str); 5] = [
     (Tab::Video, "Vídeo"),
     (Tab::Share, "Transmissão"),
     (Tab::Updates, "Atualizações"),
+    (Tab::Experimental, "Experimental"),
     (Tab::Diagnostics, "Diagnóstico"),
 ];
 
@@ -96,6 +98,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                 Tab::Video => video(app, ui),
                 Tab::Share => share(app, ui),
                 Tab::Updates => updates(app, ui, ctx),
+                Tab::Experimental => experimental(app, ui),
                 Tab::Diagnostics => diagnostics(app, ui),
             });
         ui.add_space(16.0);
@@ -281,6 +284,13 @@ fn updates(app: &mut App, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui,
         &format!("Versão instalada: {}", env!("CARGO_PKG_VERSION")),
     );
+}
+
+fn experimental(app: &mut App, ui: &mut egui::Ui) {
+    hint(ui, "Recursos em teste: podem mudar ou sumir em qualquer versão.");
+    ui.add_space(8.0);
+    theme::checkbox(ui, &mut app.prefs.experimental.fake_donate, "Doações simuladas no chat");
+    toggle_hint(ui, "Quem assiste pode mandar moedas de mentira junto com a mensagem; nenhum dinheiro de verdade. Vale na próxima transmissão.");
 }
 
 fn diagnostics(app: &mut App, ui: &mut egui::Ui) {

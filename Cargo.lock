@@ -3287,7 +3287,7 @@ checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 
 [[package]]
 name = "livescreen"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -3318,7 +3318,7 @@ dependencies = [
 
 [[package]]
 name = "livescreen-android"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3334,7 +3334,7 @@ dependencies = [
 
 [[package]]
 name = "livescreen-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3343,6 +3343,8 @@ dependencies = [
  "http",
  "iroh",
  "iroh-tickets",
+ "netdev 0.45.1",
+ "netdev 0.46.3",
  "noq-proto",
  "ring",
  "rustls",

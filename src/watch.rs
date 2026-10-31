@@ -110,6 +110,10 @@ impl WatchSession {
         self.inner.send_chat(text);
     }
 
+    pub fn donate(&self, amount: u32, text: &str) {
+        self.inner.donate(amount, text);
+    }
+
     /// Avisa o host que a janela foi minimizada/restaurada: escondido, ele para de mandar vídeo.
     pub fn set_visible(&self, v: bool) {
         self.inner.set_visible(v);

@@ -13,6 +13,10 @@ pub const MAX_CHAT_CHARS: usize = 500;
 pub const CHAT_HISTORY: usize = 200;
 pub const HOST_SENDER: u32 = 0;
 const MAX_NAME_CHARS: usize = 32;
+/// Teto de uma doação simulada (moedas fictícias).
+pub const MAX_DONATE: u32 = 1000;
+/// Valores oferecidos pelos clientes; o host aceita qualquer valor em 1..=MAX_DONATE.
+pub const DONATE_AMOUNTS: [u32; 4] = [5, 10, 50, 100];
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -28,6 +32,9 @@ pub struct ChatLine {
     pub name: String,
     pub friend: bool,
     pub text: String,
+    /// Moedas da doação simulada; 0 = mensagem comum.
+    #[serde(default)]
+    pub donate: u32,
 }
 
 /// Limpa o texto e descarta o que ficar vazio.
@@ -44,6 +51,7 @@ impl ChatLine {
             name: sanitize(name, MAX_NAME_CHARS),
             friend,
             text: clean_chat(text)?,
+            donate: 0,
         })
     }
 
@@ -54,6 +62,7 @@ impl ChatLine {
             name: sanitize(name, MAX_NAME_CHARS),
             friend: false,
             text: clean_chat(text)?,
+            donate: 0,
         })
     }
 
@@ -62,8 +71,23 @@ impl ChatLine {
         Some(ChatLine {
             name: sanitize(&self.name, MAX_NAME_CHARS),
             text: clean_chat(&self.text)?,
+            donate: self.donate.min(MAX_DONATE),
             ..self
         })
+    }
+
+    /// Mensagem vinda de um espectador. `donate > 0` só passa com a função ligada no host e
+    /// dentro do teto; o texto da doação é montado aqui, para clientes antigos verem a linha.
+    pub fn incoming(sender: u32, name: &str, friend: bool, text: &str, donate: u32, donate_enabled: bool) -> Option<ChatLine> {
+        if donate == 0 {
+            return Self::from_viewer(sender, name, friend, text);
+        }
+        if !donate_enabled || donate > MAX_DONATE {
+            return None;
+        }
+        let msg = sanitize(text, MAX_CHAT_CHARS);
+        let t = if msg.is_empty() { format!("doou {donate} moedas") } else { format!("doou {donate} moedas: {msg}") };
+        Some(ChatLine { donate, ..Self::from_viewer(sender, name, friend, &t)? })
     }
 
     pub fn label(&self) -> String {
@@ -183,5 +207,19 @@ mod tests {
         assert_eq!(log.last_seq(), 205);
         let s: Vec<u64> = log.since(203).map(|(s, _)| s).collect();
         assert_eq!(s, vec![204, 205]);
+    }
+
+    #[test]
+    fn incoming_donation_rules() {
+        let c = ChatLine::incoming(3, "Ana", false, "oi", 0, false).unwrap();
+        assert_eq!(c.donate, 0);
+        let d = ChatLine::incoming(3, "Ana", false, "", 50, true).unwrap();
+        assert_eq!((d.text.as_str(), d.donate, d.role), ("doou 50 moedas", 50, ChatRole::Viewer));
+        assert_eq!(ChatLine::incoming(3, "Ana", false, "valeu", 50, true).unwrap().text, "doou 50 moedas: valeu");
+        assert!(ChatLine::incoming(3, "Ana", false, "", 50, false).is_none());
+        assert!(ChatLine::incoming(3, "Ana", false, "", 1001, true).is_none());
+        let mut l = ChatLine::from_host("h", "x").unwrap();
+        l.donate = 5000;
+        assert_eq!(l.sanitized().unwrap().donate, 1000);
     }
 }

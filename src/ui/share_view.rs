@@ -252,6 +252,7 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
     let pending = std::mem::take(&mut app.background);
     let identity = app.identity.clone();
     let host_name = livescreen_core::protocol::sanitize(&app.prefs.name, 32);
+    let donate = app.prefs.experimental.fake_donate;
     let friends: std::collections::HashSet<iroh::EndpointId> =
         app.friend_ids().into_iter().collect();
     app.background.push(std::thread::spawn(move || {
@@ -263,7 +264,7 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
         }
         let res = ShareSession::start(
             &rt, info, preset, audio, mic, encoders, overrides, room, identity, host_name,
-            friends,
+            friends, donate,
         );
         ctx2.request_repaint();
         if let Err(std::sync::mpsc::SendError(Ok(s))) = tx.send(res) {
@@ -287,6 +288,7 @@ fn poll_starting(app: &mut App, ctx: &egui::Context) {
             app.share_preview = Some(Preview::new(ctx, st.source.clone()));
             app.share_source = Some(st.source);
             app.known_viewers.clear();
+            app.share_chat_seen = 0;
             app.picker = None;
             app.screen = Screen::Sharing;
         }
@@ -1091,7 +1093,7 @@ fn invite_card(
         match &st.web {
             WebState::Off => {
                 ui.label(
-                    RichText::new("Funciona no Chrome, Edge e Safari, no computador ou no celular.")
+                    RichText::new("Funciona no Chrome, Edge, Firefox e Safari, no computador ou no celular.")
                         .small()
                         .color(theme::P.text_muted),
                 );
@@ -1118,6 +1120,15 @@ fn invite_card(
                     .color(theme::P.warn),
                 );
             }
+        }
+        if let (false, Some(vpn)) = (matches!(st.web, WebState::Off), &st.web_vpn) {
+            ui.label(
+                RichText::new(format!(
+                    "{I_WARN}  A VPN \"{vpn}\" é a rota padrão. O link do navegador também tenta pela sua conexão local; se a VPN bloquear o tráfego fora dela, quem assiste pelo navegador pode não conectar. Nesse caso, desligue a VPN."
+                ))
+                .small()
+                .color(theme::P.warn),
+            );
         }
         if st.online_warning {
             ui.label(
@@ -1265,7 +1276,8 @@ fn chat_card(ui: &mut egui::Ui, log: &ChatLog, draft: &mut String, height: f32) 
         theme::heading(ui, "Chat");
         ui.add_space(8.0);
         // `height` é o card inteiro; descontados título e margens
-        super::chat::panel(ui, log, (ChatRole::Host, HOST_SENDER), draft, height - 40.0 - 8.0 - 40.0)
+        super::chat::panel(ui, log, (ChatRole::Host, HOST_SENDER), draft, height - 40.0 - 8.0 - 40.0, false)
+            .map(|(t, _)| t)
     })
     .inner
 }
@@ -1404,6 +1416,13 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             }
         }
         app.known_viewers = current;
+    }
+    {
+        let log = chat.lock().unwrap();
+        for (_, l) in log.since(app.share_chat_seen).filter(|(_, l)| l.donate > 0) {
+            app.toasts.push(format!("{} doou {} moedas", l.label(), l.donate), ToastKind::Success);
+        }
+        app.share_chat_seen = log.last_seq();
     }
 
     // código copiado sozinho assim que fica pronto: falta só colar para quem vai assistir

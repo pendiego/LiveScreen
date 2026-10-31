@@ -124,6 +124,7 @@ fn try_encoder(device: &ID3D11Device, params: EncodeParams, kind: &EncoderKind) 
         kind.clone(),
         device,
         params,
+        false,
         rx,
         btx,
         Arc::new(AtomicBool::new(false)),

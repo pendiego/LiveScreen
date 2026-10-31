@@ -16,43 +16,7 @@ function bytesToHex(bytes) {
   return s;
 }
 
-async function iceServers(env) {
-  const fallback = [{ urls: "stun:stun.cloudflare.com:3478" }];
-  const keyId = env?.TURN_KEY_ID;
-  const token = env?.TURN_KEY_API_TOKEN;
-  if (!keyId || !token) {
-    return { list: fallback, fresh: false };
-  }
-  try {
-    const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ ttl: 14400 }),
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!res.ok) return { list: fallback, fresh: false };
-    const j = await res.json();
-    if (!j || !j.iceServers) return { list: fallback, fresh: false };
-    const list = [].concat(j.iceServers);
-    const filtered = list
-      .map((entry) => {
-        if (!entry || !entry.urls) return entry;
-        const urls = Array.isArray(entry.urls) ? entry.urls : [entry.urls];
-        const cleaned = urls.filter((u) => typeof u === "string" && !/:53(\?|$)/.test(u));
-        return { ...entry, urls: cleaned };
-      })
-      .filter((entry) => {
-        if (!entry.urls) return false;
-        return Array.isArray(entry.urls) ? entry.urls.length > 0 : true;
-      });
-    return filtered.length > 0 ? { list: filtered, fresh: true } : { list: fallback, fresh: false };
-  } catch {
-    return { list: fallback, fresh: false };
-  }
-}
+const ICE_SERVERS = [{ urls: "stun:stun.cloudflare.com:3478" }];
 
 export default {
   async fetch(req, env) {
@@ -116,8 +80,7 @@ export class Room extends DurableObject {
     await this._armReaper();
 
     if (role === "view") {
-      const hosts = this.ctx.getWebSockets("host");
-      const hostOk = hosts.some((h) => {
+      const host = this.ctx.getWebSockets("host").find((h) => {
         try {
           const a = h.deserializeAttachment();
           return a && a.ok === true;
@@ -125,9 +88,8 @@ export class Room extends DurableObject {
           return false;
         }
       });
-      if (hostOk) {
-        const ice = await this._iceServers();
-        server.send(JSON.stringify({ t: "hello", iceServers: ice }));
+      if (host) {
+        server.send(JSON.stringify({ t: "hello", iceServers: ICE_SERVERS }));
       } else {
         server.send(JSON.stringify({ t: "nohost" }));
         server.close(4004, "nohost");
@@ -247,20 +209,6 @@ export class Room extends DurableObject {
 
   async webSocketError(ws, error) {
     this._handleLeave(ws);
-  }
-
-  // Credencial vale 4 h (ttl 14400); reusar por 1 h garante ≥3 h de validade a quem entra.
-  async _iceServers() {
-    if (this.ice && Date.now() < this.ice.until) return this.ice.list;
-    if (!this.icePending) {
-      this.icePending = iceServers(this.env)
-        .then(({ list, fresh }) => {
-          if (fresh) this.ice = { list, until: Date.now() + 3600000 };
-          return list;
-        })
-        .finally(() => { this.icePending = null; });
-    }
-    return this.icePending;
   }
 
   async _armReaper() {

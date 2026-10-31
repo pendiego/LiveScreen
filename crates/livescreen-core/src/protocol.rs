@@ -84,8 +84,11 @@ pub enum ViewerMsg {
         visible: bool,
     },
     /// Mensagem de chat; o host atribui remetente e papel, o texto é só conteúdo.
+    /// `donate > 0`: doação simulada (só com `Welcome.donate`).
     Chat {
         text: String,
+        #[serde(default)]
+        donate: u32,
     },
 }
 
@@ -110,6 +113,9 @@ pub enum HostMsg {
         /// Identificador do viewer na sala (0 é o host).
         #[serde(default)]
         chat_id: u32,
+        /// Host aceita doações simuladas no chat (experimental).
+        #[serde(default)]
+        donate: bool,
     },
     /// Qualidade trocada com a transmissão no ar; o próximo keyframe já vem no novo tamanho.
     StreamParams {
@@ -594,11 +600,12 @@ mod tests {
             r#"{"type":"welcome","width":1280,"height":720,"fps":30,"audio":false}"#,
         )
         .unwrap();
-        let HostMsg::Welcome { chat, chat_id, .. } = m else {
+        let HostMsg::Welcome { chat, chat_id, donate, .. } = m else {
             panic!()
         };
         assert!(!chat);
         assert_eq!(chat_id, 0);
+        assert!(!donate);
     }
     #[test]
     fn chat_msg_json_shape() {
@@ -608,12 +615,24 @@ mod tests {
             name: "Ana".into(),
             friend: false,
             text: "oi".into(),
+            donate: 0,
         };
         let v = serde_json::to_value(&HostMsg::Chat(l)).unwrap();
         assert_eq!(v["type"], "chat");
         assert_eq!(v["role"], "viewer");
         let m = serde_json::from_str::<ViewerMsg>(r#"{"type":"chat","text":"oi"}"#).unwrap();
-        assert!(matches!(m, ViewerMsg::Chat { .. }));
+        let ViewerMsg::Chat { donate, .. } = m else {
+            panic!()
+        };
+        assert_eq!(donate, 0);
+        let m = serde_json::from_str::<HostMsg>(
+            r#"{"type":"chat","sender":3,"role":"viewer","name":"Ana","friend":false,"text":"oi"}"#,
+        )
+        .unwrap();
+        let HostMsg::Chat(l) = m else {
+            panic!()
+        };
+        assert_eq!(l.donate, 0);
     }
     #[test]
     fn sanitize_strips_controls_and_trims() {

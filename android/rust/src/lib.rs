@@ -792,6 +792,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_hostStart(
         ticket: None,
         online_warning: false,
         web: WebState::Off,
+        web_vpn: None,
         backend: "MediaProjection",
         encoder,
         viewers: Vec::new(),
@@ -824,6 +825,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_hostStart(
         height: h,
         fps: f,
         audio: audio_on,
+        donate: false,
     };
     match Host::start(RT.handle(), cfg, &feeds, status) {
         Ok(host) => {
