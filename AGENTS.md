@@ -66,7 +66,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |`friends.rs`|`SecretKey` persistente, código de amigo (id hex), ALPN de presença, `Prober`, `PresenceState`|
 |`host/mod.rs`|host sem plataforma: endpoint iroh (ALPN + presença), handshake, sala (limite, kick, ban), fan-out de vídeo/áudio/chat, ABR; a plataforma entrega quadros codificados por `Feeds`|
 |`host/web.rs`|espectadores do navegador: WebRTC com `str0m` (uma sessão e um socket UDP por peer), sinalização com o Worker (`LIVESCREEN_WEB_URL`, padrão `https://livescreen.pendiego.com`), reconexão com backoff|
-|`web.rs`|link do navegador, prova HMAC, fingerprint DTLS, STUN manual (srflx)|
+|`web.rs`|link do navegador, sinalização cifrada (AES-256-GCM), STUN manual (srflx)|
 |`chat.rs`|mensagens do chat, papéis e limites|
 
 ### Android (`android/`)
@@ -94,7 +94,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 - Limites de entrada da rede (`MAX_MSG`, `MAX_FRAME` em `protocol.rs`; `MAX_HANDSHAKES`, `HANDSHAKE_TIMEOUT` em `host/mod.rs`; `MAX_SDP` em `host/web.rs`; limites do Worker) são fronteira de confiança: não afrouxe sem motivo.
 - Captura e encoder têm fallback (WGC → DXGI, hardware → software) e overrides (`deny-graphics-capture`, `deny-dxgi`, `deny-hardware-encoder`, `deny-hardware-decoder`, `deny-zero-copy`). Mudanças nesses caminhos devem preservar os dois lados do fallback.
 - Threads de captura/encoder não podem morrer por um quadro ruim (ver `SinkHandle::lock`, que recupera mutex envenenado).
-- Updater: o asset `livescreen.exe` solto da release é o que o app desktop baixa e confere pelo sha256 do GitHub; o `livescreen-android.apk` solto é o do Android (`Updater.ASSET`). Não renomeie assets em `release.yml` sem ajustar `update.rs`/`Updater.kt`.
+- Updater: o asset `livescreen.exe` solto da release é o que o app desktop baixa e confere pelo sha256 do GitHub e pela assinatura Ed25519 do asset `livescreen.exe.sig` (chave pública `UPDATE_KEY` em `update.rs`); o `livescreen-android.apk` solto é o do Android (`Updater.ASSET`). Não renomeie assets em `release.yml` sem ajustar `update.rs`/`Updater.kt`.
 - Dependências: `reqwest`/`rustls` reaproveitam o que o iroh já traz (provider `ring`); evite adicionar crates para o que a stdlib, `windows` ou as dependências atuais resolvem.
 - Novas conexões de rede externas precisam entrar na tabela "Conexões que o app faz" do `README.md`.
 - Viewer desktop: decoder por hardware (`video/decoder.rs`, MFT com `IMFDXGIDeviceManager` + `Converter::new_rgb`) cai para software após 3 falhas seguidas; preservar os dois caminhos. O quadro vai à UI por textura compartilhada (`GpuOut::Shared`, `video/present.rs`) e cai para readback (`GpuOut::Readback`) quando o egui não roda em DX12, o adaptador difere, falta saída RGBA, a importação falha ou há `deny-zero-copy`; preservar os dois caminhos. `ViewerMsg::SetQuality` é pedido, não ordem: `share.rs::apply_quality_request` só aceita redução real (`preset::is_reduction`).
@@ -104,7 +104,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 
 ### Navegador (web)
 
-- A chave da sala vai no fragmento do link (`#sala.chave`) e nunca chega ao servidor; a página a tira da barra de endereço e guarda em `sessionStorage`. O Worker não conhece a chave: quem autentica o espectador é o host, pela prova HMAC amarrada ao fingerprint DTLS do offer (`web.rs`). Não mova a verificação para o Worker.
+- A chave da sala vai no fragmento do link (`#sala.chave`) e nunca chega ao servidor; a página a tira da barra de endereço e guarda em `sessionStorage`. O Worker não conhece a chave: quem autentica o espectador é o host, abrindo o offer cifrado com a chave da sala (`web.rs`, `open_offer`); links sem `.v2` são de hosts antigos e usam a prova HMAC. Não mova a verificação para o Worker.
 - O Worker só repassa sinalização (offer/answer/reject/close/left). O formato dessas mensagens (`SignalOut`/`SignalIn` em `host/web.rs`) é contrato com hosts já instalados: mudanças só aditivas, e Worker novo precisa funcionar com host antigo.
 - Limites do Worker (`Room`): até 4 sockets de host e 64 de espectador por sala, mensagem até 64 KiB, host sem autenticação em 10 s e espectador sem oferta em 30 s são fechados (código 4008, `alarm()`). Viewer id tem 8 hex (`valid_peer_id`).
 - Depois da resposta o vídeo é P2P: queda do WebSocket de sinalização não encerra quem já assiste. O host mantém o canal e o mapa de peers web durante a transmissão inteira e reconecta com backoff.
@@ -139,7 +139,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 ## Release
 
 1. Atualize `version` em `Cargo.toml` (o updater compara com `CARGO_PKG_VERSION`; o Android deriva `versionName`/`versionCode` dele).
-2. Commit `chore(release): X.Y.Z`, tag `vX.Y.Z`, push da tag: `release.yml` compila o APK assinado (segredos `ANDROID_KEYSTORE_B64`/`ANDROID_KEYSTORE_PASSWORD`), o `.exe` e o `.zip`, publica os três e gera as notas com o `git-cliff` (`cliff.toml`).
+2. Commit `chore(release): X.Y.Z`, tag `vX.Y.Z`, push da tag: `release.yml` compila o APK assinado (segredos `ANDROID_KEYSTORE_B64`/`ANDROID_KEYSTORE_PASSWORD`), o `.exe` e o `.zip`, publica os três e gera as notas com o `git-cliff` (`cliff.toml`). O `release.yml` cria a release como rascunho. Depois rode `.github/scripts/sign-release.ps1 -Tag vX.Y.Z` (chave privada em `%USERPROFILE%\.livescreen-release\update-key.pk8`, fora do repositório): o script assina o exe, sobe `livescreen.exe.sig` e publica. Release em rascunho não chega a nenhum updater.
 
 Commits seguem Conventional Commits em português (`feat:`, `fix:`, `perf:`, `docs:`, `ci:`, `chore(release):`; escopo `android` para o app Android). As notas da release são esses commits desde a tag anterior, agrupados por tipo; itens `- ...` no corpo viram subitens e `!`/`BREAKING CHANGE:` entra em "Breaking Changes". Por isso PRs entram por rebase ou merge commit, nunca squash (o squash junta tudo num commit só e as notas perdem os itens).
 
