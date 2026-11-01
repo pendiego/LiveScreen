@@ -29,6 +29,11 @@ export default {
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Upgrade Required", { status: 426 });
     }
+    // a página é servida por este mesmo Worker; host nativo não manda Origin
+    const origin = req.headers.get("Origin");
+    if (origin && origin !== url.origin) return new Response("Forbidden", { status: 403 });
+    const { success } = await env.WS_LIMIT.limit({ key: req.headers.get("cf-connecting-ip") || "local" });
+    if (!success) return new Response("Too Many Requests", { status: 429 });
     const room = match[2];
     const id = env.ROOM.idFromName(room);
     return env.ROOM.get(id).fetch(req);
@@ -55,8 +60,14 @@ export class Room extends DurableObject {
     const room = match[2];
 
     const tag = role === "host" ? "host" : "view";
-    if (this.ctx.getWebSockets(tag).length >= (role === "host" ? 4 : 64)) {
-      return new Response("Too Many Requests", { status: 429 });
+    const existing = this.ctx.getWebSockets(tag);
+    if (existing.length >= (role === "host" ? 4 : 64)) {
+      // host sem autenticação não segura vaga contra o host de verdade
+      const stale = role === "host" && existing.find((h) => {
+        try { const a = h.deserializeAttachment(); return !a || a.ok !== true; } catch { return true; }
+      });
+      if (!stale) return new Response("Too Many Requests", { status: 429 });
+      try { stale.close(4008, "tempo esgotado"); } catch {}
     }
 
     const pair = new WebSocketPair();
@@ -144,10 +155,10 @@ export class Room extends DurableObject {
 
       if (!data.id || typeof data.id !== "string" || !/^[0-9a-f]{8}$/i.test(data.id)) return;
       const viewers = this.ctx.getWebSockets("v:" + data.id.toLowerCase());
-      if (data.t === "answer" && typeof data.sdp === "string") {
+      if (data.t === "answer" && (typeof data.sdp === "string" || typeof data.sealed === "string")) {
         for (const v of viewers) {
           try {
-            v.send(JSON.stringify({ t: "answer", sdp: data.sdp }));
+            v.send(JSON.stringify({ t: "answer", sdp: typeof data.sdp === "string" ? data.sdp : "", sealed: typeof data.sealed === "string" ? data.sealed : "" }));
             const a = v.deserializeAttachment();
             if (a) { a.answered = true; v.serializeAttachment(a); }
           } catch {}
@@ -173,7 +184,8 @@ export class Room extends DurableObject {
     if (att.role === "view") {
       if (data.t !== "offer") return;
       if (att.offered) return;
-      if (typeof data.sdp !== "string" || typeof data.proof !== "string") return;
+      const sealed = typeof data.sealed === "string" ? data.sealed : "";
+      if (!sealed && (typeof data.sdp !== "string" || typeof data.proof !== "string")) return;
       const name = typeof data.name === "string" ? data.name.slice(0, 64) : "";
 
       const hosts = this.ctx.getWebSockets("host");
@@ -195,9 +207,10 @@ export class Room extends DurableObject {
         JSON.stringify({
           t: "offer",
           id: att.id,
-          sdp: data.sdp,
-          proof: data.proof,
+          sdp: typeof data.sdp === "string" ? data.sdp : "",
+          proof: typeof data.proof === "string" ? data.proof : "",
           name,
+          sealed,
         })
       );
     }

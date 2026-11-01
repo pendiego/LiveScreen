@@ -1,5 +1,5 @@
 //! Desenho do viewer web: chave da sala no fragmento do link (não chega ao servidor),
-//! prova HMAC amarrada ao fingerprint DTLS do offer e STUN feito à mão porque o str0m
+//! offer e answer cifrados com essa chave (AES-256-GCM) e STUN feito à mão porque o str0m
 //! não descobre o endereço server-reflexive (srflx).
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -16,9 +16,10 @@ pub fn room_id(secret: &[u8; ROOM_KEY_LEN]) -> String {
 }
 
 /// Monta a URL completa do espectador com o segredo da sala e a chave simétrica no fragmento `#`.
+/// O sufixo `.v2` avisa a página que offer e answer vão cifrados com a chave da sala (AES-256-GCM).
 pub fn viewer_url(base: &str, secret: &[u8; ROOM_KEY_LEN], key: &[u8; ROOM_KEY_LEN]) -> String {
     format!(
-        "{}/v/#{}.{}",
+        "{}/v/#{}.{}.v2",
         base.trim_end_matches('/'),
         room_id(secret),
         hex::encode(key)
@@ -38,37 +39,89 @@ pub fn host_ws_url(base: &str, secret: &[u8; ROOM_KEY_LEN]) -> String {
     format!("{ws_base}/ws/host/{}", room_id(secret))
 }
 
-/// Extrai o primeiro fingerprint DTLS de um SDP (linha `a=fingerprint:`, sem o prefixo).
-pub fn sdp_fingerprint(sdp: &str) -> Option<&str> {
-    for line in sdp.lines() {
-        let line = line.trim();
-        if let Some(fp) = line.strip_prefix("a=fingerprint:") {
-            return Some(fp.trim());
-        }
+const SIGNAL_SALT: &[u8] = b"livescreen/web-signal/v2";
+const NONCE_LEN: usize = 12;
+
+/// Conteúdo do offer cifrado pelo navegador (JSON).
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub struct SealedOffer {
+    pub sdp: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Serialize)]
+struct SealedAnswer<'a> {
+    sdp: &'a str,
+}
+
+/// AES-256-GCM com chave HKDF-SHA256(salt = SIGNAL_SALT, ikm = chave da sala, info = `dir`).
+fn signal_key(key: &[u8; ROOM_KEY_LEN], dir: &[u8]) -> ring::aead::LessSafeKey {
+    let prk = ring::hkdf::Salt::new(ring::hkdf::HKDF_SHA256, SIGNAL_SALT).extract(key);
+    let info = [dir];
+    let okm = prk.expand(&info, &ring::aead::AES_256_GCM).expect("tamanho fixo do AES-256");
+    ring::aead::LessSafeKey::new(ring::aead::UnboundKey::from(okm))
+}
+
+/// hex(nonce || cifra || tag).
+fn seal_with(k: &ring::aead::LessSafeKey, nonce: [u8; NONCE_LEN], aad: &[u8], plain: &[u8]) -> String {
+    let mut buf = plain.to_vec();
+    k.seal_in_place_append_tag(
+        ring::aead::Nonce::assume_unique_for_key(nonce),
+        ring::aead::Aad::from(aad),
+        &mut buf,
+    )
+    .expect("tamanho dentro do limite do AES-GCM");
+    format!("{}{}", hex::encode(nonce), hex::encode(buf))
+}
+
+/// Inverso de `seal_with`; `None` se o hex for inválido, curto (< 28 bytes) ou se a tag não conferir.
+fn open_with(
+    k: &ring::aead::LessSafeKey,
+    aad: &[u8],
+    sealed_hex: &str,
+) -> Option<(Vec<u8>, [u8; NONCE_LEN])> {
+    let bytes = hex::decode(sealed_hex).ok()?;
+    if bytes.len() < NONCE_LEN + 16 {
+        return None;
     }
-    None
+    let (n, ct) = bytes.split_at(NONCE_LEN);
+    let nonce: [u8; NONCE_LEN] = n.try_into().ok()?;
+    let mut buf = ct.to_vec();
+    let plain = k
+        .open_in_place(
+            ring::aead::Nonce::assume_unique_for_key(nonce),
+            ring::aead::Aad::from(aad),
+            &mut buf,
+        )
+        .ok()?;
+    Some((plain.to_vec(), nonce))
 }
 
-/// Gera a prova HMAC-SHA256 vinculando a chave da sala ao fingerprint DTLS do offer do navegador.
-pub fn web_proof(key: &[u8; ROOM_KEY_LEN], fingerprint: &str) -> String {
-    let s_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key);
-    let mut msg = Vec::with_capacity(17 + fingerprint.len());
-    msg.extend_from_slice(b"livescreen/web/v1");
-    msg.extend_from_slice(fingerprint.as_bytes());
-    let tag = ring::hmac::sign(&s_key, &msg);
-    hex::encode(tag.as_ref())
+/// Abre o offer do navegador. AAD = "offer:" + sala (32 hex). Devolve também o nonce, que amarra a resposta.
+pub fn open_offer(
+    key: &[u8; ROOM_KEY_LEN],
+    room: &str,
+    sealed_hex: &str,
+) -> Option<(SealedOffer, [u8; NONCE_LEN])> {
+    let aad = format!("offer:{room}");
+    let (plain, nonce) = open_with(&signal_key(key, b"offer"), aad.as_bytes(), sealed_hex)?;
+    Some((serde_json::from_slice(&plain).ok()?, nonce))
 }
 
-/// Verifica a prova HMAC enviada pelo navegador. Retorna `false` em caso de erro ou assinatura inválida.
-pub fn verify_web_proof(key: &[u8; ROOM_KEY_LEN], fingerprint: &str, proof_hex: &str) -> bool {
-    let Ok(proof_bytes) = hex::decode(proof_hex) else {
-        return false;
-    };
-    let s_key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key);
-    let mut msg = Vec::with_capacity(17 + fingerprint.len());
-    msg.extend_from_slice(b"livescreen/web/v1");
-    msg.extend_from_slice(fingerprint.as_bytes());
-    ring::hmac::verify(&s_key, &msg, &proof_bytes).is_ok()
+/// Cifra a answer com nonce aleatório. AAD = "answer:" + sala + ":" + hex(nonce do offer).
+pub fn seal_answer(
+    key: &[u8; ROOM_KEY_LEN],
+    room: &str,
+    offer_nonce: &[u8; NONCE_LEN],
+    sdp: &str,
+) -> String {
+    use ring::rand::SecureRandom;
+    let mut nonce = [0u8; NONCE_LEN];
+    ring::rand::SystemRandom::new().fill(&mut nonce).expect("gerador aleatório do sistema");
+    let aad = format!("answer:{room}:{}", hex::encode(offer_nonce));
+    let plain = serde_json::to_vec(&SealedAnswer { sdp }).expect("JSON de string");
+    seal_with(&signal_key(key, b"answer"), nonce, aad.as_bytes(), &plain)
 }
 
 const STUN_MAGIC_COOKIE: u32 = 0x2112A442;
@@ -205,10 +258,8 @@ pub enum SignalIn {
     Pong,
     Offer {
         id: String,
-        sdp: String,
-        proof: String,
         #[serde(default)]
-        name: String,
+        sealed: String,
     },
     Left {
         id: String,
@@ -221,7 +272,10 @@ pub enum SignalIn {
 pub enum SignalOut {
     Host { secret: String },
     Ping,
-    Answer { id: String, sdp: String },
+    Answer {
+        id: String,
+        sealed: String,
+    },
     Reject { id: String, reason: String },
     Close { id: String, reason: String },
 }
@@ -259,56 +313,65 @@ mod tests {
         assert_eq!(stun_mapped_addr(&resp, &diff_txid), None);
     }
 
+    const SALA: &str = "00112233445566778899aabbccddeeff";
+    const OFFER_VEC: &str = "0101010101010101010101019ad3a09ee5d4a444d16c2dde72f783f7cea499b7594f64533a5f5479a8498c50e3ff5ea0b0087a13d3d5f0d59092";
+
     #[test]
-    fn test_web_proof_verification() {
-        let key = [42u8; ROOM_KEY_LEN];
-        let fp = "sha-256 01:23:45:67:89:AB:CD:EF";
-        let proof = web_proof(&key, fp);
+    fn test_signal_vectors_match_webcrypto() {
+        let key = [9u8; ROOM_KEY_LEN];
+        let (offer, nonce) = open_offer(&key, SALA, OFFER_VEC).expect("offer do WebCrypto");
+        assert_eq!(offer, SealedOffer { sdp: "v=0\r\n".into(), name: "Ana".into() });
+        assert_eq!(nonce, [1u8; 12]);
 
-        assert!(verify_web_proof(&key, fp, &proof));
-
-        let diff_key = [99u8; ROOM_KEY_LEN];
-        assert!(!verify_web_proof(&diff_key, fp, &proof));
-
-        let diff_fp = "sha-256 00:00:00:00:00:00:00:00";
-        assert!(!verify_web_proof(&key, diff_fp, &proof));
-
-        assert!(!verify_web_proof(&key, fp, "invalido"));
+        let sealed = seal_with(
+            &signal_key(&key, b"answer"),
+            [2u8; 12],
+            b"answer:00112233445566778899aabbccddeeff:010101010101010101010101",
+            br#"{"sdp":"v=1\r\n"}"#,
+        );
+        assert_eq!(sealed, "0202020202020202020202021e0a51645b5320a1314e55d9b83a5520af7b8d351fceefca7f27f829e800359e2b");
     }
 
     #[test]
-    fn test_sdp_fingerprint_extraction() {
-        let sdp = "v=0\r\no=- 12345 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=fingerprint:sha-256 AB:CD:EF:12:34\r\na=setup:actpass\r\n";
-        assert_eq!(
-            sdp_fingerprint(sdp),
-            Some("sha-256 AB:CD:EF:12:34")
-        );
-        assert_eq!(sdp_fingerprint("v=0\r\ns=-\r\n"), None);
+    fn test_signal_rejects_tampering() {
+        let key = [9u8; ROOM_KEY_LEN];
+        let mut bad = OFFER_VEC.to_string();
+        let last = if bad.ends_with('0') { '1' } else { '0' };
+        bad.pop();
+        bad.push(last);
+        assert!(open_offer(&key, SALA, &bad).is_none());
+        assert!(open_offer(&key, "ffeeddccbbaa99887766554433221100", OFFER_VEC).is_none());
+        assert!(open_offer(&[8u8; ROOM_KEY_LEN], SALA, OFFER_VEC).is_none());
+        for s in ["", "zz", "01"] {
+            assert!(open_offer(&key, SALA, s).is_none());
+        }
+        let answer = "0202020202020202020202021e0a51645b5320a1314e55d9b83a5520af7b8d351fceefca7f27f829e800359e2b";
+        assert!(open_offer(&key, SALA, answer).is_none());
+
+        let a = seal_answer(&key, SALA, &[1u8; 12], "v=1\r\n");
+        let aad = format!("answer:{SALA}:{}", hex::encode([1u8; 12]));
+        let (plain, _) = open_with(&signal_key(&key, b"answer"), aad.as_bytes(), &a).unwrap();
+        assert_eq!(plain, br#"{"sdp":"v=1\r\n"}"#);
+        assert_ne!(a, seal_answer(&key, SALA, &[1u8; 12], "v=1\r\n"));
     }
 
     #[test]
     fn test_signal_serde() {
-        let ans = SignalOut::Answer {
-            id: "0a1b2c3d".into(),
-            sdp: "v=0\r\n".into(),
-        };
-        let ans_json = serde_json::to_string(&ans).unwrap();
+        let ans = SignalOut::Answer { id: "0a1b2c3d".into(), sealed: "s".into() };
         assert_eq!(
-            ans_json,
-            r#"{"t":"answer","id":"0a1b2c3d","sdp":"v=0\r\n"}"#
+            serde_json::to_string(&ans).unwrap(),
+            r#"{"t":"answer","id":"0a1b2c3d","sealed":"s"}"#
         );
 
-        let offer_json = r#"{"t":"offer","id":"0a1b2c3d","sdp":"x","proof":"y"}"#;
-        let sig_in: SignalIn = serde_json::from_str(offer_json).unwrap();
-        assert_eq!(
-            sig_in,
-            SignalIn::Offer {
-                id: "0a1b2c3d".into(),
-                sdp: "x".into(),
-                proof: "y".into(),
-                name: String::new(),
-            }
-        );
+        let sig_in: SignalIn =
+            serde_json::from_str(r#"{"t":"offer","id":"0a1b2c3d","sealed":"y"}"#).unwrap();
+        assert_eq!(sig_in, SignalIn::Offer { id: "0a1b2c3d".into(), sealed: "y".into() });
+
+        let legacy: SignalIn = serde_json::from_str(
+            r#"{"t":"offer","id":"0a1b2c3d","sdp":"x","proof":"y","name":"n"}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy, SignalIn::Offer { id: "0a1b2c3d".into(), sealed: String::new() });
     }
 
     #[test]
@@ -319,7 +382,7 @@ mod tests {
         assert!(!url.contains("//v"));
         assert!(url.starts_with("http://127.0.0.1:8787/v/#"));
         assert!(url.contains(&room_id(&secret)));
-        assert!(url.ends_with(&hex::encode(key)));
+        assert!(url.ends_with(&format!("{}.v2", hex::encode(key))));
     }
 
     #[test]

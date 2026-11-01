@@ -56,7 +56,7 @@
           </a>
         </div>
         <p class="small">Windows 10 2004+ x64 · não precisa instalar · código aberto (MIT ou Apache-2.0) · <a href="https://github.com/pendiego/LiveScreen/releases">todas as versões</a></p>
-        <img class="shot" src="assets/img/home.webp" width="2080" height="1440" alt="Tela inicial do LiveScreen, com Compartilhar tela, Assistir e a lista de amigos" style="max-width: 1040px; width: 100%; margin-top: var(--s7);">
+        <img class="shot" src="assets/img/home.webp" width="1600" height="1000" alt="Tela inicial do LiveScreen, com Compartilhar tela, Assistir e a lista de amigos" style="max-width: 1040px; width: 100%; margin-top: var(--s7);">
       </div>
     </section>
 
@@ -89,15 +89,23 @@
             <p class="small" style="margin-top: var(--s4); margin-bottom: 0;">Amigos na lista entram sem convite: o botão <strong>Assistir</strong> aparece na linha do amigo só enquanto ele está transmitindo.</p>
           </div>
         </div>
-        <p style="margin-bottom: var(--s5);">Durante a transmissão dá para trocar a qualidade, mudar o limite de pessoas da sala e remover alguém sem derrubar os outros. A janela do LiveScreen some da própria transmissão, então ela não aparece para quem assiste.</p>
+        <p style="margin-bottom: var(--s5);">Durante a transmissão dá para trocar a qualidade, mudar o limite de pessoas da sala e remover alguém sem derrubar os outros. Quem é removido não volta nesta transmissão: o código de convite e o link do navegador são renovados na hora. A janela do LiveScreen some da própria transmissão, então ela não aparece para quem assiste.</p>
         <div class="grid-2">
           <figure>
-            <img class="shot" src="assets/img/confirm.webp" width="1376" height="1403" loading="lazy" alt="Janela Confirmar transmissão com as opções de qualidade e o upload medido">
+            <img class="shot" src="assets/img/confirm.webp" width="1600" height="1000" loading="lazy" alt="Janela Confirmar transmissão com as opções de qualidade e o upload medido">
             <figcaption class="small">Antes de transmitir: qualidade recomendada e upload medido</figcaption>
           </figure>
           <figure>
-            <img class="shot" src="assets/img/watch.webp" width="2080" height="1440" loading="lazy" alt="Transmissão sendo assistida no LiveScreen, com a barra de controles">
-            <figcaption class="small">Assistindo, com a barra de controles</figcaption>
+            <img class="shot" src="assets/img/sharing.webp" width="1600" height="1000" loading="lazy" alt="Tela de quem transmite, com o convite, os espectadores e o chat">
+            <figcaption class="small">Transmitindo: convite, link do navegador, espectadores e chat</figcaption>
+          </figure>
+          <figure>
+            <img class="shot" src="assets/img/watch.webp" width="1600" height="1000" loading="lazy" alt="Transmissão assistida no LiveScreen, com estatísticas e o chat aberto">
+            <figcaption class="small">Assistindo no PC, com estatísticas e chat</figcaption>
+          </figure>
+          <figure>
+            <img class="shot" src="assets/img/browser.webp" width="1600" height="1000" loading="lazy" alt="Transmissão assistida no navegador, com estatísticas e chat">
+            <figcaption class="small">Assistindo pelo navegador, sem instalar nada</figcaption>
           </figure>
         </div>
       </div>
@@ -192,6 +200,33 @@
 
     <section id="novidades">
       <div class="wrap">
+        <h2>Novidades da 0.6.2</h2>
+        <div class="grid-3" style="margin-bottom: var(--s6);">
+          <div class="card">
+            <h3>Link do navegador cifrado</h3>
+            <p class="small">Links novos terminam em .v2 e trocam a sinalização cifrada com a chave do link (AES-256-GCM): o servidor do link não vê seu nome nem seus endereços e não consegue se passar por quem transmite. Uma oferta capturada não serve para entrar de novo.</p>
+          </div>
+          <div class="card">
+            <h3>Remover vale de verdade</h3>
+            <p class="small">Remover alguém derruba todas as conexões dessa pessoa e renova o código de convite e o link do navegador. Quem foi removido não volta, nem pelo navegador; quem ainda não entrou precisa do código ou do link novo.</p>
+          </div>
+          <div class="card">
+            <h3>Atualização assinada</h3>
+            <p class="small">O app só troca o executável se a release tiver uma assinatura Ed25519, feita fora do GitHub, sobre a versão e o sha256. Release sem assinatura válida é ignorada.</p>
+          </div>
+          <div class="card">
+            <h3>Servidor do link mais resistente</h3>
+            <p class="small">Limite de conexões por endereço, só a página do LiveScreen abre a conexão, e uma conexão falsa de host não ocupa a vaga de quem transmite de verdade.</p>
+          </div>
+          <div class="card">
+            <h3>Host mais resistente</h3>
+            <p class="small">Conexões que travam na entrada são fechadas em 10 s, e o link do navegador não consegue fazer o PC sondar endereços da própria máquina.</p>
+          </div>
+          <div class="card">
+            <h3>Android mais seguro</h3>
+            <p class="small">Sair logo depois de conectar não arrisca mais fechar o app, e a identidade e a lista de amigos ficam fora do backup do Android e da troca de aparelho.</p>
+          </div>
+        </div>
         <h2>Novidades da 0.6.1</h2>
         <div class="grid-3" style="margin-bottom: var(--s6);">
           <div class="card">
@@ -285,14 +320,14 @@
               <svg aria-hidden="true" focusable="false" class="lucide lucide-users" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /> <path d="M16 3.128a4 4 0 0 1 0 7.744" /> <path d="M22 21v-2a4 4 0 0 0-3-3.87" /> <circle cx="9" cy="7" r="4" /> </svg>
             </div>
             <h3>Amigos</h3>
-            <p class="small">Amigos na lista veem quando você transmite e entram sem convite. Dá para remover alguém da sala sem derrubar os outros.</p>
+            <p class="small">Amigos na lista veem quando você transmite e entram sem convite. Dá para remover alguém da sala sem derrubar os outros; o convite e o link são renovados na hora.</p>
           </div>
           <div class="card">
             <div class="icon-ring" style="margin-bottom: var(--s4);">
               <svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg>
             </div>
             <h3>Atualização</h3>
-            <p class="small">O app avisa quando há versão nova, baixa e confere o arquivo pelo sha256 antes de trocar.</p>
+            <p class="small">O app avisa quando há versão nova e só troca o executável depois de conferir o sha256 e a assinatura da release.</p>
           </div>
           <div class="card">
             <div class="icon-ring" style="margin-bottom: var(--s4);">
@@ -306,7 +341,7 @@
               <svg aria-hidden="true" focusable="false" class="lucide lucide-globe" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" /> </svg>
             </div>
             <h3>Navegador</h3>
-            <p class="small">&quot;Copiar link do navegador&quot; gera um link para assistir sem instalar nada, no Chrome, Edge, Firefox ou Safari, com estatísticas, chat, mudo, menu Qualidade, Picture-in-Picture e tela cheia.</p>
+            <p class="small">&quot;Copiar link do navegador&quot; gera um link para assistir sem instalar nada, no Chrome, Edge, Firefox ou Safari, com estatísticas, chat, mudo, menu Qualidade, Picture-in-Picture e tela cheia. A sinalização do link é cifrada com a chave da sala.</p>
           </div>
         </div>
       </div>
@@ -325,6 +360,16 @@
             </a>
           </div>
           <p class="small">Android 8.0 ou superior. A transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior e só inclui sons de mídia e jogos de apps que permitem a captura; chamadas, alarmes e o microfone não são transmitidos.</p>
+        </div>
+        <div class="grid-3" style="margin-top: var(--s5); max-width: 760px;">
+          <figure>
+            <img class="shot" src="assets/img/android-watch.webp" width="720" height="1280" loading="lazy" alt="App Android assistindo a uma transmissão do PC">
+            <figcaption class="small">Assistindo no celular</figcaption>
+          </figure>
+          <figure>
+            <img class="shot" src="assets/img/android-chat.webp" width="720" height="1280" loading="lazy" alt="Chat no app Android durante uma transmissão">
+            <figcaption class="small">Chat no celular</figcaption>
+          </figure>
         </div>
       </div>
     </section>

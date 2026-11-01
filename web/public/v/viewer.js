@@ -8,7 +8,7 @@
   } else {
     try { link = sessionStorage.getItem(LINK_KEY) || ""; } catch { link = ""; }
   }
-  const hashMatch = link.match(/^([0-9a-f]{32})\.([0-9a-f]{32})$/i);
+  const hashMatch = link.match(/^([0-9a-f]{32})\.([0-9a-f]{32})(\.v2)?$/i);
   if (hashMatch) { try { sessionStorage.setItem(LINK_KEY, link); } catch {} }
 
   const card = document.getElementById("card");
@@ -55,7 +55,7 @@
     codeForm.hidden = false;
     codeForm.addEventListener("submit", (e) => {
       e.preventDefault();
-      const m = codeInput.value.match(/([0-9a-f]{32}\.[0-9a-f]{32})\s*$/i);
+      const m = codeInput.value.match(/([0-9a-f]{32}\.[0-9a-f]{32}(?:\.v2)?)\s*$/i);
       if (!m) { codeError.hidden = false; return; }
       location.hash = m[1];
     });
@@ -72,6 +72,7 @@
 
   const roomId = hashMatch[1].toLowerCase();
   const roomKey = hashMatch[2].toLowerCase();
+  const sealedSignal = !!hashMatch[3];
 
   const savedName = localStorage.getItem("livescreen-name") || "";
   nameInput.value = savedName.slice(0, 32);
@@ -82,6 +83,7 @@
   let everConnected = false;
   let pingTimer = null;
   let answerTimer = null;
+  let offerNonce = null;
   let currentName = "";
 
   function hexToBytes(hex) {
@@ -122,6 +124,37 @@
     const data = new TextEncoder().encode("livescreen/web/v1" + fingerprint);
     const sig = await crypto.subtle.sign("HMAC", cryptoKey, data);
     return bytesToHex(new Uint8Array(sig));
+  }
+
+  async function signalKey(info) {
+    const enc = new TextEncoder();
+    const base = await crypto.subtle.importKey("raw", hexToBytes(roomKey), "HKDF", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt: enc.encode("livescreen/web-signal/v2"), info: enc.encode(info) },
+      base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  }
+
+  async function sealOffer(obj) {
+    const enc = new TextEncoder();
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: nonce, additionalData: enc.encode("offer:" + roomId) },
+      await signalKey("offer"), enc.encode(JSON.stringify(obj)));
+    return { nonce, sealed: bytesToHex(nonce) + bytesToHex(new Uint8Array(ct)) };
+  }
+
+  async function openAnswer(sealed, nonce) {
+    if (typeof sealed !== "string" || !/^(?:[0-9a-f]{2}){28,}$/i.test(sealed) || !nonce) return null;
+    const bytes = hexToBytes(sealed);
+    try {
+      const pt = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: bytes.slice(0, 12), additionalData: new TextEncoder().encode("answer:" + roomId + ":" + bytesToHex(nonce)) },
+        await signalKey("answer"), bytes.slice(12));
+      const obj = JSON.parse(new TextDecoder().decode(pt));
+      return obj && typeof obj.sdp === "string" ? obj : null;
+    } catch {
+      return null;
+    }
   }
 
   function addOpusStereo(sdp) {
@@ -177,6 +210,7 @@
       clearTimeout(answerTimer);
       answerTimer = null;
     }
+    offerNonce = null;
     if (elapsedTimer) {
       clearInterval(elapsedTimer);
       elapsedTimer = null;
@@ -305,20 +339,23 @@
 
       const localSdp = pc.localDescription?.sdp || patchedSdp;
       const fp = sdpFingerprint(localSdp);
+      // (offerFp removido: a AEAD amarra a resposta ao nonce do offer)
       if (!fp) {
         stopWithReason("Não foi possível identificar a impressão digital DTLS da conexão.");
         return;
       }
 
-      const proof = await computeProof(roomKey, fp);
+      let msg;
+      if (sealedSignal) {
+        const s = await sealOffer({ sdp: localSdp, name: currentName });
+        offerNonce = s.nonce;
+        msg = { t: "offer", sealed: s.sealed };
+      } else {
+        msg = { t: "offer", sdp: localSdp, proof: await computeProof(roomKey, fp), name: currentName };
+      }
 
       if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          t: "offer",
-          sdp: localSdp,
-          proof,
-          name: currentName,
-        }));
+        ws.send(JSON.stringify(msg));
         showStatus("Esperando quem transmite aceitar…", "busy");
       }
 
@@ -379,9 +416,20 @@
           clearTimeout(answerTimer);
           answerTimer = null;
         }
-        if (pc && typeof data.sdp === "string") {
+        if (pc) {
+          let sdp = data.sdp;
+          if (sealedSignal) {
+            const ans = await openAnswer(data.sealed, offerNonce);
+            if (!pc) return;
+            if (!ans) {
+              stopWithReason("A resposta não veio de quem transmite: a chave da sala não confere. Por segurança, a conexão foi recusada.");
+              return;
+            }
+            sdp = ans.sdp;
+          }
+          if (typeof sdp !== "string") return;
           try {
-            await pc.setRemoteDescription({ type: "answer", sdp: data.sdp });
+            await pc.setRemoteDescription({ type: "answer", sdp });
             answered = true;
             card.hidden = true;
             playerBox.hidden = false;

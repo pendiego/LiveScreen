@@ -1,5 +1,6 @@
 //! Atualização pelo GitHub Releases: compara a release `latest` com a versão do app, baixa o
-//! `livescreen.exe` publicado nela, confere o sha256 que o GitHub informa e troca o executável.
+//! `livescreen.exe` publicado nela, confere o sha256 e a assinatura Ed25519 offline sobre versão
+//! e sha256 antes de trocar o executável.
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -9,11 +10,14 @@ use tracing::{info, warn};
 
 const API: &str = "https://api.github.com/repos/pendiego/LiveScreen/releases/latest";
 const ASSET: &str = "livescreen.exe";
+const SIG_ASSET: &str = "livescreen.exe.sig";
+const UPDATE_KEY: &str = "c46025005551cda3e63968e0b6a71bccd47a6411276b85aff966f93d81290930";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Release {
     pub version: String,
     pub url: String,
+    pub sig_url: String,
     pub sha256: String,
 }
 
@@ -68,23 +72,58 @@ fn pick(r: GhRelease, current: &str) -> Option<Release> {
     if !newer {
         return None;
     }
+    let sig_url = r
+        .assets
+        .iter()
+        .find(|a| a.name == SIG_ASSET)
+        .map(|a| a.browser_download_url.clone());
     let asset = r.assets.into_iter().find(|a| a.name == ASSET);
     let found = asset.and_then(|a| {
         let sha = a.digest?.strip_prefix("sha256:")?.to_ascii_lowercase();
+        let sig_url = sig_url?;
         Some(Release {
             version: r.tag_name.trim_start_matches('v').to_string(),
             url: a.browser_download_url,
+            sig_url,
             sha256: sha,
         })
     });
     if found.is_none() {
-        warn!("release {} sem {ASSET} com sha256; ignorada", r.tag_name);
+        warn!(
+            "release {} sem {ASSET} com sha256 ou sem {SIG_ASSET}; ignorada",
+            r.tag_name
+        );
     }
     found
 }
 
-/// Baixa e confere o hash; o executável só é trocado se bater.
+fn signed_message(version: &str, sha256_hex: &str) -> String {
+    format!("livescreen-update-v1\n{version}\n{sha256_hex}")
+}
+
+fn signature_ok(pubkey: &[u8], version: &str, sha256_hex: &str, sig_hex: &str) -> bool {
+    let Ok(sig) = hex::decode(sig_hex.trim()) else {
+        return false;
+    };
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, pubkey)
+        .verify(signed_message(version, sha256_hex).as_bytes(), &sig)
+        .is_ok()
+}
+
+/// Baixa e confere o hash e a assinatura; o executável só é trocado se ambos baterem.
 pub async fn download(rel: &Release) -> Result<Vec<u8>> {
+    let sig_bytes = client()?
+        .get(&rel.sig_url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    if sig_bytes.len() > 1024 {
+        bail!("assinatura da atualização inválida");
+    }
+    let sig = String::from_utf8_lossy(&sig_bytes);
+
     let bytes = client()?
         .get(&rel.url)
         .send()
@@ -98,6 +137,9 @@ pub async fn download(rel: &Release) -> Result<Vec<u8>> {
             "download corrompido (sha256 {got}, esperado {})",
             rel.sha256
         );
+    }
+    if !signature_ok(&hex::decode(UPDATE_KEY)?, &rel.version, &got, &sig) {
+        bail!("assinatura da atualização inválida: release ignorada");
     }
     Ok(bytes.to_vec())
 }
@@ -180,12 +222,16 @@ mod tests {
 
     #[test]
     fn picks_only_newer_release_with_hashed_exe() {
-        let ok = [("livescreen.exe", Some("sha256:ABCD"))];
+        let ok = [
+            ("livescreen.exe", Some("sha256:ABCD")),
+            ("livescreen.exe.sig", None),
+        ];
         assert_eq!(
             pick(rel("v0.2.0", &ok), "0.1.0"),
             Some(Release {
                 version: "0.2.0".into(),
                 url: "https://x/livescreen.exe".into(),
+                sig_url: "https://x/livescreen.exe.sig".into(),
                 sha256: "abcd".into(),
             })
         );
@@ -199,13 +245,58 @@ mod tests {
             pick(
                 rel(
                     "v0.2.0",
-                    &[("livescreen-windows-x64.zip", Some("sha256:ab"))]
+                    &[
+                        ("livescreen-windows-x64.zip", Some("sha256:ab")),
+                        ("livescreen.exe.sig", None),
+                    ]
                 ),
                 "0.1.0"
             )
             .is_none()
         );
-        assert!(pick(rel("v0.2.0", &[("livescreen.exe", None)]), "0.1.0").is_none());
+        assert!(pick(rel("v0.2.0", &[("livescreen.exe", None), ("livescreen.exe.sig", None)]), "0.1.0").is_none());
+        // exe com digest mas sem .sig dá None
+        assert!(pick(rel("v0.2.0", &[("livescreen.exe", Some("sha256:ABCD"))]), "0.1.0").is_none());
+    }
+
+    #[test]
+    fn signature_binds_version_and_hash() {
+        use ring::rand::SystemRandom;
+        use ring::signature::{Ed25519KeyPair, KeyPair};
+
+        let rng = SystemRandom::new();
+        let doc1 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+        let pair1 = Ed25519KeyPair::from_pkcs8(doc1.as_ref()).unwrap();
+
+        let doc2 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+        let pair2 = Ed25519KeyPair::from_pkcs8(doc2.as_ref()).unwrap();
+
+        let sha = "ab".repeat(32);
+        let msg = signed_message("0.9.0", &sha);
+        let sig = pair1.sign(msg.as_bytes());
+        let sig_hex = hex::encode(sig.as_ref());
+
+        assert!(signature_ok(pair1.public_key().as_ref(), "0.9.0", &sha, &sig_hex));
+        // versão errada
+        assert!(!signature_ok(pair1.public_key().as_ref(), "0.9.1", &sha, &sig_hex));
+        // sha diferente
+        assert!(!signature_ok(pair1.public_key().as_ref(), "0.9.0", &"cd".repeat(32), &sig_hex));
+        // chave pública de outro par
+        assert!(!signature_ok(pair2.public_key().as_ref(), "0.9.0", &sha, &sig_hex));
+        // sig_hex inválido ou vazio
+        assert!(!signature_ok(pair1.public_key().as_ref(), "0.9.0", &sha, "zz"));
+        assert!(!signature_ok(pair1.public_key().as_ref(), "0.9.0", &sha, ""));
+    }
+
+    #[test]
+    fn embedded_key_matches_offline_signer() {
+        const FIXTURE_SIG: &str = "860b6ace56570dd406d6e000a39fc287f27b67aee08a2bef2024212b0292c7e533b5abd2393371da8f33f63e843ccfbccc5b4b6b518eaf57c0e36d90d640db01";
+        assert!(signature_ok(
+            &hex::decode(UPDATE_KEY).unwrap(),
+            "0.0.0",
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            FIXTURE_SIG
+        ));
     }
 
     fn tmp(tag: &str) -> PathBuf {
