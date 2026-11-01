@@ -22,6 +22,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
@@ -446,7 +447,8 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun leave(reason: String? = null) {
-        pollingJob?.cancel()
+        val job = pollingJob
+        job?.cancel()
         pollingJob = null
         starting = false
 
@@ -459,7 +461,11 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
         val h = handle
         handle = 0L
         if (h != 0L) {
-            viewerStop = Thread { Native.stop(h) }.also { it.start() }
+            viewerStop = Thread {
+                // cancelar não interrompe Native.status/chatSince em andamento: espera o poll sair antes de liberar o handle
+                if (job != null) runBlocking { job.join() }
+                Native.stop(h)
+            }.also { it.start() }
         }
 
         status = null
