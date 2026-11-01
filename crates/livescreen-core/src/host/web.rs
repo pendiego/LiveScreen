@@ -16,7 +16,7 @@ use crate::chat::{ChatLimiter, ChatLine};
 use crate::protocol::ViewerMsg;
 use str0m::channel::ChannelId;
 use crate::web::{
-    SignalIn, SignalOut, host_ws_url, sdp_fingerprint, valid_peer_id, verify_web_proof,
+    ROOM_KEY_LEN, SignalIn, SignalOut, host_ws_url, open_offer, room_id, seal_answer, valid_peer_id,
 };
 use ring::rand::SecureRandom;
 use str0m::change::SdpOffer;
@@ -27,7 +27,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{broadcast, mpsc};
 use tokio_websockets::{ClientBuilder, Message};
 
-use super::{CountGuard, Peer, PeerConn, Shared, WebState, admit, rtt_congested};
+use super::{CountGuard, Peer, PeerConn, Shared, WebState, rtt_congested};
 
 const WEB_BASE: &str = "https://livescreen.pendiego.com";
 /// Destinos com IPs distintos: o NAT só cria mapeamento novo para destino novo. A ordem é a ordem de envio.
@@ -45,6 +45,7 @@ const HOST_PREDICT: i32 = 8;
 const BROWSER_PREDICT: u16 = 32;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_SDP: usize = 32 * 1024;
+const MAX_WEB_OFFERS: usize = 1024;
 /// Tamanho máximo, em bytes, de uma mensagem do canal de chat.
 const MAX_WEB_CHAT: usize = 4096;
 
@@ -307,6 +308,24 @@ fn host_predictions(maps: &[Option<SocketAddr>]) -> Vec<SocketAddr> {
         .collect()
 }
 
+/// Destinos que um offer nunca pode mandar o host sondar: a própria máquina e endereços sem rota.
+fn forbidden_dest(ip: IpAddr) -> bool {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_unspecified() || v4.is_multicast() || v4.is_broadcast() || v4.is_link_local(),
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() || v6.is_unicast_link_local(),
+    }
+}
+
+/// Tira do SDP as linhas `a=candidate:` com destino proibido; nomes `.local` e o resto passam iguais.
+fn drop_unsafe_candidates(sdp: &str) -> String {
+    sdp.split_inclusive('\n')
+        .filter(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            !(f.len() > 4 && f[0].starts_with("a=candidate:") && f[4].parse::<IpAddr>().is_ok_and(forbidden_dest))
+        })
+        .collect()
+}
+
 /// O NAT do celular costuma alocar portas em sequência: a porta que vai falar com o host vem logo depois da do STUN.
 fn browser_predictions(sdp: &str) -> Vec<SocketAddr> {
     for l in sdp.lines() {
@@ -320,10 +339,15 @@ fn browser_predictions(sdp: &str) -> Vec<SocketAddr> {
             continue;
         }
         if let (Ok(IpAddr::V4(ip)), Ok(port)) = (f[4].parse::<IpAddr>(), f[5].parse::<u16>()) {
-            return (1..=BROWSER_PREDICT)
-                .filter_map(|k| port.checked_add(k))
-                .map(|p| SocketAddr::new(IpAddr::V4(ip), p))
-                .collect();
+            if !ip.is_private()
+                && !forbidden_dest(IpAddr::V4(ip))
+                && !(ip.octets()[0] == 100 && (ip.octets()[1] & 0xc0) == 64)
+            {
+                return (1..=BROWSER_PREDICT)
+                    .filter_map(|k| port.checked_add(k))
+                    .map(|p| SocketAddr::new(IpAddr::V4(ip), p))
+                    .collect();
+            }
         }
     }
     Vec::new()
@@ -447,8 +471,8 @@ async fn run(sh: Arc<Shared>) {
                                     }
                                 }
                             }
-                            Ok(SignalIn::Offer { id, sdp, proof, name }) => {
-                                if !valid_peer_id(&id) || sdp.len() > MAX_SDP {
+                            Ok(SignalIn::Offer { id, sealed }) => {
+                                if !valid_peer_id(&id) || sealed.len() > 4 * MAX_SDP {
                                     continue;
                                 }
                                 if peers.get(&id).and_then(|w| w.upgrade()).is_some()
@@ -457,13 +481,30 @@ async fn run(sh: Arc<Shared>) {
                                     continue;
                                 }
                                 let key = *sh.room_key.lock().unwrap();
-                                let proof_ok = sdp_fingerprint(&sdp)
-                                    .is_some_and(|fp| verify_web_proof(&key, fp, &proof));
-                                if let Err(reason) = admit(false, false, &proof, proof_ok) {
-                                    let _ = tx.try_send(SignalOut::Reject {
-                                        id,
-                                        reason: reason.to_string(),
-                                    });
+                                let Some((offer, nonce)) = open_offer(&key, &room_id(&sh.web_secret), &sealed) else {
+                                    let reason = if sealed.is_empty() {
+                                        "link antigo ou página desatualizada: peça o link de novo e recarregue a página"
+                                    } else {
+                                        "convite inválido ou substituído"
+                                    };
+                                    let _ = tx.try_send(SignalOut::Reject { id, reason: reason.to_string() });
+                                    continue;
+                                };
+                                {
+                                    let mut seen = sh.web_offers.lock().unwrap();
+                                    let reason = if seen.len() >= MAX_WEB_OFFERS {
+                                        Some("muitas entradas com este convite: peça um convite novo")
+                                    } else if !seen.insert(nonce) {
+                                        Some("oferta repetida: recarregue a página")
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(reason) = reason {
+                                        let _ = tx.try_send(SignalOut::Reject { id, reason: reason.to_string() });
+                                        continue;
+                                    }
+                                }
+                                if offer.sdp.len() > MAX_SDP {
                                     continue;
                                 }
                                 let Ok(permit) = sh.pending.clone().try_acquire_owned() else {
@@ -483,11 +524,13 @@ async fn run(sh: Arc<Shared>) {
                                 }
                                 let peer_obj = Arc::new(WebPeer::default());
                                 peers.insert(id.clone(), Arc::downgrade(&peer_obj));
-                                let clean_name = sanitize(&name, 32);
+                                let clean_name = sanitize(&offer.name, 32);
                                 tokio::spawn(peer(
                                     sh.clone(),
                                     id,
-                                    sdp,
+                                    offer.sdp,
+                                    key,
+                                    nonce,
                                     clean_name,
                                     permit,
                                     tx.clone(),
@@ -549,11 +592,14 @@ async fn peer(
     sh: Arc<Shared>,
     id: String,
     sdp: String,
+    key: [u8; ROOM_KEY_LEN],
+    offer_nonce: [u8; 12],
     name: String,
     permit: tokio::sync::OwnedSemaphorePermit,
     tx: mpsc::Sender<SignalOut>,
     peer: Arc<WebPeer>,
 ) {
+    let sdp = drop_unsafe_candidates(&sdp);
     let mut shutdown = sh.shutdown.clone();
     let mut guard = CountGuard(&sh, None);
     let mut permit_opt = Some(permit);
@@ -696,10 +742,8 @@ async fn peer(
         route.vpn,
         alt_addr
     );
-    let _ = tx.try_send(SignalOut::Answer {
-        id: id.clone(),
-        sdp: answer.to_sdp_string(),
-    });
+    let sealed = seal_answer(&key, &room_id(&sh.web_secret), &offer_nonce, &answer.to_sdp_string());
+    let _ = tx.try_send(SignalOut::Answer { id: id.clone(), sealed });
 
     let mut vrx = sh.video_tx.subscribe();
     let mut arx = sh.audio_tx.subscribe();
@@ -1222,6 +1266,25 @@ mod tests {
         assert!(browser_predictions(none).is_empty());
         let tcp = "a=candidate:4 1 tcp 1686 203.0.113.9 6000 typ srflx\r\n";
         assert!(browser_predictions(tcp).is_empty());
+        let priv_ip = "a=candidate:4 1 udp 1686 10.0.0.5 6000 typ srflx raddr 0.0.0.0 rport 0\r\n";
+        assert!(browser_predictions(priv_ip).is_empty());
+        let loopback = "a=candidate:4 1 udp 1686 127.0.0.1 6000 typ srflx raddr 0.0.0.0 rport 0\r\n";
+        assert!(browser_predictions(loopback).is_empty());
+    }
+
+    #[test]
+    fn drop_unsafe_candidates_keeps_lan() {
+        let in_sdp = "v=0\r\n\
+                      a=candidate:1 1 udp 2122 abcd.local 5000 typ host\r\n\
+                      a=candidate:2 1 udp 2122 192.168.0.5 5000 typ host\r\n\
+                      a=candidate:3 1 udp 2122 127.0.0.1 5000 typ host\r\n\
+                      a=candidate:4 1 udp 2122 169.254.1.2 5000 typ host\r\n\
+                      a=candidate:5 1 udp 2122 fe80::1 5000 typ host\r\n";
+        let out = drop_unsafe_candidates(in_sdp);
+        let expected = "v=0\r\n\
+                        a=candidate:1 1 udp 2122 abcd.local 5000 typ host\r\n\
+                        a=candidate:2 1 udp 2122 192.168.0.5 5000 typ host\r\n";
+        assert_eq!(out, expected);
     }
 
     #[test]

@@ -198,6 +198,8 @@ pub(crate) struct Shared {
     host_id: iroh::EndpointId,
     friends: Mutex<HashSet<iroh::EndpointId>>,
     banned: Mutex<HashSet<iroh::EndpointId>>,
+    /// Nonces de offers do navegador já aceitos com a chave atual: um offer capturado não entra de novo.
+    pub(crate) web_offers: Mutex<HashSet<[u8; 12]>>,
     host_name: String,
     pub(crate) chat_tx: broadcast::Sender<Arc<HostMsg>>,
     pub(crate) chat: Arc<Mutex<ChatLog>>,
@@ -234,6 +236,7 @@ impl Shared {
     fn new_invite(&self) {
         let key = new_room_key();
         *self.room_key.lock().unwrap() = key;
+        self.web_offers.lock().unwrap().clear();
         if let Some(t) = self.ticket.lock().unwrap().as_ref() {
             let invite = format_invite(t, &key);
             self.status.lock().unwrap().ticket = Some(invite);
@@ -270,7 +273,7 @@ async fn answer_presence(conn: Connection, sh: Arc<Shared>) {
         conn.close(CLOSE_DENIED.into(), b"denied");
         return;
     }
-    let res = async {
+    let res = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         let mut send = conn.open_uni().await?;
         write_msg(
             &mut send,
@@ -283,10 +286,15 @@ async fn answer_presence(conn: Connection, sh: Arc<Shared>) {
         let _ = tokio::time::timeout(Duration::from_secs(3), conn.closed()).await;
         conn.close(CLOSE_NORMAL.into(), b"bye");
         Ok::<_, anyhow::Error>(())
-    }
+    })
     .await;
-    if let Err(e) = res {
-        info!("presença encerrada: {e:#}");
+    match res {
+        Ok(Err(e)) => info!("presença encerrada: {e:#}"),
+        Err(_) => {
+            conn.close(CLOSE_NORMAL.into(), b"timeout");
+            info!("presença expirou");
+        }
+        Ok(Ok(())) => {}
     }
 }
 
@@ -328,16 +336,19 @@ async fn handle_viewer(
         return Ok(());
     };
     if protocol != PROTOCOL_VERSION {
-        let _ = write_msg(
-            &mut send,
-            &HostMsg::Rejected {
-                reason: if protocol < PROTOCOL_VERSION {
-                    "LiveScreen desatualizado ou código de convite incompleto: atualize o app e use o código completo"
-                } else {
-                    "quem transmite está com um LiveScreen mais antigo e precisa atualizar"
-                }
-                .into(),
-            },
+        let _ = tokio::time::timeout(
+            HANDSHAKE_TIMEOUT,
+            write_msg(
+                &mut send,
+                &HostMsg::Rejected {
+                    reason: if protocol < PROTOCOL_VERSION {
+                        "LiveScreen desatualizado ou código de convite incompleto: atualize o app e use o código completo"
+                    } else {
+                        "quem transmite está com um LiveScreen mais antigo e precisa atualizar"
+                    }
+                    .into(),
+                },
+            ),
         )
         .await;
         let _ = send.finish();
@@ -355,11 +366,14 @@ async fn handle_viewer(
         verify_room_proof(&key, &sh.host_id, &remote_id, &room_proof)
     };
     if let Err(reason) = admit(is_banned, is_friend, &room_proof, proof_ok) {
-        let _ = write_msg(
-            &mut send,
-            &HostMsg::Rejected {
-                reason: reason.into(),
-            },
+        let _ = tokio::time::timeout(
+            HANDSHAKE_TIMEOUT,
+            write_msg(
+                &mut send,
+                &HostMsg::Rejected {
+                    reason: reason.into(),
+                },
+            ),
         )
         .await;
         let _ = send.finish();
@@ -370,11 +384,14 @@ async fn handle_viewer(
     // limite da sala definido por quem transmite; baixar o limite não derruba quem já está
     if sh.viewers.fetch_add(1, Ordering::SeqCst) >= sh.max_viewers.load(Ordering::SeqCst) {
         sh.viewers.fetch_sub(1, Ordering::SeqCst);
-        let _ = write_msg(
-            &mut send,
-            &HostMsg::Rejected {
-                reason: "sala cheia".into(),
-            },
+        let _ = tokio::time::timeout(
+            HANDSHAKE_TIMEOUT,
+            write_msg(
+                &mut send,
+                &HostMsg::Rejected {
+                    reason: "sala cheia".into(),
+                },
+            ),
         )
         .await;
         let _ = send.finish();
@@ -401,15 +418,24 @@ async fn handle_viewer(
         }
     };
     let _guard = CountGuard(&sh, Some(id.clone()));
-    sh.conns.lock().unwrap().insert(
-        id.clone(),
-        Peer {
-            conn: PeerConn::Iroh(conn.clone()),
-            name: sanitize(&name, 32),
-            decoders,
-            h264_baseline: false,
-        },
-    );
+    {
+        let mut conns = sh.conns.lock().unwrap();
+        // kick entre a checagem do ban e o registro: o mapa travado serializa com Host::kick
+        if sh.banned.lock().unwrap().contains(&remote_id) {
+            drop(conns);
+            conn.close(CLOSE_KICKED.into(), b"kicked");
+            return Ok(());
+        }
+        conns.insert(
+            id.clone(),
+            Peer {
+                conn: PeerConn::Iroh(conn.clone()),
+                name: sanitize(&name, 32),
+                decoders,
+                h264_baseline: false,
+            },
+        );
+    }
     sh.codec_dirty.store(true, Ordering::Release);
 
     let chat_id = sh.next_chat_id.fetch_add(1, Ordering::Relaxed);
@@ -656,6 +682,7 @@ impl Host {
             host_id: ep.id(),
             friends: Mutex::new(cfg.friends),
             banned: Mutex::new(HashSet::new()),
+            web_offers: Mutex::new(HashSet::new()),
             host_name: cfg.host_name,
             chat_tx: broadcast::channel(64).0,
             chat: Arc::new(Mutex::new(ChatLog::default())),
@@ -683,15 +710,16 @@ impl Host {
                     };
                     let shared = shared.clone();
                     tokio::spawn(async move {
-                        match incoming.await {
-                            Ok(conn) => {
+                        match tokio::time::timeout(HANDSHAKE_TIMEOUT, incoming).await {
+                            Ok(Ok(conn)) => {
                                 if conn.alpn() == crate::friends::PRESENCE_ALPN {
                                     answer_presence(conn, shared).await;
                                 } else if let Err(e) = handle_viewer(conn, shared, permit).await {
                                     info!("espectador encerrado: {e:#}");
                                 }
                             }
-                            Err(e) => info!("conexão recusada: {e:#}"),
+                            Ok(Err(e)) => info!("conexão recusada: {e:#}"),
+                            Err(_) => info!("handshake QUIC expirou"),
                         }
                     });
                 }
@@ -836,14 +864,19 @@ impl Host {
         let Some(c) = conn else { return };
         match c {
             PeerConn::Iroh(c) => {
-                self.shared.banned.lock().unwrap().insert(c.remote_id());
-                self.shared
-                    .status
-                    .lock()
-                    .unwrap()
-                    .viewers
-                    .retain(|v| v.id_short != id_short);
-                c.close(CLOSE_KICKED.into(), b"kicked");
+                let remote = c.remote_id();
+                self.shared.banned.lock().unwrap().insert(remote);
+                // a mesma identidade pode ter mais de uma conexão aberta: todas saem
+                let same: Vec<(String, Connection)> = self.shared.conns.lock().unwrap().iter()
+                    .filter_map(|(id, p)| match &p.conn {
+                        PeerConn::Iroh(x) if x.remote_id() == remote => Some((id.clone(), x.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                self.shared.status.lock().unwrap().viewers.retain(|v| !same.iter().any(|(id, _)| *id == v.id_short));
+                for (_, x) in same {
+                    x.close(CLOSE_KICKED.into(), b"kicked");
+                }
             }
             PeerConn::Web(w) => {
                 *w.reason.lock().unwrap() = Some("você foi removido desta transmissão".into());
@@ -856,6 +889,7 @@ impl Host {
                     .retain(|v| v.id_short != id_short);
             }
         }
+        self.shared.new_invite();
     }
 
     pub fn new_invite(&self) {

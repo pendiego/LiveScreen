@@ -1249,19 +1249,15 @@ fn viewers_card(
                         *kick_pending = None;
                     }
                 } else {
-                    let mut btn = theme::small_button(
+                    if theme::small_button(
                         ui,
                         theme::Kind::Ghost,
                         RichText::new(format!("{I_REMOVE}  Remover"))
                             .small()
                             .color(p.text_muted),
-                    );
-                    if v.id.is_none() {
-                        btn = btn.on_hover_text(
-                            "Pelo navegador dá para voltar com o mesmo link: use Novo convite para impedir",
-                        );
-                    }
-                    if btn.clicked() {
+                    )
+                    .clicked()
+                    {
                         *kick_pending = Some((v.id_short.clone(), Instant::now()));
                     }
                 }
@@ -1805,19 +1801,12 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         share.host.send_chat(&t);
     }
     if let Some(id) = kick {
-        let is_web = app.share.as_ref().is_some_and(|share| {
-            share.status.lock().unwrap().viewers.iter().any(|v| v.id_short == id && v.id.is_none())
-        });
         if let Some(share) = app.share.as_ref() {
             share.host.kick(&id);
         }
         let label = app.known_viewers.remove(&id).unwrap_or_else(|| id.clone());
         app.toasts.push(
-            if is_web {
-                format!("{label} foi removido. Pelo navegador dá para voltar com o mesmo link; use Novo convite para impedir.")
-            } else {
-                format!("{label} foi removido e não pode voltar nesta transmissão.")
-            },
+            format!("{label} foi removido e não volta nesta transmissão. Código e link do navegador foram renovados: quem ainda não entrou precisa dos novos."),
             ToastKind::Warn,
         );
     }
