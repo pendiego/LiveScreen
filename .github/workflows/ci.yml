@@ -56,3 +56,5 @@ jobs:
         run: |
           npm ci
           npm run check
+          npm test
+          node scripts/verify-manifest.mjs
