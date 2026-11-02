@@ -344,7 +344,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.IO + NonCancellable) {
                     viewerStop?.join()
                     Hosting.stopThread?.join()
-                    Native.start(target, name, identity, avatar)
+                    Native.start(target, name, identity, AvatarData.resolve(avatar, name.trim()))
                 }
             } catch (e: IllegalArgumentException) {
                 starting = false
@@ -511,7 +511,8 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             Hosting.request = HostRequest(
                 identity, name, "Tela de ${Build.MODEL}",
                 friends.joinToString(",") { it.code },
-                avatar
+                // automático resolvido aqui, igual à prévia; com nome vazio o host usaria "#0"
+                AvatarData.resolve(avatar, name.trim())
             )
             ContextCompat.startForegroundService(ctx, HostService.startIntent(ctx, code, data))
         }

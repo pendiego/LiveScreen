@@ -75,7 +75,9 @@
   const sealedSignal = !!hashMatch[3];
 
   const savedName = localStorage.getItem("livescreen-name") || "";
-  nameInput.value = savedName.slice(0, 32);
+  // 32 caracteres, não unidades UTF-16: cortar um emoji ao meio gera JSON que o host recusa
+  const clipName = (v) => Array.from(v.trim()).slice(0, 32).join("");
+  nameInput.value = clipName(savedName);
   const AVATAR_KEY = "livescreen.avatar";
   let chosenAvatar = 0;
   try {
@@ -89,6 +91,9 @@
   const FNV_OFFSET = 0x811c9dc5;
   const FNV_PRIME = 0x01000193;
   const textEncoder = new TextEncoder();
+
+  // automático resolvido aqui: com nome vazio o host usaria "#n" e daria outro bicho que o da prévia
+  const sentAvatar = () => chosenAvatar || autoAvatar(currentName);
 
   function autoAvatar(key) {
     const bytes = textEncoder.encode(key || "");
@@ -260,7 +265,7 @@
 
   function updateAutoAvatarPreview() {
     if (!autoPreviewSvg) return;
-    const name = nameInput.value.trim().slice(0, 32);
+    const name = clipName(nameInput.value);
     const autoId = autoAvatar(name);
     updateAvatarSvg(autoPreviewSvg, autoId);
   }
@@ -274,7 +279,7 @@
       const btnId = parseInt(btn.dataset.avatarId, 10);
       const isSelected = btnId === id;
       btn.setAttribute("aria-checked", String(isSelected));
-      btn.setAttribute("aria-pressed", String(isSelected));
+      btn.tabIndex = isSelected ? 0 : -1; // radiogroup: só o escolhido entra no Tab, setas trocam
       btn.classList.toggle("selected", isSelected);
     }
   }
@@ -287,11 +292,11 @@
     btnAuto.dataset.avatarId = "0";
     btnAuto.setAttribute("role", "radio");
     btnAuto.setAttribute("aria-checked", String(chosenAvatar === 0));
-    btnAuto.setAttribute("aria-pressed", String(chosenAvatar === 0));
     btnAuto.setAttribute("aria-label", "Avatar automático");
     btnAuto.setAttribute("title", "Avatar automático");
 
-    const currentAutoId = autoAvatar(nameInput.value.trim().slice(0, 32));
+    btnAuto.tabIndex = chosenAvatar === 0 ? 0 : -1;
+    const currentAutoId = autoAvatar(clipName(nameInput.value));
     autoPreviewSvg = createAvatarSvg(currentAutoId, 32);
     btnAuto.append(autoPreviewSvg);
 
@@ -310,7 +315,7 @@
       btn.dataset.avatarId = String(id);
       btn.setAttribute("role", "radio");
       btn.setAttribute("aria-checked", String(chosenAvatar === id));
-      btn.setAttribute("aria-pressed", String(chosenAvatar === id));
+      btn.tabIndex = chosenAvatar === id ? 0 : -1;
       const avName = AVATAR_NAMES[id] || ("#" + id);
       btn.setAttribute("aria-label", "Avatar " + avName);
       btn.setAttribute("title", "Avatar " + avName);
@@ -733,11 +738,11 @@
 
       let msg;
       if (sealedSignal) {
-        const s = await sealOffer({ sdp: localSdp, name: currentName, avatar: chosenAvatar });
+        const s = await sealOffer({ sdp: localSdp, name: currentName, avatar: sentAvatar() });
         offerNonce = s.nonce;
         msg = { t: "offer", sealed: s.sealed };
       } else {
-        msg = { t: "offer", sdp: localSdp, proof: await computeProof(roomKey, fp), name: currentName, avatar: chosenAvatar };
+        msg = { t: "offer", sdp: localSdp, proof: await computeProof(roomKey, fp), name: currentName, avatar: sentAvatar() };
       }
 
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -765,7 +770,7 @@
   }
 
   function connect(isReconnect = false) {
-    if (!currentName) currentName = nameInput.value.trim().slice(0, 32);
+    if (!currentName) currentName = clipName(nameInput.value);
     if (!isReconnect) {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
@@ -894,7 +899,7 @@
 
   joinForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    const name = nameInput.value.trim().slice(0, 32);
+    const name = clipName(nameInput.value);
     currentName = name;
     localStorage.setItem("livescreen-name", name);
     try { localStorage.setItem(AVATAR_KEY, String(chosenAvatar)); } catch {}

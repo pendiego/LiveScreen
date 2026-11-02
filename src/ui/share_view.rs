@@ -252,7 +252,8 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
     let pending = std::mem::take(&mut app.background);
     let identity = app.identity.clone();
     let host_name = livescreen_core::protocol::sanitize(&app.prefs.name, 32);
-    let avatar = app.prefs.avatar;
+    // automático resolvido aqui, igual à prévia: com nome vazio o host usaria "#0"
+    let avatar = livescreen_core::avatar::resolve(app.prefs.avatar, &host_name);
     let donate = app.prefs.experimental.fake_donate;
     let friends: std::collections::HashSet<iroh::EndpointId> =
         app.friend_ids().into_iter().collect();

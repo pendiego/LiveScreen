@@ -81,7 +81,10 @@ pub fn connect(app: &mut App, ctx: &egui::Context, target: String) {
         &target,
         app.identity.clone(),
         &app.prefs.name,
-        app.prefs.avatar,
+        livescreen_core::avatar::resolve(
+            app.prefs.avatar,
+            &livescreen_core::protocol::sanitize(&app.prefs.name, 32),
+        ),
         app.prefs.gain(),
         hw_decode,
         display_target,

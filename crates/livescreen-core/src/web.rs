@@ -48,8 +48,14 @@ pub struct SealedOffer {
     pub sdp: String,
     #[serde(default)]
     pub name: String,
-    #[serde(default)]
+    /// Valor estranho (texto, negativo, null) vira 0 = automático: não recusa a entrada por um enfeite.
+    #[serde(default, deserialize_with = "lenient_u8")]
     pub avatar: u8,
+}
+
+fn lenient_u8<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(v.as_u64().and_then(|n| u8::try_from(n).ok()).unwrap_or(0))
 }
 
 #[derive(Serialize)]
@@ -422,5 +428,15 @@ mod tests {
         assert_eq!(&req[2..4], &[0x00, 0x00]);
         assert_eq!(&req[4..8], &0x2112A442u32.to_be_bytes());
         assert_eq!(&req[8..20], &txid);
+    }
+
+    #[test]
+    fn sealed_offer_odd_avatar_falls_back_to_auto() {
+        for raw in [r#""2""#, "-1", "null", "1.5", "300", "{}"] {
+            let o: SealedOffer = serde_json::from_str(&format!(r#"{{"sdp":"v=0","name":"Ana","avatar":{raw}}}"#)).unwrap();
+            assert_eq!(o.avatar, 0, "{raw}");
+        }
+        let o: SealedOffer = serde_json::from_str(r#"{"sdp":"v=0","avatar":3}"#).unwrap();
+        assert_eq!(o.avatar, 3);
     }
 }

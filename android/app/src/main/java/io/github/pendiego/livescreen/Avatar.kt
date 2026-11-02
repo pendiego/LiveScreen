@@ -306,7 +306,7 @@ fun AvatarPicker(
                                 .padding(if (isSelected) 3.dp else 4.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            val displayId = if (id == 0) AvatarData.resolve(0, currentName) else id
+                            val displayId = if (id == 0) AvatarData.resolve(0, currentName.trim()) else id
                             Avatar(id = displayId, size = 36.dp)
                         }
                         Spacer(Modifier.height(4.dp))

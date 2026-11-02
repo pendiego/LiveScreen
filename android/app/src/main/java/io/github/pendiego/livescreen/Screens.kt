@@ -999,10 +999,7 @@ fun WatchScreen(vm: ViewerModel) {
                 delay(4000)
                 vm.chatPreview = null
             }
-            val previewAvatar = AvatarData.resolve(
-                preview.avatar,
-                preview.label.ifEmpty { if (preview.host) "#0" else "#${preview.seq}" }
-            )
+            val previewAvatar = preview.avatar // já resolvido no Rust (ChatLine::avatar_id)
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -1095,10 +1092,7 @@ fun ChatSheet(items: List<ChatItem>, onSend: (String) -> Unit, onDismiss: () -> 
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(items, key = { it.seq }) { m ->
-                        val avatarId = AvatarData.resolve(
-                            m.avatar,
-                            m.label.ifEmpty { if (m.host) "#0" else "#${m.seq}" }
-                        )
+                        val avatarId = m.avatar
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.Top
@@ -1280,7 +1274,7 @@ fun HostScreen(vm: ViewerModel) {
                 if (st != null && st.viewers.isNotEmpty()) {
                     Text("Assistindo", style = MaterialTheme.typography.titleSmall, color = Sinal.textMuted)
                     for (v in st.viewers) {
-                        val vAvatar = AvatarData.resolve(v.avatar, v.label.ifEmpty { "#${v.id}" })
+                        val vAvatar = v.avatar // resolvido pelo host
                         Row(
                             Modifier
                                 .fillMaxWidth()

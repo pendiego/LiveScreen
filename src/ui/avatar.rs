@@ -123,6 +123,8 @@ pub fn paint_avatar(painter: &egui::Painter, rect: Rect, id: u8) {
 pub fn avatar(ui: &mut Ui, id: u8, size: f32) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
     paint_avatar(ui.painter(), rect, id);
+    let name = avatar::get(id).map_or("", |a| a.name);
+    response.widget_info(|| WidgetInfo::labeled(egui::Role::Image, true, format!("Avatar {name}")));
     response
 }
 
@@ -131,7 +133,8 @@ pub fn avatar(ui: &mut Ui, id: u8, size: f32) -> Response {
 /// `chosen`: 0 = automático, 1..=COUNT = animal escolhido.
 /// `current_name`: nome atual da pessoa, usado para gerar a prévia do "Automático".
 pub fn picker(ui: &mut Ui, chosen: &mut u8, current_name: &str) {
-    let auto_id = avatar::auto(current_name);
+    // mesma chave que vai para a rede (nome limpo), senão a prévia mostra outro bicho
+    let auto_id = avatar::auto(&livescreen_core::protocol::sanitize(current_name, 32));
     let auto_name = avatar::get(auto_id).map(|a| a.name).unwrap_or("Animal");
 
     ui.horizontal_wrapped(|ui| {
@@ -180,7 +183,7 @@ fn draw_avatar_item(
 
     // Anel de foco / seleção conforme o tema
     let r_ring = (AVATAR_SIZE * 0.5) + 3.0;
-    if selected {
+    if selected || response.has_focus() {
         painter.circle_stroke(avatar_center, r_ring, Stroke::new(2.5, P.accent));
     } else if response.hovered() {
         painter.circle_stroke(avatar_center, r_ring, Stroke::new(1.5, P.border_strong));
@@ -190,7 +193,7 @@ fn draw_avatar_item(
     let font_id = FontId::new(11.0, FontFamily::Name("medium".into()));
     let text_color = if selected {
         P.accent
-    } else if response.hovered() {
+    } else if response.hovered() || response.has_focus() {
         P.text
     } else {
         P.text_muted
