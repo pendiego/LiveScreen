@@ -51,7 +51,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |`src/speedtest.rs`|medição de upload contra `speed.cloudflare.com`|
 |`src/update.rs`|auto-update pelo GitHub Releases com conferência de sha256|
 |`src/config.rs`|`%APPDATA%\LiveScreen\`, `config.json`, `LIVESCREEN_CAPTURE_OVERRIDES` e a identidade (`identity.key` + trava `identity.lock`)|
-|`src/ui/`|egui/eframe: `home`, `share_view`, `watch_view`, `chat` (painel compartilhado por host e espectador), `friends` (lista, prober de presença, modal de adicionar), `settings` (modal), `prefs` (`ui.json`), `theme`, `toast`|
+|`src/ui/`|egui/eframe: `home`, `share_view`, `watch_view`, `chat` (painel compartilhado por host e espectador), `friends` (lista, prober de presença, modal de adicionar), `settings` (modal), `prefs` (`ui.json`), `avatar` (desenho e escolha), `theme`, `toast`|
 |`src/gpu.rs`|device D3D11 compartilhado entre captura, encoder e viewer|
 |`src/icon.rs`|ícone desenhado em código; incluído pelo `build.rs` e pela UI (fonte única)|
 |`src/e2e_window.rs`|testes `#[ignore]` com janela e rede reais (`e2e_window`, `e2e_friends`)|
@@ -68,6 +68,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |`host/web.rs`|espectadores do navegador: WebRTC com `str0m` (uma sessão e um socket UDP por peer; H.264 sempre, AV1 quando o navegador oferece), sinalização com o Worker (`LIVESCREEN_WEB_URL`, padrão `https://livescreen.pendiego.com`), reconexão com backoff|
 |`web.rs`|link do navegador, sinalização cifrada (AES-256-GCM), STUN manual (srflx)|
 |`chat.rs`|mensagens do chat, papéis e limites|
+|`avatar.rs`|os 7 avatares como dados (formas num quadro 64×64), `auto`/`resolve` e `json()` para navegador e Android|
 
 ### Android (`android/`)
 
@@ -82,7 +83,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |Caminho|Papel|
 |---|---|
 |`web/src/worker.js`|Cloudflare Worker + Durable Object `Room` (um por sala): sinalização WebSocket entre host (`/ws/host/<sala>`) e espectadores (`/ws/view/<sala>`), sem TURN (só entrega STUN), limites e expiração de sockets|
-|`web/public/v/`|página do espectador (`index.html`, `viewer.js`, `viewer.css`, fontes): WebRTC, player, estatísticas e chat; sem build, servida como asset estático|
+|`web/public/v/`|página do espectador (`index.html`, `viewer.js`, `viewer.css`, `avatars.json`, fontes): WebRTC, player, estatísticas e chat; sem build, servida como asset estático|
 |`web/public/_headers`|CSP e cabeçalhos de segurança; cache longo só para `/v/fonts/*`|
 |`web/wrangler.jsonc`|configuração do Worker (assets, binding `ROOM`, migrations)|
 
@@ -114,6 +115,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 ### Chat
 
 - O host é o centro: atribui `sender` (0 é o host) e `role`; o nome é só rótulo e nunca dá privilégio. Limites em `chat.rs` (`MAX_CHAT_CHARS` 500, `MAX_NAME_CHARS` 32). Exige host e viewer 0.6+; com ponta antiga a transmissão segue sem chat.
+- Avatares: pela rede só vai o id (`u8`, 0 = automático); o host valida e resolve (`avatar::resolve`, chave = nome ou `#sender`) antes de repassar em `ChatLine`, `ViewerInfo` e `Welcome.host_avatar`. Os desenhos vivem só em `crates/livescreen-core/src/avatar.rs`: o Android lê por `Native.avatarsJson()` e o navegador por `web/public/v/avatars.json`, que um teste compara com `avatar::json()` (mudou o desenho, regenere o arquivo). O desktop desenha com o egui, que só preenche polígono convexo: polígono côncavo vira triângulos. O automático (FNV-1a 32) existe em Rust, Kotlin e JS e precisa dar o mesmo número nas três.
 
 ### Amigos e presença
 

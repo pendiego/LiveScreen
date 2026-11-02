@@ -233,6 +233,7 @@ impl ShareSession {
         max_viewers: usize,
         identity: iroh::SecretKey,
         host_name: String,
+        avatar: u8,
         friends: HashSet<iroh::EndpointId>,
         donate: bool,
     ) -> Result<ShareSession> {
@@ -363,6 +364,7 @@ impl ShareSession {
                 fps: params.fps,
                 audio: audio_h.is_some(),
                 donate,
+                avatar,
             },
             &feeds,
             status.clone(),

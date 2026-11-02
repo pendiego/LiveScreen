@@ -532,6 +532,7 @@ async fn run(sh: Arc<Shared>) {
                                     key,
                                     nonce,
                                     clean_name,
+                                    offer.avatar,
                                     permit,
                                     tx.clone(),
                                     peer_obj,
@@ -661,6 +662,7 @@ async fn peer(
     key: [u8; ROOM_KEY_LEN],
     offer_nonce: [u8; 12],
     name: String,
+    avatar: u8,
     permit: tokio::sync::OwnedSemaphorePermit,
     tx: mpsc::Sender<SignalOut>,
     peer: Arc<WebPeer>,
@@ -832,6 +834,12 @@ async fn peer(
     let connect_deadline = Instant::now() + CONNECT_TIMEOUT;
 
     let chat_id = sh.next_chat_id.fetch_add(1, Ordering::Relaxed);
+    let key = if name.is_empty() {
+        format!("#{chat_id}")
+    } else {
+        name.clone()
+    };
+    let viewer_avatar = crate::avatar::resolve(avatar, &key);
     let mut crx = sh.chat_tx.subscribe();
     let mut chat_ch: Option<ChannelId> = None;
     let mut chat_limiter = ChatLimiter::default();
@@ -863,6 +871,7 @@ async fn peer(
                           chat_ch: &mut Option<ChannelId>,
                           chat_limiter: &mut ChatLimiter,
                           chat_id: u32,
+                          viewer_avatar: u8,
                           flush_now: &mut bool| {
         for e in events.drain(..) {
             match e {
@@ -920,6 +929,7 @@ async fn peer(
                             name: name.to_string(),
                             decoders,
                             h264_baseline: peer.h264_baseline.load(Ordering::Relaxed),
+                            avatar: viewer_avatar,
                         },
                     );
                     guard.1 = Some(id.to_string());
@@ -967,7 +977,7 @@ async fn peer(
                     *chat_ch = Some(cid);
                     if let Some(mut ch) = rtc.channel(cid) {
                         // `ctl`: este host trata set_visible e set_quality; hosts antigos não mandam
-                        let _ = ch.write(false, serde_json::json!({"type":"chat_ready","chat_id":chat_id,"donate":sh.donate,"ctl":true}).to_string().as_bytes());
+                        let _ = ch.write(false, serde_json::json!({"type":"chat_ready","chat_id":chat_id,"donate":sh.donate,"ctl":true,"host_avatar":sh.host_avatar}).to_string().as_bytes());
                     }
                     *flush_now = true;
                 }
@@ -975,7 +985,7 @@ async fn peer(
                     match serde_json::from_slice(&d.data) {
                         Ok(ViewerMsg::Chat { text, donate }) => {
                             if chat_limiter.allow(Instant::now()) {
-                                if let Some(l) = ChatLine::incoming(chat_id, name, false, &text, donate, sh.donate) {
+                                if let Some(l) = ChatLine::incoming(chat_id, name, false, &text, donate, sh.donate, viewer_avatar) {
                                     sh.post_chat(l);
                                 }
                             }
@@ -1014,6 +1024,7 @@ async fn peer(
         &mut chat_ch,
         &mut chat_limiter,
         chat_id,
+        viewer_avatar,
         &mut flush_now,
     );
 
@@ -1083,6 +1094,7 @@ async fn peer(
                                     &mut chat_ch,
                                     &mut chat_limiter,
                                     chat_id,
+                                    viewer_avatar,
                                     &mut flush_now,
                                 );
                             }
@@ -1119,6 +1131,7 @@ async fn peer(
                         &mut chat_ch,
                         &mut chat_limiter,
                         chat_id,
+                        viewer_avatar,
                         &mut flush_now,
                     );
                 }
@@ -1196,6 +1209,7 @@ async fn peer(
                             &mut chat_ch,
                             &mut chat_limiter,
                             chat_id,
+                            viewer_avatar,
                             &mut flush_now,
                         );
                     }
@@ -1246,6 +1260,7 @@ async fn peer(
                                 &mut chat_ch,
                                 &mut chat_limiter,
                                 chat_id,
+                                viewer_avatar,
                                 &mut flush_now,
                             );
                         }

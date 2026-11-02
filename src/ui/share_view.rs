@@ -11,7 +11,7 @@ use egui::{
 
 use super::theme::{
     self, I_ADD_FRIEND, I_BACK, I_CHECK, I_CIRCLE_CHECK, I_COPY, I_HANGUP, I_MIC, I_MIC_OFF,
-    I_MONITOR, I_PEOPLE, I_PERSON, I_PLAY, I_QUALITY, I_REFRESH, I_REMOVE, I_SEARCH, I_VOLUME,
+    I_MONITOR, I_PEOPLE, I_PLAY, I_QUALITY, I_REFRESH, I_REMOVE, I_SEARCH, I_VOLUME,
     I_WARN, I_WINDOW,
 };
 use super::toast::ToastKind;
@@ -252,6 +252,7 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
     let pending = std::mem::take(&mut app.background);
     let identity = app.identity.clone();
     let host_name = livescreen_core::protocol::sanitize(&app.prefs.name, 32);
+    let avatar = app.prefs.avatar;
     let donate = app.prefs.experimental.fake_donate;
     let friends: std::collections::HashSet<iroh::EndpointId> =
         app.friend_ids().into_iter().collect();
@@ -264,7 +265,7 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
         }
         let res = ShareSession::start(
             &rt, info, preset, audio, mic, encoders, overrides, room, identity, host_name,
-            friends, donate,
+            avatar, friends, donate,
         );
         ctx2.request_repaint();
         if let Err(std::sync::mpsc::SendError(Ok(s))) = tx.send(res) {
@@ -1199,8 +1200,9 @@ fn viewers_card(
                         ui.end_row();
                     }
                 };
+                super::avatar::avatar(ui, v.avatar, 20.0);
                 ui.label(
-                    RichText::new(format!("{I_PERSON}  {}", v.label()))
+                    RichText::new(v.label())
                         .family(egui::FontFamily::Name("semibold".into()))
                         .size(14.0)
                         .color(p.text),

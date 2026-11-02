@@ -48,6 +48,8 @@ pub struct SealedOffer {
     pub sdp: String,
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub avatar: u8,
 }
 
 #[derive(Serialize)]
@@ -320,7 +322,7 @@ mod tests {
     fn test_signal_vectors_match_webcrypto() {
         let key = [9u8; ROOM_KEY_LEN];
         let (offer, nonce) = open_offer(&key, SALA, OFFER_VEC).expect("offer do WebCrypto");
-        assert_eq!(offer, SealedOffer { sdp: "v=0\r\n".into(), name: "Ana".into() });
+        assert_eq!(offer, SealedOffer { sdp: "v=0\r\n".into(), name: "Ana".into(), avatar: 0 });
         assert_eq!(nonce, [1u8; 12]);
 
         let sealed = seal_with(

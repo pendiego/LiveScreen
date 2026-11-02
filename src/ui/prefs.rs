@@ -25,6 +25,9 @@ pub struct Prefs {
     /// Id do microfone escolhido; `None` = padrão do Windows.
     pub mic_device: Option<String>,
     pub name: String,
+    /// Avatar escolhido (0 = automático, 1..=7 para os animais).
+    #[serde(default)]
+    pub avatar: u8,
     pub volume: f32,
     pub muted: bool,
     /// Última janela em estado normal: x e y externos, largura e altura internas (pontos).
@@ -54,6 +57,7 @@ impl Default for Prefs {
             share_mic: false,
             mic_device: None,
             name: String::new(),
+            avatar: 0,
             volume: 1.0,
             muted: false,
             window: None,
@@ -151,6 +155,13 @@ mod tests {
         assert!(p.graphics_capture && p.dxgi_capture);
         assert!(!p.show_stats);
         assert!(!p.experimental.fake_donate);
+    }
+
+    #[test]
+    fn avatar_defaults_to_zero_and_parses() {
+        assert_eq!(Prefs::default().avatar, 0);
+        let p = Prefs::parse(r#"{"avatar":3}"#);
+        assert_eq!(p.avatar, 3);
     }
 
     #[test]

@@ -128,6 +128,7 @@ pub struct ViewerInfo {
     pub friend: bool,
     pub path: String,
     pub rtt_ms: u32,
+    pub avatar: u8,
 }
 
 impl ViewerInfo {
@@ -225,6 +226,7 @@ pub(crate) struct Peer {
     pub(crate) name: String,
     pub(crate) decoders: Vec<Codec>,
     pub(crate) h264_baseline: bool,
+    pub(crate) avatar: u8,
 }
 
 pub(crate) struct Shared {
@@ -265,6 +267,7 @@ pub(crate) struct Shared {
     pub(crate) next_chat_id: AtomicU32,
     /// Doações simuladas ligadas nesta transmissão.
     pub(crate) donate: bool,
+    pub(crate) host_avatar: u8,
 }
 
 impl Shared {
@@ -385,6 +388,7 @@ async fn handle_viewer(
     let ViewerMsg::Hello {
         protocol,
         name,
+        avatar,
         room_proof,
         decoders,
         chat: wants_chat,
@@ -475,6 +479,14 @@ async fn handle_viewer(
             n = (n + 4).min(total);
         }
     };
+    let chat_id = sh.next_chat_id.fetch_add(1, Ordering::Relaxed);
+    let clean_name = sanitize(&name, 32);
+    let key = if clean_name.is_empty() {
+        format!("#{chat_id}")
+    } else {
+        clean_name.clone()
+    };
+    let viewer_avatar = crate::avatar::resolve(avatar, &key);
     let _guard = CountGuard(&sh, Some(id.clone()));
     {
         let mut conns = sh.conns.lock().unwrap();
@@ -488,15 +500,15 @@ async fn handle_viewer(
             id.clone(),
             Peer {
                 conn: PeerConn::Iroh(conn.clone()),
-                name: sanitize(&name, 32),
+                name: clean_name.clone(),
                 decoders,
                 h264_baseline: false,
+                avatar: viewer_avatar,
             },
         );
     }
     sh.codec_dirty.store(true, Ordering::Release);
 
-    let chat_id = sh.next_chat_id.fetch_add(1, Ordering::Relaxed);
     let mut prx = sh.params.subscribe();
     let (w, h, fps, audio) = *prx.borrow_and_update();
     tokio::time::timeout(
@@ -514,6 +526,7 @@ async fn handle_viewer(
                 chat: true,
                 chat_id,
                 donate: sh.donate,
+                host_avatar: sh.host_avatar,
             },
         ),
     )
@@ -541,7 +554,7 @@ async fn handle_viewer(
                 ViewerMsg::SetVisible { visible: v } => visible2.store(v, Ordering::Relaxed),
                 ViewerMsg::Chat { text, donate } => {
                     if limiter.allow(Instant::now())
-                        && let Some(l) = ChatLine::incoming(chat_id, &sender_name, is_friend, &text, donate, sh2.donate)
+                        && let Some(l) = ChatLine::incoming(chat_id, &sender_name, is_friend, &text, donate, sh2.donate, viewer_avatar)
                     {
                         sh2.post_chat(l);
                     }
@@ -655,6 +668,8 @@ pub struct HostConfig {
     pub audio: bool,
     /// Doações simuladas no chat (experimental); vale pela transmissão inteira.
     pub donate: bool,
+    /// Avatar escolhido pelo host (0 = automático).
+    pub avatar: u8,
 }
 
 /// Entradas do encoder e da captura de áudio da plataforma. Áudio: datagrama `[seq u32 LE][Opus 20 ms]`.
@@ -717,6 +732,13 @@ impl Host {
                 .await
         })?;
         let (sd_tx, sd_rx) = watch::channel(false);
+        let host_name_clean = sanitize(&cfg.host_name, 32);
+        let host_key = if host_name_clean.is_empty() {
+            "#0".to_string()
+        } else {
+            host_name_clean.clone()
+        };
+        let host_avatar = crate::avatar::resolve(cfg.avatar, &host_key);
         let shared = Arc::new(Shared {
             status: status.clone(),
             viewers: AtomicUsize::new(0),
@@ -748,6 +770,7 @@ impl Host {
             chat: Arc::new(Mutex::new(ChatLog::default())),
             next_chat_id: AtomicU32::new(1),
             donate: cfg.donate,
+            host_avatar,
         });
         {
             let (ep, shared, status) = (ep.clone(), shared.clone(), status.clone());
@@ -836,6 +859,7 @@ impl Host {
                                         friend,
                                         path,
                                         rtt_ms: rtt,
+                                        avatar: peer.avatar,
                                     }
                                 }
                                 PeerConn::Web(w) => {
@@ -847,6 +871,7 @@ impl Host {
                                         friend: false,
                                         path: "Navegador".into(),
                                         rtt_ms: w.rtt_ms.load(Ordering::Relaxed),
+                                        avatar: peer.avatar,
                                     }
                                 }
                             }
@@ -913,7 +938,7 @@ impl Host {
 
     /// Mensagem do próprio host: sempre `role = Host`, sem limitador.
     pub fn send_chat(&self, text: &str) {
-        if let Some(l) = ChatLine::from_host(&self.shared.host_name, text) {
+        if let Some(l) = ChatLine::from_host(&self.shared.host_name, text, self.shared.host_avatar) {
             self.shared.post_chat(l);
         }
     }
@@ -1177,5 +1202,14 @@ mod tests {
 
         // base_fps baixo (15 fps): nunca corta abaixo de base_fps
         assert_eq!(decide_target_fps(500_000, ceiling, 15, 0), 0);
+    }
+
+    #[test]
+    fn host_replaces_invalid_avatar_with_auto() {
+        // Quando o host recebe avatar 0 ou inválido (> COUNT), resolve automaticamente
+        assert_eq!(crate::avatar::resolve(0, "Diego"), crate::avatar::auto("Diego"));
+        assert_eq!(crate::avatar::resolve(99, "Diego"), crate::avatar::auto("Diego"));
+        // Quando válido, preserva o escolhido
+        assert_eq!(crate::avatar::resolve(2, "Diego"), 2);
     }
 }

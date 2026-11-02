@@ -1,5 +1,6 @@
 //! Núcleo sem plataforma; Windows e Android ligam aqui o próprio decoder e áudio.
 
+pub mod avatar;
 pub mod chat;
 pub mod friends;
 pub mod host;

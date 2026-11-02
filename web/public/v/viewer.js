@@ -76,6 +76,297 @@
 
   const savedName = localStorage.getItem("livescreen-name") || "";
   nameInput.value = savedName.slice(0, 32);
+  const AVATAR_KEY = "livescreen.avatar";
+  let chosenAvatar = 0;
+  try {
+    const val = parseInt(localStorage.getItem(AVATAR_KEY) || localStorage[AVATAR_KEY], 10);
+    if (Number.isInteger(val) && val >= 0 && val <= 7) {
+      chosenAvatar = val;
+    }
+  } catch {}
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const FNV_OFFSET = 0x811c9dc5;
+  const FNV_PRIME = 0x01000193;
+  const textEncoder = new TextEncoder();
+
+  function autoAvatar(key) {
+    const bytes = textEncoder.encode(key || "");
+    let hash = FNV_OFFSET >>> 0;
+    for (let i = 0; i < bytes.length; i++) {
+      hash ^= bytes[i];
+      hash = Math.imul(hash, FNV_PRIME) >>> 0;
+    }
+    return (hash % 7) + 1;
+  }
+
+  let avatarData = null;
+  const avatarMap = new Map();
+  const pendingSvgs = new Set();
+  const AVATAR_NAMES = {
+    1: "Gato",
+    2: "Raposa",
+    3: "Urso",
+    4: "Coelho",
+    5: "Sapo",
+    6: "Polvo",
+    7: "Peixe",
+  };
+
+  function renderAvatarShapes(svg, id) {
+    if (!avatarData) return;
+    const av = avatarMap.get(id);
+    if (!av || !Array.isArray(av.shapes)) return;
+
+    const palette = {
+      b: avatarData.back || "#1C2027",
+      d: avatarData.dark || "#0B0D10",
+      l: avatarData.light || "#F3F5F7",
+    };
+    const colorOf = (ink) => (ink === "a" ? (av.accent || palette.l) : (palette[ink] || palette.b));
+
+    for (const s of av.shapes) {
+      if (!Array.isArray(s) || s.length < 2) continue;
+      const type = s[0];
+      const ink = s[1];
+      const c = colorOf(ink);
+      const v = s.slice(2);
+
+      let el = null;
+      switch (type) {
+        case "circle":
+          if (v.length >= 3) {
+            el = document.createElementNS(SVG_NS, "circle");
+            el.setAttribute("cx", String(v[0]));
+            el.setAttribute("cy", String(v[1]));
+            el.setAttribute("r", String(v[2]));
+            el.setAttribute("fill", c);
+          }
+          break;
+        case "ellipse":
+          if (v.length >= 4) {
+            el = document.createElementNS(SVG_NS, "ellipse");
+            el.setAttribute("cx", String(v[0]));
+            el.setAttribute("cy", String(v[1]));
+            el.setAttribute("rx", String(v[2]));
+            el.setAttribute("ry", String(v[3]));
+            el.setAttribute("fill", c);
+          }
+          break;
+        case "rect":
+          if (v.length >= 5) {
+            el = document.createElementNS(SVG_NS, "rect");
+            el.setAttribute("x", String(v[0]));
+            el.setAttribute("y", String(v[1]));
+            el.setAttribute("width", String(v[2]));
+            el.setAttribute("height", String(v[3]));
+            el.setAttribute("rx", String(v[4]));
+            el.setAttribute("fill", c);
+          }
+          break;
+        case "poly":
+          if (v.length >= 4) {
+            el = document.createElementNS(SVG_NS, "polygon");
+            el.setAttribute("points", v.join(" "));
+            el.setAttribute("fill", c);
+            el.setAttribute("stroke", c);
+            el.setAttribute("stroke-width", "1");
+            el.setAttribute("stroke-linejoin", "round");
+          }
+          break;
+        case "line":
+          if (v.length >= 5) {
+            el = document.createElementNS(SVG_NS, "line");
+            el.setAttribute("stroke-width", String(v[0]));
+            el.setAttribute("x1", String(v[1]));
+            el.setAttribute("y1", String(v[2]));
+            el.setAttribute("x2", String(v[3]));
+            el.setAttribute("y2", String(v[4]));
+            el.setAttribute("stroke", c);
+            el.setAttribute("stroke-linecap", "round");
+          }
+          break;
+        case "pline":
+          if (v.length >= 3) {
+            el = document.createElementNS(SVG_NS, "polyline");
+            el.setAttribute("stroke-width", String(v[0]));
+            el.setAttribute("points", v.slice(1).join(" "));
+            el.setAttribute("fill", "none");
+            el.setAttribute("stroke", c);
+            el.setAttribute("stroke-linecap", "round");
+            el.setAttribute("stroke-linejoin", "round");
+          }
+          break;
+        case "ring":
+          if (v.length >= 5) {
+            el = document.createElementNS(SVG_NS, "ellipse");
+            el.setAttribute("stroke-width", String(v[0]));
+            el.setAttribute("cx", String(v[1]));
+            el.setAttribute("cy", String(v[2]));
+            el.setAttribute("rx", String(v[3]));
+            el.setAttribute("ry", String(v[4]));
+            el.setAttribute("fill", "none");
+            el.setAttribute("stroke", c);
+          }
+          break;
+      }
+      if (el) svg.append(el);
+    }
+  }
+
+  function updateAvatarSvg(svg, id) {
+    svg.dataset.avatarId = String(id);
+    while (svg.childNodes.length > 1) {
+      svg.removeChild(svg.lastChild);
+    }
+    const bg = svg.firstChild;
+    if (bg) {
+      bg.setAttribute("fill", (avatarData && avatarData.back) || "#1C2027");
+    }
+    renderAvatarShapes(svg, id);
+  }
+
+  function createAvatarSvg(id, size = 20, ariaLabel) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 64 64");
+    svg.setAttribute("width", String(size));
+    svg.setAttribute("height", String(size));
+    svg.setAttribute("class", "avatar-icon");
+    if (ariaLabel) {
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", ariaLabel);
+    } else {
+      svg.setAttribute("aria-hidden", "true");
+    }
+
+    const bg = document.createElementNS(SVG_NS, "circle");
+    bg.setAttribute("cx", "32");
+    bg.setAttribute("cy", "32");
+    bg.setAttribute("r", "32");
+    bg.setAttribute("fill", (avatarData && avatarData.back) || "#1C2027");
+    svg.append(bg);
+
+    if (avatarData) {
+      renderAvatarShapes(svg, id);
+    } else {
+      svg.dataset.avatarId = String(id);
+      pendingSvgs.add(svg);
+    }
+    return svg;
+  }
+
+  const avatarGrid = document.getElementById("avatarGrid");
+  let autoPreviewSvg = null;
+
+  function updateAutoAvatarPreview() {
+    if (!autoPreviewSvg) return;
+    const name = nameInput.value.trim().slice(0, 32);
+    const autoId = autoAvatar(name);
+    updateAvatarSvg(autoPreviewSvg, autoId);
+  }
+
+  function selectAvatar(id) {
+    chosenAvatar = id;
+    try { localStorage.setItem(AVATAR_KEY, String(id)); } catch {}
+    if (!avatarGrid) return;
+    const buttons = avatarGrid.querySelectorAll(".avatar-opt");
+    for (const btn of buttons) {
+      const btnId = parseInt(btn.dataset.avatarId, 10);
+      const isSelected = btnId === id;
+      btn.setAttribute("aria-checked", String(isSelected));
+      btn.setAttribute("aria-pressed", String(isSelected));
+      btn.classList.toggle("selected", isSelected);
+    }
+  }
+
+  function initAvatarGrid() {
+    if (!avatarGrid) return;
+    const btnAuto = document.createElement("button");
+    btnAuto.type = "button";
+    btnAuto.className = "avatar-opt" + (chosenAvatar === 0 ? " selected" : "");
+    btnAuto.dataset.avatarId = "0";
+    btnAuto.setAttribute("role", "radio");
+    btnAuto.setAttribute("aria-checked", String(chosenAvatar === 0));
+    btnAuto.setAttribute("aria-pressed", String(chosenAvatar === 0));
+    btnAuto.setAttribute("aria-label", "Avatar automático");
+    btnAuto.setAttribute("title", "Avatar automático");
+
+    const currentAutoId = autoAvatar(nameInput.value.trim().slice(0, 32));
+    autoPreviewSvg = createAvatarSvg(currentAutoId, 32);
+    btnAuto.append(autoPreviewSvg);
+
+    const badge = document.createElement("span");
+    badge.className = "avatar-badge";
+    badge.textContent = "Auto";
+    btnAuto.append(badge);
+
+    btnAuto.addEventListener("click", () => selectAvatar(0));
+    avatarGrid.append(btnAuto);
+
+    for (let id = 1; id <= 7; id++) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "avatar-opt" + (chosenAvatar === id ? " selected" : "");
+      btn.dataset.avatarId = String(id);
+      btn.setAttribute("role", "radio");
+      btn.setAttribute("aria-checked", String(chosenAvatar === id));
+      btn.setAttribute("aria-pressed", String(chosenAvatar === id));
+      const avName = AVATAR_NAMES[id] || ("#" + id);
+      btn.setAttribute("aria-label", "Avatar " + avName);
+      btn.setAttribute("title", "Avatar " + avName);
+
+      const svg = createAvatarSvg(id, 32);
+      btn.append(svg);
+
+      btn.addEventListener("click", () => selectAvatar(id));
+      avatarGrid.append(btn);
+    }
+
+    avatarGrid.addEventListener("keydown", (e) => {
+      const buttons = Array.from(avatarGrid.querySelectorAll(".avatar-opt"));
+      const idx = buttons.findIndex((b) => b === document.activeElement);
+      if (idx === -1) return;
+      let nextIdx = -1;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        nextIdx = (idx + 1) % buttons.length;
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        nextIdx = (idx - 1 + buttons.length) % buttons.length;
+      }
+      if (nextIdx !== -1) {
+        e.preventDefault();
+        const nextBtn = buttons[nextIdx];
+        nextBtn.focus();
+        selectAvatar(Number(nextBtn.dataset.avatarId));
+      }
+    });
+
+    nameInput.addEventListener("input", updateAutoAvatarPreview);
+  }
+  initAvatarGrid();
+
+  async function loadAvatars() {
+    try {
+      const res = await fetch("avatars.json");
+      if (!res.ok) return;
+      avatarData = await res.json();
+      if (avatarData && Array.isArray(avatarData.avatars)) {
+        for (const av of avatarData.avatars) {
+          avatarMap.set(av.id, av);
+        }
+      }
+      for (const svg of pendingSvgs) {
+        if (svg.isConnected) {
+          const id = parseInt(svg.dataset.avatarId, 10);
+          if (Number.isInteger(id)) {
+            updateAvatarSvg(svg, id);
+          }
+        }
+      }
+      pendingSvgs.clear();
+      updateAutoAvatarPreview();
+    } catch {}
+  }
+  loadAvatars();
 
   let ws = null;
   let pc = null;
@@ -86,6 +377,7 @@
   let offerNonce = null;
   let currentName = "";
   let hostName = "";
+  let hostAvatar = 0;
   let reconnectAttempts = 0;
   let reconnectTimer = null;
   let reconnecting = false;
@@ -266,6 +558,7 @@
     qualityMenu.hidden = true;
     qualityBtn.setAttribute("aria-expanded", "false");
     if (!isReconnect) {
+      hostAvatar = 0;
       netBadge.hidden = true;
       updatePlaybackState(false);
     }
@@ -440,11 +733,11 @@
 
       let msg;
       if (sealedSignal) {
-        const s = await sealOffer({ sdp: localSdp, name: currentName });
+        const s = await sealOffer({ sdp: localSdp, name: currentName, avatar: chosenAvatar });
         offerNonce = s.nonce;
         msg = { t: "offer", sealed: s.sealed };
       } else {
-        msg = { t: "offer", sdp: localSdp, proof: await computeProof(roomKey, fp), name: currentName };
+        msg = { t: "offer", sdp: localSdp, proof: await computeProof(roomKey, fp), name: currentName, avatar: chosenAvatar };
       }
 
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -604,6 +897,7 @@
     const name = nameInput.value.trim().slice(0, 32);
     currentName = name;
     localStorage.setItem("livescreen-name", name);
+    try { localStorage.setItem(AVATAR_KEY, String(chosenAvatar)); } catch {}
     connect();
   });
 
@@ -823,6 +1117,9 @@
     if (data.type === "chat_ready") {
       if (!Number.isInteger(data.chat_id)) return;
       myChatId = data.chat_id;
+      if (Number.isInteger(data.host_avatar) && data.host_avatar >= 1 && data.host_avatar <= 7) {
+        hostAvatar = data.host_avatar;
+      }
       chatBtn.hidden = false;
       donateRow.hidden = data.donate !== true;
       if (data.ctl === true) {
@@ -833,6 +1130,23 @@
     } else if (data.type === "chat") {
       appendChat(data);
     }
+  }
+
+  function getLineAvatarId(m, host, mine) {
+    if (Number.isInteger(m.avatar) && m.avatar >= 1 && m.avatar <= 7) {
+      return m.avatar;
+    }
+    const name = typeof m.name === "string" ? m.name.slice(0, 32) : "";
+    if (host) {
+      if (Number.isInteger(hostAvatar) && hostAvatar >= 1 && hostAvatar <= 7) {
+        return hostAvatar;
+      }
+      return autoAvatar(name || hostName || "#0");
+    }
+    if (mine && Number.isInteger(chosenAvatar) && chosenAvatar >= 1 && chosenAvatar <= 7) {
+      return chosenAvatar;
+    }
+    return autoAvatar(name || (Number.isInteger(m.sender) ? "#" + m.sender : "#0"));
   }
 
   function appendChat(m) {
@@ -848,6 +1162,10 @@
     const label = mine ? "Você" : host ? (name || "Anfitrião") : `${name || "Anônimo"} #${m.sender}`;
     const li = document.createElement("li");
     li.className = (host ? "chat-msg host" : "chat-msg") + (donate ? " donate" : "");
+    const avatarId = getLineAvatarId(m, host, mine);
+    const av = createAvatarSvg(avatarId, 20);
+    av.classList.add("chat-avatar");
+    li.append(av);
     const who = document.createElement("span");
     who.className = "who";
     who.textContent = label;

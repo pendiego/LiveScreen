@@ -81,6 +81,7 @@ pub fn connect(app: &mut App, ctx: &egui::Context, target: String) {
         &target,
         app.identity.clone(),
         &app.prefs.name,
+        app.prefs.avatar,
         app.prefs.gain(),
         hw_decode,
         display_target,
@@ -655,8 +656,21 @@ pub fn watching(app: &mut App, ui: &mut egui::Ui) {
                 ));
             });
 
-        if !st.title.is_empty() {
-            theme::call_title(&ctx, &st.title);
+        let title_text = if !st.title.is_empty() {
+            if !st.host_name.is_empty() {
+                format!("{} · {}", st.host_name, st.title)
+            } else {
+                st.title.clone()
+            }
+        } else if !st.host_name.is_empty() {
+            st.host_name.clone()
+        } else {
+            String::new()
+        };
+        if !title_text.is_empty() {
+            let host_key = if st.host_name.is_empty() { "#0" } else { &st.host_name };
+            let host_av = livescreen_core::avatar::resolve(st.host_avatar, host_key);
+            theme::call_title_with_avatar(&ctx, &title_text, Some(host_av));
         }
         let bar = theme::call_bar(&ctx, "watch_bar", |ui| controls(app, ui, &st));
         app.watch_view.bar_rect = Some(bar.response.rect);

@@ -37,6 +37,8 @@ pub fn panel(
                 let host = l.role == ChatRole::Host;
                 let who = if (l.role, l.sender) == me { "Você".to_string() } else { l.label() };
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    super::avatar::avatar(ui, l.avatar_id(), 20.0);
                     ui.label(
                         RichText::new(who)
                             .size(13.0)

@@ -47,6 +47,7 @@ pub struct WatchStatus {
     pub chat: bool,
     pub chat_id: u32,
     pub donate: bool,
+    pub host_avatar: u8,
 }
 
 pub fn close_reason(e: &ConnectionError) -> &'static str {
@@ -128,6 +129,7 @@ impl ViewerSession {
         ticket: &str,
         identity: SecretKey,
         name: &str,
+        avatar: u8,
         app_version: &str,
         decoders: Vec<Codec>,
         need_key: Arc<AtomicBool>,
@@ -156,6 +158,7 @@ impl ViewerSession {
             chat: false,
             chat_id: 0,
             donate: false,
+            host_avatar: 0,
         }));
         let (ctl_tx, ctl_rx) = tokio::sync::mpsc::unbounded_channel();
         let chat = Arc::new(Mutex::new(crate::chat::ChatLog::default()));
@@ -177,6 +180,7 @@ impl ViewerSession {
                     target,
                     &status,
                     name,
+                    avatar,
                     app_version,
                     decoders,
                     need_key,
@@ -254,6 +258,7 @@ async fn run(
     target: Target,
     status: &Arc<Mutex<WatchStatus>>,
     name: String,
+    avatar: u8,
     app_version: String,
     decoders: Vec<Codec>,
     need_key: Arc<AtomicBool>,
@@ -283,6 +288,7 @@ async fn run(
             protocol,
             app_version,
             name,
+            avatar,
             room_proof: proof,
             decoders,
             chat: true,
@@ -292,7 +298,7 @@ async fn run(
     let welcome: HostMsg = tokio::time::timeout(Duration::from_secs(15), read_msg(&mut recv))
         .await
         .map_err(|_| anyhow!("Sem resposta do host"))??;
-    let (w, h, audio, title, host_name, light_presets, host_chat, chat_id, host_donate) = match welcome {
+    let (w, h, audio, title, host_name, light_presets, host_chat, chat_id, host_donate, host_avatar) = match welcome {
         HostMsg::Welcome {
             width,
             height,
@@ -303,8 +309,9 @@ async fn run(
             chat,
             chat_id,
             donate,
+            host_avatar,
             ..
-        } => (width, height, audio, title, host_name, light_presets, chat, chat_id, donate),
+        } => (width, height, audio, title, host_name, light_presets, chat, chat_id, donate, host_avatar),
         HostMsg::Rejected { reason } => return Ok(format!("Recusado: {reason}")),
         HostMsg::StreamEnded => return Ok("Transmissão encerrada".into()),
         HostMsg::StreamParams { .. } => return Ok("Resposta inesperada do host".into()),
@@ -317,7 +324,18 @@ async fn run(
         s.height = h;
         s.audio = audio;
         s.title = crate::protocol::sanitize(&title, 120);
-        s.host_name = crate::protocol::sanitize(&host_name, 32);
+        let host_name_clean = crate::protocol::sanitize(&host_name, 32);
+        s.host_avatar = if (1..=crate::avatar::COUNT).contains(&host_avatar) {
+            host_avatar
+        } else {
+            let key = if host_name_clean.is_empty() {
+                "#0".to_string()
+            } else {
+                host_name_clean.clone()
+            };
+            crate::avatar::resolve(0, &key)
+        };
+        s.host_name = host_name_clean;
         s.chat = host_chat;
         s.chat_id = chat_id;
         s.donate = host_donate;

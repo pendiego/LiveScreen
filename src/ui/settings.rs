@@ -259,7 +259,12 @@ fn share(app: &mut App, ui: &mut egui::Ui) {
             .hint_text("Como você aparece para quem compartilha")
             .desired_width(f32::INFINITY),
     ));
+    ui.add_space(12.0);
+
+    theme::section_label(ui, "Avatar");
     ui.add_space(4.0);
+    super::avatar::picker(ui, &mut app.prefs.avatar, &app.prefs.name);
+    ui.add_space(8.0);
     hint(
         ui,
         "A qualidade e o áudio também mudam quando você escolhe ao iniciar uma transmissão.",

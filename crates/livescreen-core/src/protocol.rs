@@ -74,6 +74,9 @@ pub enum ViewerMsg {
         /// Viewer entende `HostMsg::Chat`; host antigo ignora o campo.
         #[serde(default)]
         chat: bool,
+        /// Avatar escolhido (1..=COUNT) ou 0 para automático.
+        #[serde(default)]
+        avatar: u8,
     },
     RequestKeyframe,
     /// Pede ao host a qualidade da transmissão (vale para a sala toda; o host aplica).
@@ -116,6 +119,9 @@ pub enum HostMsg {
         /// Host aceita doações simuladas no chat (experimental).
         #[serde(default)]
         donate: bool,
+        /// Avatar resolvido do host (1..=COUNT).
+        #[serde(default)]
+        host_avatar: u8,
     },
     /// Qualidade trocada com a transmissão no ar; o próximo keyframe já vem no novo tamanho.
     StreamParams {
@@ -536,6 +542,7 @@ mod tests {
             room_proof: String::new(),
             decoders: Vec::new(),
             chat: true,
+            avatar: 0,
         };
         assert!(encode_msg(&big).is_err());
         assert!(encode_msg(&ViewerMsg::RequestKeyframe).is_ok());
@@ -600,12 +607,24 @@ mod tests {
             r#"{"type":"welcome","width":1280,"height":720,"fps":30,"audio":false}"#,
         )
         .unwrap();
-        let HostMsg::Welcome { chat, chat_id, donate, .. } = m else {
+        let HostMsg::Welcome { chat, chat_id, donate, host_avatar, .. } = m else {
             panic!()
         };
         assert!(!chat);
         assert_eq!(chat_id, 0);
         assert!(!donate);
+        assert_eq!(host_avatar, 0);
+    }
+    #[test]
+    fn hello_from_old_viewer_has_no_avatar() {
+        let m = serde_json::from_str::<ViewerMsg>(
+            r#"{"type":"hello","protocol":5,"app_version":"0.6.2","name":"Diego"}"#,
+        )
+        .unwrap();
+        let ViewerMsg::Hello { avatar, .. } = m else {
+            panic!()
+        };
+        assert_eq!(avatar, 0);
     }
     #[test]
     fn chat_msg_json_shape() {
@@ -616,6 +635,7 @@ mod tests {
             friend: false,
             text: "oi".into(),
             donate: 0,
+            avatar: 0,
         };
         let v = serde_json::to_value(&HostMsg::Chat(l)).unwrap();
         assert_eq!(v["type"], "chat");

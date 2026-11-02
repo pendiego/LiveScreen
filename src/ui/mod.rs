@@ -1,3 +1,4 @@
+pub mod avatar;
 mod chat;
 mod friends;
 mod home;

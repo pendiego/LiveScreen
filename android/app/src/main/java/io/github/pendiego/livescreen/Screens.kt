@@ -548,6 +548,11 @@ fun HomeScreen(vm: ViewerModel) {
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                 )
 
+                AvatarPicker(
+                    selected = vm.avatar,
+                    currentName = vm.name,
+                    onSelect = { vm.chooseAvatar(it) }
+                )
                 if (vm.friends.isEmpty()) {
                     FriendsSection(
                         vm = vm,
@@ -823,6 +828,12 @@ fun WatchScreen(vm: ViewerModel) {
                         .padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 24.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val hostKey = status?.hostName?.takeIf { it.isNotEmpty() }
+                        ?: status?.title?.takeIf { it.isNotEmpty() }
+                        ?: "#0"
+                    val hostAvatarId = AvatarData.resolve(status?.hostAvatar ?: 0, hostKey)
+                    Avatar(id = hostAvatarId, size = 24.dp)
+                    Spacer(Modifier.width(10.dp))
                     Text(
                         status?.title?.takeIf { it.isNotEmpty() } ?: "LiveScreen",
                         style = MaterialTheme.typography.titleSmall,
@@ -988,12 +999,11 @@ fun WatchScreen(vm: ViewerModel) {
                 delay(4000)
                 vm.chatPreview = null
             }
-            Text(
-                "${preview.label}: ${preview.text}",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Sinal.text,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+            val previewAvatar = AvatarData.resolve(
+                preview.avatar,
+                preview.label.ifEmpty { if (preview.host) "#0" else "#${preview.seq}" }
+            )
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .windowInsetsPadding(WindowInsets.displayCutout)
@@ -1002,8 +1012,19 @@ fun WatchScreen(vm: ViewerModel) {
                     .background(Sinal.raised)
                     .border(1.dp, Sinal.border, RoundedCornerShape(16.dp))
                     .clickable { chatSheet = true; vm.chatOpen = true; vm.chatPreview = null; bump() }
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-            )
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Avatar(id = previewAvatar, size = 20.dp)
+                Text(
+                    "${preview.label}: ${preview.text}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Sinal.text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         if (chatSheet) {
@@ -1074,24 +1095,34 @@ fun ChatSheet(items: List<ChatItem>, onSend: (String) -> Unit, onDismiss: () -> 
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(items, key = { it.seq }) { m ->
-                        Column {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    if (m.mine) "Você" else m.label,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = if (m.host) Sinal.accent else Sinal.text
-                                )
-                                if (m.host) {
-                                    Text("anfitrião", style = MaterialTheme.typography.bodySmall, color = Sinal.accent)
+                        val avatarId = AvatarData.resolve(
+                            m.avatar,
+                            m.label.ifEmpty { if (m.host) "#0" else "#${m.seq}" }
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Avatar(id = avatarId, size = 20.dp, modifier = Modifier.padding(top = 2.dp))
+                            Column(Modifier.weight(1f)) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        if (m.mine) "Você" else m.label,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = if (m.host) Sinal.accent else Sinal.text
+                                    )
+                                    if (m.host) {
+                                        Text("anfitrião", style = MaterialTheme.typography.bodySmall, color = Sinal.accent)
+                                    }
+                                    if (m.friend) {
+                                        Text("amigo", style = MaterialTheme.typography.bodySmall, color = Sinal.success)
+                                    }
                                 }
-                                if (m.friend) {
-                                    Text("amigo", style = MaterialTheme.typography.bodySmall, color = Sinal.success)
-                                }
+                                Text(m.text, style = MaterialTheme.typography.bodyLarge, color = Sinal.text)
                             }
-                            Text(m.text, style = MaterialTheme.typography.bodyLarge, color = Sinal.text)
                         }
                     }
                 }
@@ -1249,15 +1280,17 @@ fun HostScreen(vm: ViewerModel) {
                 if (st != null && st.viewers.isNotEmpty()) {
                     Text("Assistindo", style = MaterialTheme.typography.titleSmall, color = Sinal.textMuted)
                     for (v in st.viewers) {
+                        val vAvatar = AvatarData.resolve(v.avatar, v.label.ifEmpty { "#${v.id}" })
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .background(Sinal.raised, RoundedCornerShape(12.dp))
                                 .border(1.dp, Sinal.border, RoundedCornerShape(12.dp))
-                                .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                                .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            Avatar(id = vAvatar, size = 28.dp)
                             Column(Modifier.weight(1f)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(v.label, style = MaterialTheme.typography.titleSmall, color = Sinal.text, maxLines = 1, overflow = TextOverflow.Ellipsis)

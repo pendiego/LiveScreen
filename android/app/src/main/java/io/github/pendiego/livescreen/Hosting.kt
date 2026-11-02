@@ -31,14 +31,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
-data class HostRequest(val identity: String, val name: String, val title: String, val codes: String)
+data class HostRequest(val identity: String, val name: String, val title: String, val codes: String, val avatar: Int = 0)
 
 data class HostViewer(
     val id: String,
     val label: String,
     val friend: Boolean,
     val path: String?,
-    val rttMs: Int?
+    val rttMs: Int?,
+    val avatar: Int = 0
 )
 
 data class HostStatus(
@@ -76,7 +77,8 @@ private fun parseHostStatus(raw: String): HostStatus {
                 label = v.optString("label"),
                 friend = v.optBoolean("friend", false),
                 path = v.strOrNull("path"),
-                rttMs = if (v.isNull("rtt_ms")) null else v.optInt("rtt_ms")
+                rttMs = if (v.isNull("rtt_ms")) null else v.optInt("rtt_ms"),
+                avatar = v.optInt("avatar", 0)
             )
         },
         fps = o.optInt("fps"),
@@ -183,7 +185,7 @@ object Hosting {
             h = Native.hostStart(
                 req.identity, req.name, req.title, req.codes, MAX_VIEWERS, presetId,
                 src[0], src[1], src[3], video.width, video.height, fps, bitrate, encoderName,
-                audioError == null, audioError ?: ""
+                audioError == null, audioError ?: "", req.avatar
             )
             if (h == 0L) error("falha ao iniciar o host")
             video.onError = { fail(ctx, it) }
