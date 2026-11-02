@@ -31,7 +31,9 @@ Web (de `web/`, Node 22):
 
 ```powershell
 npm run dev     # wrangler dev em 127.0.0.1:8787; o host aponta para ele com LIVESCREEN_WEB_URL=http://127.0.0.1:8787
-npm run check   # wrangler deploy --dry-run; o mesmo que o job `web` do CI
+npm run check   # wrangler deploy --dry-run; parte do job `web` do CI
+npm test        # vetor v3 Rust↔JS, signal3.js e verificador do manifesto
+node scripts/verify-manifest.mjs   # página assinada confere (rode sign-web.ps1 depois de mexer em public/v)
 ```
 
 O build release usa `windows_subsystem = "windows"`: sem console, a saída só aparece redirecionada. Logs vão para `%APPDATA%\LiveScreen\livescreen.log` (`tracing`); no Android, `logcat -s LiveScreen`.
@@ -49,7 +51,8 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |`src/video/`|`encoder.rs`/`decoder.rs` H.264/HEVC/AV1 via Media Foundation, `mf.rs` helpers, `convert.rs` RGB→NV12 com escala no D3D11 Video Processor (GPU) e NV12→RGBA (pool compartilhável), `present.rs` viewer zero-copy (texturas D3D11 compartilhadas → wgpu DX12, fences `produced`/`consumed`), `probe.rs` detecção do encoder em processo filho|
 |`src/audio/`|`capture.rs` loopback WASAPI → Opus; `playback.rs` datagram → Opus → cpal|
 |`src/speedtest.rs`|medição de upload contra `speed.cloudflare.com`|
-|`src/update.rs`|auto-update pelo GitHub Releases com conferência de sha256|
+|`src/update.rs`|auto-update pelo GitHub Releases com conferência de sha256 e assinatura Ed25519 (`livescreen_core::page_check::RELEASE_PUBLIC_KEY`)|
+|`src/clipboard.rs`|cópia sensível do convite e do link do navegador (fora do histórico `Win+V` e da nuvem); cai para `ctx.copy_text` se falhar|
 |`src/config.rs`|`%APPDATA%\LiveScreen\`, `config.json`, `LIVESCREEN_CAPTURE_OVERRIDES` e a identidade (`identity.key` + trava `identity.lock`)|
 |`src/ui/`|egui/eframe: `home`, `share_view`, `watch_view`, `chat` (painel compartilhado por host e espectador), `friends` (lista, prober de presença, modal de adicionar), `settings` (modal), `prefs` (`ui.json`), `avatar` (desenho e escolha), `theme`, `toast`|
 |`src/gpu.rs`|device D3D11 compartilhado entre captura, encoder e viewer|
@@ -66,7 +69,8 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |`friends.rs`|`SecretKey` persistente, código de amigo (id hex), ALPN de presença, `Prober`, `PresenceState`|
 |`host/mod.rs`|host sem plataforma: endpoint iroh (ALPN + presença), handshake, sala (limite, kick, ban), fan-out de vídeo/áudio/chat, ABR; a plataforma entrega quadros codificados por `Feeds`|
 |`host/web.rs`|espectadores do navegador: WebRTC com `str0m` (uma sessão e um socket UDP por peer; H.264 sempre, AV1 quando o navegador oferece), sinalização com o Worker (`LIVESCREEN_WEB_URL`, padrão `https://livescreen.pendiego.com`), reconexão com backoff|
-|`web.rs`|link do navegador, sinalização cifrada (AES-256-GCM), STUN manual (srflx)|
+|`web.rs`|link do navegador `.v3` (`WebKeys`: chave de 256 bits + X25519/ML-KEM-768 do host), offer/answer híbridos (`open_offer`, `AnswerSealer`), STUN manual (srflx); desenho em `docs/rfc-sinalizacao-web-v3.md`|
+|`page_check.rs`|antes de conectar a sinalização, confere a página do espectador contra `web/public/v/manifest.json` assinado com a chave de release (loopback pula)|
 |`chat.rs`|mensagens do chat, papéis e limites|
 |`avatar.rs`|os 7 avatares como dados (formas num quadro 64×64), `auto`/`resolve` e `json()` para navegador e Android|
 
@@ -83,7 +87,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |Caminho|Papel|
 |---|---|
 |`web/src/worker.js`|Cloudflare Worker + Durable Object `Room` (um por sala): sinalização WebSocket entre host (`/ws/host/<sala>`) e espectadores (`/ws/view/<sala>`), sem TURN (só entrega STUN), limites e expiração de sockets|
-|`web/public/v/`|página do espectador (`index.html`, `viewer.js`, `viewer.css`, `avatars.json`, fontes): WebRTC, player, estatísticas e chat; sem build, servida como asset estático|
+|`web/public/v/`|página do espectador (`index.html`, `viewer.js`, `viewer.css`, `avatars.json`, fontes): WebRTC, player, estatísticas e chat; `signal3.js` (cripto v3) e `pq.js` (noble ML-KEM/X25519 empacotado por `web/scripts/build-pq.mjs`) só carregam para links `.v3`; `manifest.json(.sig)` assinados por `.github/scripts/sign-web.ps1`; sem build, servida como asset estático|
 |`web/public/_headers`|CSP e cabeçalhos de segurança; cache longo só para `/v/fonts/*`|
 |`web/wrangler.jsonc`|configuração do Worker (assets, binding `ROOM`, migrations)|
 
@@ -105,11 +109,14 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 
 ### Navegador (web)
 
-- A chave da sala vai no fragmento do link (`#sala.chave`) e nunca chega ao servidor; a página a tira da barra de endereço e guarda em `sessionStorage`. O Worker não conhece a chave: quem autentica o espectador é o host, abrindo o offer cifrado com a chave da sala (`web.rs`, `open_offer`); links sem `.v2` são de hosts antigos e usam a prova HMAC. Não mova a verificação para o Worker.
-- O Worker só repassa sinalização (offer/answer/reject/close/left). O formato dessas mensagens (`SignalOut`/`SignalIn` em `host/web.rs`) é contrato com hosts já instalados: mudanças só aditivas, e Worker novo precisa funcionar com host antigo.
-- Limites do Worker (`Room`): até 4 sockets de host e 64 de espectador por sala, mensagem até 64 KiB, host sem autenticação em 10 s e espectador sem oferta em 30 s são fechados (código 4008, `alarm()`). Viewer id tem 8 hex (`valid_peer_id`).
+- O link é `#sala.chave.impressão.v3` e nunca chega ao servidor; a página o tira da barra de endereço e guarda em `sessionStorage`. A chave (`web_key`, 32 bytes) e o par X25519 + ML-KEM-768 do host (`WebKeys`) são trocados juntos em todo `new_invite` (inclui `kick`) e só vivem na memória. O host publica a chave pública ao Worker (`SignalOut::Pk`, `{"t":"pk"}`) depois do `ready`, a cada reconexão e a cada troca; a página confere `pk` contra a impressão do link. O Worker não conhece a chave: quem autentica o espectador é o host, abrindo o offer (`web.rs`, `WebKeys::open_offer`, ordem tamanho → prefixo `0x03` → `pre` → decapsulação → AEAD, falha sempre com o mesmo motivo). Não mova a verificação para o Worker. O formato é byte a byte o mesmo em `web.rs` e `signal3.js`, travado pelo vetor `web/test/v3-vector.json` (testes Rust e node).
+- Host novo só aceita `.v3`; a página mantém os caminhos `.v2` (AES-GCM com a chave da sala) e v1 (prova HMAC) para hosts 0.6 e anteriores, e um link `.v3` nunca cai para eles.
+- O Worker só repassa sinalização (offer/answer/reject/close/left/pk). O formato dessas mensagens (`SignalOut`/`SignalIn` em `web.rs`) é contrato com hosts já instalados: mudanças só aditivas, e Worker novo precisa funcionar com host antigo. Ordem de publicação: Worker antes da release do host.
+- Limites do Worker (`Room`): até 4 sockets de host e 64 de espectador por sala, mensagem até 64 KiB, host sem autenticação em 10 s e espectador sem oferta em 30 s são fechados (código 4008, `alarm()`), no máximo 20 offers por sala a cada 10 s (código 4029), `pk` com exatamente 2432 hex e só de host autenticado (guardado em `ctx.storage`, apagado quando sai o último host). Viewer id tem 8 hex (`valid_peer_id`).
+- Nunca registre em log link, `web_key`, `sealed`, SDP nem chaves privadas.
 - Depois da resposta o vídeo é P2P: queda do WebSocket de sinalização não encerra quem já assiste. O host mantém o canal e o mapa de peers web durante a transmissão inteira e reconecta com backoff.
-- CSP estrita em `web/public/_headers` (sem inline, só `'self'` e o Cloudflare Web Analytics). A página não usa script/estilo inline nem `innerHTML`; dados que chegam pela rede (nome, texto, motivo) são validados e cortados antes de ir ao DOM via `textContent`. Nova origem externa exige entrada na CSP e na tabela de conexões do `README.md`.
+- CSP estrita em `web/public/_headers` (sem inline, só `'self'`, nenhum script de terceiros: ele leria o `sessionStorage` com o link). A página não usa script/estilo inline nem `innerHTML`; dados que chegam pela rede (nome, texto, motivo) são validados e cortados antes de ir ao DOM via `textContent`. Nova origem externa exige entrada na CSP e na tabela de conexões do `README.md`.
+- Página assinada: qualquer mudança em `web/public/v/` exige rodar `.github/scripts/sign-web.ps1` (chave de release) e comitar `manifest.json` e `manifest.json.sig`; o job `web` do CI e o `deploy-web.yml` rodam `web/scripts/verify-manifest.mjs` e falham sem isso. Hosts instalados recusam a página se a assinatura não conferir.
 - Sem TURN: o Worker só entrega STUN; o host fura o NAT com IPv6, portas previstas do navegador e do host.
 
 ### Chat
@@ -134,9 +141,9 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 
 ## CI
 
-`.github/workflows/ci.yml` roda em push na `main` e à mão (`workflow_dispatch`; PR não dispara sozinho, rode em qualquer branch com `gh workflow run CI --ref <branch>`): `build` (`cargo build --release` + `cargo test`, windows-latest), `android` (`gradlew assembleDebug testDebugUnitTest`, ubuntu), `changelog` (`.github/scripts/test-changelog.sh`, valida o `cliff.toml`) e `web` (`npm run check` em `web/`).
+`.github/workflows/ci.yml` roda em push na `main` e à mão (`workflow_dispatch`; PR não dispara sozinho, rode em qualquer branch com `gh workflow run CI --ref <branch>`): `build` (`cargo build --release` + `cargo test`, windows-latest), `android` (`gradlew assembleDebug testDebugUnitTest`, ubuntu), `changelog` (`.github/scripts/test-changelog.sh`, valida o `cliff.toml`) e `web` (`npm run check`, `npm test` e `verify-manifest.mjs` em `web/`).
 
-`deploy-web.yml` publica o Worker (`wrangler deploy`, segredos `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`) em push que mexe em `web/**` na branch do workflow ou por `workflow_dispatch`. `pages.yml` publica o site estático de `site/` no GitHub Pages. O Worker não depende de release: entra no ar no deploy e precisa continuar compatível com hosts já instalados.
+`deploy-web.yml` publica o Worker (`wrangler deploy`, segredos `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`) em push que mexe em `web/**` na `main` ou por `workflow_dispatch` (só roda com ref `main`), depois de conferir o manifesto assinado. O job usa o environment `production` (só `main`, aprovação do mantenedor): o deploy fica esperando até alguém aprovar em Actions (ou `gh api -X POST repos/pendiego/LiveScreen/actions/runs/<id>/pending_deployments`). `pages.yml` publica o site estático de `site/` no GitHub Pages. O Worker não depende de release: entra no ar no deploy e precisa continuar compatível com hosts já instalados.
 
 ## Release
 
