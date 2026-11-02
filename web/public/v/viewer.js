@@ -85,7 +85,12 @@
   let answerTimer = null;
   let offerNonce = null;
   let currentName = "";
-
+  let hostName = "";
+  let reconnectAttempts = 0;
+  let reconnectTimer = null;
+  let reconnecting = false;
+  const MAX_RECONNECT_ATTEMPTS = 5;
+  let pipWindow = null;
   function hexToBytes(hex) {
     const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < bytes.length; i++) {
@@ -201,7 +206,31 @@
     if (statsDd) statsDd.forEach((d) => { d.textContent = "—"; });
   }
 
-  function cleanup() {
+  function updateMediaMetadata() {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: "Transmissão ao vivo",
+        artist: hostName || "LiveScreen",
+        album: "LiveScreen",
+        artwork: [{ src: "logo.svg", sizes: "any", type: "image/svg+xml" }],
+      });
+    } catch {}
+  }
+
+  function updatePlaybackState(active = true) {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      if (!active || playerBox.hidden) {
+        navigator.mediaSession.playbackState = "none";
+        navigator.mediaSession.metadata = null;
+        return;
+      }
+      navigator.mediaSession.playbackState = video.paused ? "paused" : "playing";
+    } catch {}
+  }
+
+  function cleanup(isReconnect = false) {
     if (pingTimer) {
       clearInterval(pingTimer);
       pingTimer = null;
@@ -220,7 +249,15 @@
       idleTimer = null;
     }
     answered = false;
-    everConnected = false;
+    if (!isReconnect) {
+      everConnected = false;
+      reconnecting = false;
+      reconnectAttempts = 0;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    }
     stopStats();
     releaseAwake();
     hostCtl = false;
@@ -228,7 +265,10 @@
     qualityBtn.hidden = true;
     qualityMenu.hidden = true;
     qualityBtn.setAttribute("aria-expanded", "false");
-    netBadge.hidden = true;
+    if (!isReconnect) {
+      netBadge.hidden = true;
+      updatePlaybackState(false);
+    }
     if (pc) {
       try { pc.close(); } catch {}
       pc = null;
@@ -249,7 +289,17 @@
   }
 
   function stopWithReason(text) {
-    cleanup();
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    reconnecting = false;
+    reconnectAttempts = 0;
+    cleanup(false);
+    if (pipWindow) {
+      try { pipWindow.close(); } catch {}
+      pipWindow = null;
+    }
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
     playerBox.hidden = true;
@@ -270,6 +320,26 @@
     showStatus(sentence(text), "error");
   }
 
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      reconnecting = false;
+      reconnectAttempts = 0;
+      stopWithReason("A conexão com quem transmite caiu. Tente entrar de novo.");
+      return;
+    }
+    reconnecting = true;
+    reconnectAttempts++;
+    netBadge.textContent = "Reconectando…";
+    netBadge.hidden = false;
+    const base = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 16000);
+    const delay = base + Math.random() * 1000;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect(true);
+    }, delay);
+  }
+
   // sem TURN, só o caminho direto existe: explica o que o espectador pode tentar
   // srflx só prova que o STUN respondeu; a causa real pode ser NAT de qualquer lado, firewall ou DTLS
   function connectTips() {
@@ -285,10 +355,11 @@
       pc = new RTCPeerConnection({ iceServers });
 
       const ms = new MediaStream();
-      video.srcObject = ms;
-
       pc.ontrack = (e) => {
         ms.addTrack(e.track);
+        if (video.srcObject !== ms) {
+          video.srcObject = ms;
+        }
         if (e.receiver && "jitterBufferTarget" in e.receiver) {
           try {
             e.receiver.jitterBufferTarget = 0;
@@ -302,14 +373,25 @@
         if (st === "failed") {
           const types = {};
           for (const m of (pc.localDescription?.sdp || "").matchAll(/^a=candidate:.* typ (\w+)/gm)) types[m[1]] = (types[m[1]] || 0) + 1;
-          // diagnóstico para quem reporta o erro: ICE x DTLS e quais candidatos foram oferecidos
           console.warn("LiveScreen: conexão falhou", { ice: pc.iceConnectionState, gathering: pc.iceGatheringState, candidatos: types });
-          stopWithReason(everConnected ? "A conexão com quem transmite caiu. Tente entrar de novo." : `${connectTips()} (ICE ${pc.iceConnectionState}; candidatos ${JSON.stringify(types)})`);
+          if (everConnected) {
+            scheduleReconnect();
+          } else {
+            stopWithReason(`${connectTips()} (ICE ${pc.iceConnectionState}; candidatos ${JSON.stringify(types)})`);
+          }
         } else if (st === "disconnected") {
+          netBadge.textContent = "Sinal instável, esperando a conexão voltar…";
           netBadge.hidden = false;
         } else if (st === "connected") {
           everConnected = true;
+          reconnecting = false;
+          reconnectAttempts = 0;
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
           netBadge.hidden = true;
+          updatePlaybackState(true);
         }
       };
 
@@ -371,18 +453,42 @@
       }
 
       answerTimer = setTimeout(() => {
-        stopWithReason("Sem resposta de quem transmite.");
+        if (reconnecting) {
+          scheduleReconnect();
+        } else {
+          stopWithReason("Sem resposta de quem transmite.");
+        }
       }, 15000);
     } catch (err) {
       // pc nulo: a conexão já foi encerrada por outro caminho
-      if (pc) stopWithReason("Erro ao iniciar conexão: " + (err?.message || err));
+      if (pc) {
+        if (reconnecting) {
+          scheduleReconnect();
+        } else {
+          stopWithReason("Erro ao iniciar conexão: " + (err?.message || err));
+        }
+      }
     }
   }
 
-  function connect() {
-    cleanup();
+  function connect(isReconnect = false) {
+    if (!currentName) currentName = nameInput.value.trim().slice(0, 32);
+    if (!isReconnect) {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      reconnecting = false;
+      reconnectAttempts = 0;
+    }
+    cleanup(isReconnect);
     joinForm.hidden = true;
-    showStatus("Conectando…", "busy");
+    if (!isReconnect) {
+      showStatus("Conectando…", "busy");
+    } else {
+      netBadge.textContent = "Reconectando…";
+      netBadge.hidden = false;
+    }
 
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProto}//${location.host}/ws/view/${roomId}`;
@@ -408,6 +514,10 @@
       }
 
       if (data.t === "nohost") {
+        if (reconnecting) {
+          scheduleReconnect();
+          return;
+        }
         cleanup();
         playerBox.hidden = true;
         card.hidden = false;
@@ -417,7 +527,7 @@
 
       if (data.t === "hello") {
         if (pc) return;
-        showStatus("Pedindo para entrar…", "busy");
+        if (!isReconnect) showStatus("Pedindo para entrar…", "busy");
         await start(data.iceServers || []);
         return;
       }
@@ -453,7 +563,11 @@
             });
             wake();
           } catch (e) {
-            stopWithReason("Erro ao aplicar resposta da transmissão.");
+            if (reconnecting) {
+              scheduleReconnect();
+            } else {
+              stopWithReason("Erro ao aplicar resposta da transmissão.");
+            }
           }
         }
         return;
@@ -477,6 +591,10 @@
       if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
       // depois da resposta o vídeo é P2P: a sinalização pode cair sem encerrar
       if (answered && pc) return;
+      if (reconnecting) {
+        scheduleReconnect();
+        return;
+      }
       stopWithReason(playerBox.hidden ? "A conexão com o servidor do link caiu." : "A transmissão terminou.");
     };
   }
@@ -493,6 +611,8 @@
 
   // Primeiro quadro: tira a espera, inicia o relógio e o título.
   video.addEventListener("playing", () => {
+    updateMediaMetadata();
+    updatePlaybackState(true);
     if (elapsedTimer) return;
     waitOverlay.hidden = true;
     const startedAt = performance.now();
@@ -502,6 +622,8 @@
     }, 1000);
     document.title = "● Ao vivo — LiveScreen";
   });
+  video.addEventListener("play", () => updatePlaybackState(true));
+  video.addEventListener("pause", () => updatePlaybackState(true));
 
   // Mudo
   function toggleMute() {
@@ -535,16 +657,72 @@
     const on = !!document.fullscreenElement;
     fsBtn.dataset.state = on ? "on" : "off";
     fsBtn.setAttribute("aria-label", on ? "Sair da tela cheia" : "Tela cheia");
+    if (on) {
+      if (video.videoWidth > video.videoHeight && screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock("landscape").catch(() => {});
+      }
+    } else {
+      if (screen.orientation && screen.orientation.unlock) {
+        try { screen.orientation.unlock(); } catch {}
+      }
+    }
   });
 
   // Picture-in-Picture
-  if (document.pictureInPictureEnabled && !video.disablePictureInPicture) pipBtn.hidden = false;
-  function togglePip() {
+  if ((window.documentPictureInPicture || document.pictureInPictureEnabled) && !video.disablePictureInPicture) {
+    pipBtn.hidden = false;
+  }
+  async function openPip() {
+    if (playerBox.hidden || pipWindow) return;
+    if (document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch {}
+    }
+    if (window.documentPictureInPicture && window.documentPictureInPicture.requestWindow) {
+      try {
+        const chatW = !chatPanel.hidden ? 320 : 0;
+        const w = Math.max(480, Math.min(800, (video.videoWidth ? Math.round(video.videoWidth / 2) : 480) + chatW));
+        const h = Math.max(300, Math.min(600, video.videoHeight ? Math.round(video.videoHeight / 2) : 360));
+        const win = await window.documentPictureInPicture.requestWindow({ width: w, height: h });
+        pipWindow = win;
+        const link = win.document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = new URL("viewer.css", location.href).href; // o documento PiP não herda a base da página
+        win.document.head.append(link);
+
+        const stage = win.document.createElement("div");
+        stage.className = "watch pip-stage";
+        stage.append(playerBox, chatPanel);
+        win.document.body.append(stage);
+
+        win.document.addEventListener("keydown", onKeyDown);
+        win.addEventListener("pagehide", () => {
+          pipWindow = null;
+          watch.append(playerBox, chatPanel);
+          sendVisibility();
+        });
+        sendVisibility();
+        return;
+      } catch (err) {
+        console.warn("LiveScreen: falha ao abrir Document PiP", err);
+      }
+    }
     if (document.pictureInPictureElement) {
       document.exitPictureInPicture().catch(() => {});
     } else {
       video.requestPictureInPicture().catch(() => {});
     }
+  }
+
+  async function togglePip() {
+    if (pipWindow) {
+      pipWindow.close();
+      return;
+    }
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+      return;
+    }
+    await openPip();
   }
   pipBtn.addEventListener("click", togglePip);
 
@@ -659,6 +837,10 @@
     const host = m.role === "host";
     const donate = Number.isInteger(m.donate) && m.donate > 0;
     const name = typeof m.name === "string" ? m.name.slice(0, 32) : "";
+    if (host && name && name !== hostName) {
+      hostName = name;
+      updateMediaMetadata();
+    }
     const label = mine ? "Você" : host ? (name || "Anfitrião") : `${name || "Anônimo"} #${m.sender}`;
     const li = document.createElement("li");
     li.className = (host ? "chat-msg host" : "chat-msg") + (donate ? " donate" : "");
@@ -776,7 +958,7 @@
 
   // Aba escondida (sem PiP): avisa o host para parar o vídeo e economizar dados e bateria; o áudio segue.
   function pageVisible() {
-    return document.visibilityState === "visible" || document.pictureInPictureElement === video;
+    return document.visibilityState === "visible" || document.pictureInPictureElement === video || !!pipWindow;
   }
   function sendVisibility() {
     if (!hostCtl || !chatCh || chatCh.readyState !== "open") return;
@@ -788,6 +970,24 @@
   document.addEventListener("visibilitychange", sendVisibility);
   video.addEventListener("enterpictureinpicture", sendVisibility);
   video.addEventListener("leavepictureinpicture", sendVisibility);
+
+  // Media Session
+  if ("mediaSession" in navigator && navigator.mediaSession.setActionHandler) {
+    try {
+      navigator.mediaSession.setActionHandler("play", () => {
+        video.muted = false;
+        video.play().catch(() => {});
+      });
+      navigator.mediaSession.setActionHandler("pause", () => {
+        toggleMute();
+      });
+    } catch {}
+    try {
+      navigator.mediaSession.setActionHandler("enterpictureinpicture", () => {
+        openPip();
+      });
+    } catch {}
+  }
 
   // Qualidade: pedido ao host, que só aplica se for mais leve e no máximo um a cada 5 s.
   let lastQualityAt = -Infinity;
@@ -830,7 +1030,7 @@
   });
 
   // Atalhos
-  document.addEventListener("keydown", (e) => {
+  function onKeyDown(e) {
     if (playerBox.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target instanceof Element && e.target.closest("input")) return;
     const k = e.key.toLowerCase();
@@ -841,5 +1041,6 @@
     else if (k === "c" && !chatBtn.hidden) toggleChat();
     else return;
     e.preventDefault();
-  });
+  }
+  document.addEventListener("keydown", onKeyDown);
 })();
