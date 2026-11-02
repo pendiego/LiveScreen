@@ -45,6 +45,8 @@ export class Room extends DurableObject {
     super(ctx, env);
     this.ctx = ctx;
     this.env = env;
+    this.offerTimes = [];
+    this.pk = null;
     this.ctx.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair('{"t":"ping"}', '{"t":"pong"}')
     );
@@ -100,7 +102,10 @@ export class Room extends DurableObject {
         }
       });
       if (host) {
-        server.send(JSON.stringify({ t: "hello", iceServers: ICE_SERVERS }));
+        const pk = this.pk ?? (await this.ctx.storage.get("pk"));
+        const hello = { t: "hello", iceServers: ICE_SERVERS };
+        if (typeof pk === "string" && pk) hello.pk = pk;
+        server.send(JSON.stringify(hello));
       } else {
         server.send(JSON.stringify({ t: "nohost" }));
         server.close(4004, "nohost");
@@ -153,6 +158,26 @@ export class Room extends DurableObject {
         return;
       }
 
+      if (data.t === "pk") {
+        if (typeof data.pk === "string" && /^[0-9a-f]{2432}$/i.test(data.pk)) {
+          const pk = data.pk.toLowerCase();
+          const stored = this.pk ?? (await this.ctx.storage.get("pk"));
+          if (pk !== stored) {
+            this.pk = pk;
+            await this.ctx.storage.put("pk", pk);
+            for (const v of this.ctx.getWebSockets("view")) {
+              try {
+                const a = v.deserializeAttachment();
+                if (a && !a.offered) {
+                  v.send(JSON.stringify({ t: "pk", pk }));
+                }
+              } catch {}
+            }
+          }
+        }
+        return;
+      }
+
       if (!data.id || typeof data.id !== "string" || !/^[0-9a-f]{8}$/i.test(data.id)) return;
       const viewers = this.ctx.getWebSockets("v:" + data.id.toLowerCase());
       if (data.t === "answer" && (typeof data.sdp === "string" || typeof data.sealed === "string")) {
@@ -201,6 +226,17 @@ export class Room extends DurableObject {
         ws.send(JSON.stringify({ t: "nohost" }));
         return;
       }
+
+      const now = Date.now();
+      if (!this.offerTimes) this.offerTimes = [];
+      this.offerTimes = this.offerTimes.filter((t) => now - t < 10000);
+      if (this.offerTimes.length >= 20) {
+        const reason = "muitas entradas ao mesmo tempo; tente de novo em alguns segundos";
+        ws.send(JSON.stringify({ t: "closed", reason }));
+        try { ws.close(4029, reason); } catch {}
+        return;
+      }
+      this.offerTimes.push(now);
       att.offered = true;
       ws.serializeAttachment(att);
       verifiedHost.send(
@@ -217,11 +253,11 @@ export class Room extends DurableObject {
   }
 
   async webSocketClose(ws, code, reason, wasClean) {
-    this._handleLeave(ws);
+    await this._handleLeave(ws);
   }
 
   async webSocketError(ws, error) {
-    this._handleLeave(ws);
+    await this._handleLeave(ws);
   }
 
   async _armReaper() {
@@ -245,7 +281,7 @@ export class Room extends DurableObject {
     if (pending) await this.ctx.storage.setAlarm(now + 10000);
   }
 
-  _handleLeave(ws) {
+  async _handleLeave(ws) {
     let att;
     try {
       att = ws.deserializeAttachment();
@@ -255,6 +291,20 @@ export class Room extends DurableObject {
     if (att.role === "host" && att.ok && !att.left) {
       att.left = true;
       try { ws.serializeAttachment(att); } catch {}
+      const hasOther = this.ctx.getWebSockets("host").some((h) => {
+        if (h === ws) return false;
+        try {
+          const a = h.deserializeAttachment();
+          return a && a.ok === true && !a.left;
+        } catch {
+          return false;
+        }
+      });
+      if (!hasOther) {
+        await this.ctx.storage.delete("pk");
+        this.pk = null;
+        this.offerTimes = [];
+      }
       for (const v of this.ctx.getWebSockets("view")) {
         try {
           const a = v.deserializeAttachment();
