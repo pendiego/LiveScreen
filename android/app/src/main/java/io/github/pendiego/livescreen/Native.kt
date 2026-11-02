@@ -9,7 +9,8 @@ object Native {
     @JvmStatic external fun isValidTicket(ticket: String): Boolean
     @JvmStatic external fun isLegacyInvite(ticket: String): Boolean
     @JvmStatic external fun findInvite(text: String): String?
-    @JvmStatic external fun start(ticket: String, name: String, identity: String): Long
+    @JvmStatic external fun avatarsJson(): String
+    @JvmStatic external fun start(ticket: String, name: String, identity: String, avatar: Int): Long
     @JvmStatic external fun status(handle: Long): String
     @JvmStatic external fun presets(): String
     @JvmStatic external fun nextVideo(handle: Long, timeoutMs: Int, meta: LongArray): ByteArray?
@@ -34,7 +35,8 @@ object Native {
     @JvmStatic external fun hostStart(
         identity: String, name: String, title: String, codes: String, maxViewers: Int,
         presetId: String, srcW: Int, srcH: Int, hz: Int, width: Int, height: Int, fps: Int,
-        bitrate: Int, encoderName: String, audioOn: Boolean, audioError: String
+        bitrate: Int, encoderName: String, audioOn: Boolean, audioError: String,
+        avatar: Int
     ): Long
     @JvmStatic external fun hostPushVideo(handle: Long, data: ByteArray, ptsUs: Long, keyframe: Boolean)
     @JvmStatic external fun hostPushAudio(handle: Long, opus: ByteArray)

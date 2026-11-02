@@ -532,6 +532,7 @@ async fn run(sh: Arc<Shared>) {
                                     key,
                                     nonce,
                                     clean_name,
+                                    offer.avatar,
                                     permit,
                                     tx.clone(),
                                     peer_obj,
@@ -587,6 +588,72 @@ async fn drain_outputs(
         }
     }
 }
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct VideoPts {
+    pub(crate) h264: Option<Pt>,
+    pub(crate) av1: Option<Pt>,
+}
+
+impl VideoPts {
+    pub(crate) fn pick_pt(&self, codec: crate::protocol::Codec) -> Option<Pt> {
+        match codec {
+            crate::protocol::Codec::H264 => self.h264,
+            crate::protocol::Codec::Av1 => self.av1,
+            _ => None,
+        }
+    }
+}
+
+/// Remove OBUs de Temporal Delimiter (tipo 2) do início do quadro AV1.
+///
+/// O RFC 9053 (RTP Payload Format for AV1) exige que Temporal Delimiters não sejam
+/// incluídos em pacotes RTP. Se um delimitador estiver sem campo de tamanho (0x10) ou
+/// com tamanho zero (0x12 0x00), a remoção garante que o primeiro OBU entregue ao
+/// packetizer do str0m seja o cabeçalho de sequência ou o quadro em si, garantindo a
+/// marcação do bit N (keyframe) e evitando que o str0m engula o restante do buffer.
+pub(crate) fn strip_av1_temporal_delimiters(mut data: &[u8]) -> &[u8] {
+    while !data.is_empty() {
+        let h = data[0];
+        if h & 0x80 != 0 {
+            break;
+        }
+        let obu_type = (h >> 3) & 0x0f;
+        if obu_type != 2 {
+            break;
+        }
+        let ext = (h >> 2) & 1;
+        let has_size = (h >> 1) & 1;
+        let header_len = 1 + ext as usize;
+        if data.len() < header_len {
+            break;
+        }
+        if has_size == 0 {
+            data = &data[header_len..];
+        } else {
+            let mut p = header_len;
+            let mut size: usize = 0;
+            let mut shift = 0;
+            let mut leb_bytes = 0;
+            let mut ok = false;
+            while p < data.len() && leb_bytes < 8 {
+                let b = data[p];
+                p += 1;
+                leb_bytes += 1;
+                size |= ((b & 0x7f) as usize) << shift;
+                shift += 7;
+                if b & 0x80 == 0 {
+                    ok = true;
+                    break;
+                }
+            }
+            if !ok || p + size > data.len() {
+                break;
+            }
+            data = &data[p + size..];
+        }
+    }
+    data
+}
 
 async fn peer(
     sh: Arc<Shared>,
@@ -595,6 +662,7 @@ async fn peer(
     key: [u8; ROOM_KEY_LEN],
     offer_nonce: [u8; 12],
     name: String,
+    avatar: u8,
     permit: tokio::sync::OwnedSemaphorePermit,
     tx: mpsc::Sender<SignalOut>,
     peer: Arc<WebPeer>,
@@ -668,6 +736,7 @@ async fn peer(
     let mut rtc = RtcConfig::new()
         .clear_codecs()
         .enable_h264(true)
+        .enable_av1(true)
         .enable_opus(true, false)
         .set_stats_interval(Some(Duration::from_secs(1)))
         .build(Instant::now());
@@ -749,7 +818,7 @@ async fn peer(
     let mut arx = sh.audio_tx.subscribe();
 
     let mut video_mid: Option<Mid> = None;
-    let mut video_pt: Option<Pt> = None;
+    let mut video_pts = VideoPts::default();
     let mut audio_mid: Option<Mid> = None;
     let mut audio_pt: Option<Pt> = None;
     let mut audio_clock_rate: Option<Frequency> = None;
@@ -757,6 +826,7 @@ async fn peer(
     let mut connected = false;
     let mut waiting_key = true;
     let mut last_kf = Instant::now() - Duration::from_secs(2);
+    let mut last_delivered_codec: Option<crate::protocol::Codec> = None;
     let mut min_rtt: Option<Duration> = None;
     let mut close_reason: Option<String> = None;
     let mut stop_requested = false;
@@ -764,6 +834,12 @@ async fn peer(
     let connect_deadline = Instant::now() + CONNECT_TIMEOUT;
 
     let chat_id = sh.next_chat_id.fetch_add(1, Ordering::Relaxed);
+    let key = if name.is_empty() {
+        format!("#{chat_id}")
+    } else {
+        name.clone()
+    };
+    let viewer_avatar = crate::avatar::resolve(avatar, &key);
     let mut crx = sh.chat_tx.subscribe();
     let mut chat_ch: Option<ChannelId> = None;
     let mut chat_limiter = ChatLimiter::default();
@@ -784,7 +860,7 @@ async fn peer(
                           guard: &mut CountGuard,
                           permit_opt: &mut Option<tokio::sync::OwnedSemaphorePermit>,
                           video_mid: &mut Option<Mid>,
-                          video_pt: &mut Option<Pt>,
+                          video_pts: &mut VideoPts,
                           audio_mid: &mut Option<Mid>,
                           audio_pt: &mut Option<Pt>,
                           audio_clock_rate: &mut Option<Frequency>,
@@ -795,12 +871,13 @@ async fn peer(
                           chat_ch: &mut Option<ChannelId>,
                           chat_limiter: &mut ChatLimiter,
                           chat_id: u32,
+                          viewer_avatar: u8,
                           flush_now: &mut bool| {
         for e in events.drain(..) {
             match e {
                 Event::MediaAdded(m) => {
                     if m.kind.is_video() {
-                        let mut pick = |high: bool| rtc.writer(m.mid).and_then(|w| {
+                        let mut pick_h264 = |high: bool| rtc.writer(m.mid).and_then(|w| {
                             w.payload_params().find(|p| {
                                 let spec = p.spec();
                                 let k = spec.format.profile_level_id.map(|p| p >> 16);
@@ -809,13 +886,20 @@ async fn peer(
                                     && if high { k == Some(0x64) } else { matches!(k, Some(0x42 | 0x4d)) }
                             }).map(|p| p.pt())
                         });
-                        let found = pick(true).map(|pt| (pt, false)).or_else(|| pick(false).map(|pt| (pt, true)));
-                        if let Some((pt, baseline)) = found {
+                        let found_h264 = pick_h264(true).map(|pt| (pt, false)).or_else(|| pick_h264(false).map(|pt| (pt, true)));
+                        let found_av1 = rtc.writer(m.mid).and_then(|w| {
+                            w.payload_params().find(|p| p.spec().codec == str0m::format::Codec::Av1).map(|p| p.pt())
+                        });
+                        if let Some((pt, baseline)) = found_h264 {
                             *video_mid = Some(m.mid);
-                            *video_pt = Some(pt);
+                            video_pts.h264 = Some(pt);
+                            video_pts.av1 = found_av1;
                             peer.h264_baseline.store(baseline, Ordering::Relaxed);
                             if baseline {
                                 tracing::info!("peer {id}: navegador sem H.264 High; a sala passa a usar Baseline");
+                            }
+                            if let Some(av1_pt) = found_av1 {
+                                tracing::info!("peer {id}: navegador aceita AV1 (PT {av1_pt}) e H.264 (PT {pt})");
                             }
                         } else {
                             *close_reason = Some("este navegador não decodifica H.264: use Chrome, Edge, Firefox ou Safari".into());
@@ -834,13 +918,18 @@ async fn peer(
                 }
                 Event::Connected => {
                     *connected = true;
+                    let mut decoders = vec![crate::protocol::Codec::H264];
+                    if video_pts.av1.is_some() {
+                        decoders.push(crate::protocol::Codec::Av1);
+                    }
                     sh.conns.lock().unwrap().insert(
                         id.to_string(),
                         Peer {
                             conn: PeerConn::Web(peer.clone()),
                             name: name.to_string(),
-                            decoders: vec![],
+                            decoders,
                             h264_baseline: peer.h264_baseline.load(Ordering::Relaxed),
+                            avatar: viewer_avatar,
                         },
                     );
                     guard.1 = Some(id.to_string());
@@ -888,7 +977,7 @@ async fn peer(
                     *chat_ch = Some(cid);
                     if let Some(mut ch) = rtc.channel(cid) {
                         // `ctl`: este host trata set_visible e set_quality; hosts antigos não mandam
-                        let _ = ch.write(false, serde_json::json!({"type":"chat_ready","chat_id":chat_id,"donate":sh.donate,"ctl":true}).to_string().as_bytes());
+                        let _ = ch.write(false, serde_json::json!({"type":"chat_ready","chat_id":chat_id,"donate":sh.donate,"ctl":true,"host_avatar":sh.host_avatar}).to_string().as_bytes());
                     }
                     *flush_now = true;
                 }
@@ -896,7 +985,7 @@ async fn peer(
                     match serde_json::from_slice(&d.data) {
                         Ok(ViewerMsg::Chat { text, donate }) => {
                             if chat_limiter.allow(Instant::now()) {
-                                if let Some(l) = ChatLine::incoming(chat_id, name, false, &text, donate, sh.donate) {
+                                if let Some(l) = ChatLine::incoming(chat_id, name, false, &text, donate, sh.donate, viewer_avatar) {
                                     sh.post_chat(l);
                                 }
                             }
@@ -924,7 +1013,7 @@ async fn peer(
         &mut guard,
         &mut permit_opt,
         &mut video_mid,
-        &mut video_pt,
+        &mut video_pts,
         &mut audio_mid,
         &mut audio_pt,
         &mut audio_clock_rate,
@@ -935,6 +1024,7 @@ async fn peer(
         &mut chat_ch,
         &mut chat_limiter,
         chat_id,
+        viewer_avatar,
         &mut flush_now,
     );
 
@@ -993,7 +1083,7 @@ async fn peer(
                                     &mut guard,
                                     &mut permit_opt,
                                     &mut video_mid,
-                                    &mut video_pt,
+                                    &mut video_pts,
                                     &mut audio_mid,
                                     &mut audio_pt,
                                     &mut audio_clock_rate,
@@ -1004,6 +1094,7 @@ async fn peer(
                                     &mut chat_ch,
                                     &mut chat_limiter,
                                     chat_id,
+                                    viewer_avatar,
                                     &mut flush_now,
                                 );
                             }
@@ -1029,7 +1120,7 @@ async fn peer(
                         &mut guard,
                         &mut permit_opt,
                         &mut video_mid,
-                        &mut video_pt,
+                        &mut video_pts,
                         &mut audio_mid,
                         &mut audio_pt,
                         &mut audio_clock_rate,
@@ -1040,6 +1131,7 @@ async fn peer(
                         &mut chat_ch,
                         &mut chat_limiter,
                         chat_id,
+                        viewer_avatar,
                         &mut flush_now,
                     );
                 }
@@ -1050,7 +1142,15 @@ async fn peer(
                         if !connected {
                             continue;
                         }
-                        let (Some(mid), Some(pt)) = (video_mid, video_pt) else {
+                        let Some(mid) = video_mid else {
+                            continue;
+                        };
+                        let Some(pt) = video_pts.pick_pt(f.codec) else {
+                            waiting_key = true;
+                            if last_kf.elapsed() >= Duration::from_secs(1) {
+                                last_kf = Instant::now();
+                                sh.request_keyframe();
+                            }
                             continue;
                         };
                         // aba escondida: sem vídeo; o keyframe é pedido quando ela voltar
@@ -1058,13 +1158,8 @@ async fn peer(
                             waiting_key = true;
                             continue;
                         }
-                        if f.codec != crate::protocol::Codec::H264 {
+                        if last_delivered_codec != Some(f.codec) {
                             waiting_key = true;
-                            if last_kf.elapsed() >= Duration::from_secs(1) {
-                                last_kf = Instant::now();
-                                sh.request_keyframe();
-                            }
-                            continue;
                         }
                         if waiting_key && !f.keyframe {
                             if last_kf.elapsed() >= Duration::from_secs(1) {
@@ -1074,8 +1169,17 @@ async fn peer(
                             continue;
                         }
                         waiting_key = false;
+                        last_delivered_codec = Some(f.codec);
+
+                        let raw_data = match f.codec {
+                            crate::protocol::Codec::Av1 => strip_av1_temporal_delimiters(&f.data),
+                            _ => &f.data[..],
+                        };
+                        if raw_data.is_empty() {
+                            continue;
+                        }
                         // shortcut: uma cópia por espectador web por quadro (str0m pede Arc<[u8]>); trocar EncodedFrame.data para Arc<[u8]> se aparecer no perfil
-                        let data = Arc::<[u8]>::from(&f.data[..]);
+                        let data = Arc::<[u8]>::from(raw_data);
                         let rtp_time = MediaTime::from_90khz(f.pts_us * 9 / 100);
                         if let Some(w) = rtc.writer(mid) {
                             let _ = w.write(pt, Instant::now(), rtp_time, data);
@@ -1094,7 +1198,7 @@ async fn peer(
                             &mut guard,
                             &mut permit_opt,
                             &mut video_mid,
-                            &mut video_pt,
+                            &mut video_pts,
                             &mut audio_mid,
                             &mut audio_pt,
                             &mut audio_clock_rate,
@@ -1105,6 +1209,7 @@ async fn peer(
                             &mut chat_ch,
                             &mut chat_limiter,
                             chat_id,
+                            viewer_avatar,
                             &mut flush_now,
                         );
                     }
@@ -1144,7 +1249,7 @@ async fn peer(
                                 &mut guard,
                                 &mut permit_opt,
                                 &mut video_mid,
-                                &mut video_pt,
+                                &mut video_pts,
                                 &mut audio_mid,
                                 &mut audio_pt,
                                 &mut audio_clock_rate,
@@ -1155,6 +1260,7 @@ async fn peer(
                                 &mut chat_ch,
                                 &mut chat_limiter,
                                 chat_id,
+                                viewer_avatar,
                                 &mut flush_now,
                             );
                         }
@@ -1301,5 +1407,51 @@ mod tests {
         let mut m = maps(&[Some(5000), Some(5002), Some(5004), Some(5006), Some(5008)]);
         m[2] = Some(sa("5.6.7.8", 5004));
         assert!(host_predictions(&m).is_empty());
+    }
+    #[test]
+    fn test_video_pts_pick_pt() {
+        let pts = VideoPts {
+            h264: Some(Pt::new_with_value(102)),
+            av1: Some(Pt::new_with_value(96)),
+        };
+        assert_eq!(pts.pick_pt(crate::protocol::Codec::H264), Some(Pt::new_with_value(102)));
+        assert_eq!(pts.pick_pt(crate::protocol::Codec::Av1), Some(Pt::new_with_value(96)));
+        assert_eq!(pts.pick_pt(crate::protocol::Codec::Hevc), None);
+
+        let pts_no_av1 = VideoPts {
+            h264: Some(Pt::new_with_value(102)),
+            av1: None,
+        };
+        assert_eq!(pts_no_av1.pick_pt(crate::protocol::Codec::Av1), None);
+    }
+
+    #[test]
+    fn test_strip_av1_temporal_delimiters() {
+        // TD com campo de tamanho (0x12 0x00) seguido de Sequence Header (0x0A 0x01 0x00)
+        let with_size = [0x12, 0x00, 0x0A, 0x01, 0x00];
+        assert_eq!(strip_av1_temporal_delimiters(&with_size), &[0x0A, 0x01, 0x00]);
+
+        // TD sem campo de tamanho (0x10) seguido de Sequence Header
+        let without_size = [0x10, 0x0A, 0x01, 0x00];
+        assert_eq!(strip_av1_temporal_delimiters(&without_size), &[0x0A, 0x01, 0x00]);
+
+        // Múltiplos delimitadores temporais seguidos
+        let multi = [0x12, 0x00, 0x10, 0x32, 0x01, 0x99];
+        assert_eq!(strip_av1_temporal_delimiters(&multi), &[0x32, 0x01, 0x99]);
+
+        // Sem delimitador temporal: já começa com Sequence Header
+        let no_td = [0x0A, 0x01, 0x00];
+        assert_eq!(strip_av1_temporal_delimiters(&no_td), &[0x0A, 0x01, 0x00]);
+
+        // Quadro delta comum (OBU Frame tipo 6 com tamanho: 0x32 ...)
+        let delta = [0x32, 0x04, 0xAA, 0xBB, 0xCC, 0xDD];
+        assert_eq!(strip_av1_temporal_delimiters(&delta), &delta);
+
+        // Slice vazio
+        assert!(strip_av1_temporal_delimiters(&[]).is_empty());
+
+        // Delimitador truncado
+        let truncated = [0x12];
+        assert_eq!(strip_av1_temporal_delimiters(&truncated), &[0x12]);
     }
 }

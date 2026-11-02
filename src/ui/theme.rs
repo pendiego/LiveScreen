@@ -720,7 +720,7 @@ pub fn call_bar<R>(
         })
 }
 
-pub fn call_title(ctx: &egui::Context, text: &str) {
+pub fn call_title_with_avatar(ctx: &egui::Context, text: &str, avatar_id: Option<u8>) {
     Area::new(Id::unique("call_title"))
         .anchor(Align2::CENTER_TOP, [0.0, 16.0])
         .order(Order::Middle)
@@ -733,17 +733,27 @@ pub fn call_title(ctx: &egui::Context, text: &str) {
                 .inner_margin(Margin::symmetric(16, 8));
             frame.show(ui, |ui| {
                 ui.set_max_width(480.0);
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(text)
-                            .size(14.0)
-                            .family(FontFamily::Name("semibold".into()))
-                            .color(P.text),
-                    )
-                    .truncate(),
-                );
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    if let Some(id) = avatar_id {
+                        super::avatar::avatar(ui, id, 18.0);
+                    }
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(text)
+                                .size(14.0)
+                                .family(FontFamily::Name("semibold".into()))
+                                .color(P.text),
+                        )
+                        .truncate(),
+                    );
+                });
             });
         });
+}
+
+pub fn call_title(ctx: &egui::Context, text: &str) {
+    call_title_with_avatar(ctx, text, None);
 }
 
 pub fn checkbox(

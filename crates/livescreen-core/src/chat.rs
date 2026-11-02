@@ -35,6 +35,9 @@ pub struct ChatLine {
     /// Moedas da doação simulada; 0 = mensagem comum.
     #[serde(default)]
     pub donate: u32,
+    /// Avatar resolvido (1..=COUNT) ou 0 para versões antigas.
+    #[serde(default)]
+    pub avatar: u8,
 }
 
 /// Limpa o texto e descarta o que ficar vazio.
@@ -44,50 +47,106 @@ pub fn clean_chat(text: &str) -> Option<String> {
 }
 
 impl ChatLine {
-    pub fn from_viewer(sender: u32, name: &str, friend: bool, text: &str) -> Option<ChatLine> {
+    pub fn from_viewer(sender: u32, name: &str, friend: bool, text: &str, avatar: u8) -> Option<ChatLine> {
+        let clean_name = sanitize(name, MAX_NAME_CHARS);
+        let key = if clean_name.is_empty() {
+            format!("#{sender}")
+        } else {
+            clean_name.clone()
+        };
+        let resolved = crate::avatar::resolve(avatar, &key);
         Some(ChatLine {
             sender,
             role: ChatRole::Viewer,
-            name: sanitize(name, MAX_NAME_CHARS),
+            name: clean_name,
             friend,
             text: clean_chat(text)?,
             donate: 0,
+            avatar: resolved,
         })
     }
 
-    pub fn from_host(name: &str, text: &str) -> Option<ChatLine> {
+    pub fn from_host(name: &str, text: &str, avatar: u8) -> Option<ChatLine> {
+        let clean_name = sanitize(name, MAX_NAME_CHARS);
+        let key = if clean_name.is_empty() {
+            "#0".to_string()
+        } else {
+            clean_name.clone()
+        };
+        let resolved = crate::avatar::resolve(avatar, &key);
         Some(ChatLine {
             sender: HOST_SENDER,
             role: ChatRole::Host,
-            name: sanitize(name, MAX_NAME_CHARS),
+            name: clean_name,
             friend: false,
             text: clean_chat(text)?,
             donate: 0,
+            avatar: resolved,
         })
     }
 
     /// Limpa uma linha vinda da rede (fronteira de confiança do viewer).
     pub fn sanitized(self) -> Option<ChatLine> {
+        let clean_name = sanitize(&self.name, MAX_NAME_CHARS);
+        let clean_text = clean_chat(&self.text)?;
+        let key = if clean_name.is_empty() {
+            format!("#{}", self.sender)
+        } else {
+            clean_name.clone()
+        };
+        let resolved = crate::avatar::resolve(self.avatar, &key);
         Some(ChatLine {
-            name: sanitize(&self.name, MAX_NAME_CHARS),
-            text: clean_chat(&self.text)?,
+            name: clean_name,
+            text: clean_text,
             donate: self.donate.min(MAX_DONATE),
+            avatar: resolved,
             ..self
         })
     }
 
+    /// Retorna o avatar se válido (1..=COUNT), ou resolve automaticamente pela chave.
+    pub fn avatar_id(&self) -> u8 {
+        if (1..=crate::avatar::COUNT).contains(&self.avatar) {
+            self.avatar
+        } else {
+            let fallback;
+            let key = if !self.name.is_empty() {
+                self.name.as_str()
+            } else {
+                fallback = format!("#{}", self.sender);
+                fallback.as_str()
+            };
+            crate::avatar::resolve(0, key)
+        }
+    }
+
     /// Mensagem vinda de um espectador. `donate > 0` só passa com a função ligada no host e
     /// dentro do teto; o texto da doação é montado aqui, para clientes antigos verem a linha.
-    pub fn incoming(sender: u32, name: &str, friend: bool, text: &str, donate: u32, donate_enabled: bool) -> Option<ChatLine> {
+    pub fn incoming(
+        sender: u32,
+        name: &str,
+        friend: bool,
+        text: &str,
+        donate: u32,
+        donate_enabled: bool,
+        avatar: u8,
+    ) -> Option<ChatLine> {
         if donate == 0 {
-            return Self::from_viewer(sender, name, friend, text);
+            return Self::from_viewer(sender, name, friend, text, avatar);
         }
         if !donate_enabled || donate > MAX_DONATE {
             return None;
         }
         let msg = sanitize(text, MAX_CHAT_CHARS);
-        let t = if msg.is_empty() { format!("doou {donate} moedas") } else { format!("doou {donate} moedas: {msg}") };
-        Some(ChatLine { donate, ..Self::from_viewer(sender, name, friend, &t)? })
+        let t = if msg.is_empty() {
+            format!("doou {donate} moedas")
+        } else {
+            format!("doou {donate} moedas: {msg}")
+        };
+        Some(ChatLine {
+            donate,
+            ..Self::from_viewer(sender, name, friend, &t, avatar)?
+        })
     }
 
     pub fn label(&self) -> String {
@@ -190,18 +249,18 @@ mod tests {
 
     #[test]
     fn labels_never_impersonate_host() {
-        let v = ChatLine::from_viewer(7, "Diego", false, "oi").unwrap();
+        let v = ChatLine::from_viewer(7, "Diego", false, "oi", 0).unwrap();
         assert_eq!(v.role, ChatRole::Viewer);
         assert_eq!(v.label(), "Diego #7");
-        assert_eq!(ChatLine::from_viewer(7, "", false, "oi").unwrap().label(), "Anônimo #7");
-        assert_eq!(ChatLine::from_host("", "oi").unwrap().label(), "Anfitrião");
+        assert_eq!(ChatLine::from_viewer(7, "", false, "oi", 0).unwrap().label(), "Anônimo #7");
+        assert_eq!(ChatLine::from_host("", "oi", 0).unwrap().label(), "Anfitrião");
     }
 
     #[test]
     fn log_caps_and_since() {
         let mut log = ChatLog::default();
         for i in 0..205 {
-            log.push(ChatLine::from_host("h", &format!("m{i}")).unwrap());
+            log.push(ChatLine::from_host("h", &format!("m{i}"), 0).unwrap());
         }
         assert_eq!(log.lines().count(), 200);
         assert_eq!(log.last_seq(), 205);
@@ -211,15 +270,37 @@ mod tests {
 
     #[test]
     fn incoming_donation_rules() {
-        let c = ChatLine::incoming(3, "Ana", false, "oi", 0, false).unwrap();
+        let c = ChatLine::incoming(3, "Ana", false, "oi", 0, false, 0).unwrap();
         assert_eq!(c.donate, 0);
-        let d = ChatLine::incoming(3, "Ana", false, "", 50, true).unwrap();
+        let d = ChatLine::incoming(3, "Ana", false, "", 50, true, 0).unwrap();
         assert_eq!((d.text.as_str(), d.donate, d.role), ("doou 50 moedas", 50, ChatRole::Viewer));
-        assert_eq!(ChatLine::incoming(3, "Ana", false, "valeu", 50, true).unwrap().text, "doou 50 moedas: valeu");
-        assert!(ChatLine::incoming(3, "Ana", false, "", 50, false).is_none());
-        assert!(ChatLine::incoming(3, "Ana", false, "", 1001, true).is_none());
-        let mut l = ChatLine::from_host("h", "x").unwrap();
+        assert_eq!(ChatLine::incoming(3, "Ana", false, "valeu", 50, true, 0).unwrap().text, "doou 50 moedas: valeu");
+        assert!(ChatLine::incoming(3, "Ana", false, "", 50, false, 0).is_none());
+        assert!(ChatLine::incoming(3, "Ana", false, "", 1001, true, 0).is_none());
+        let mut l = ChatLine::from_host("h", "x", 0).unwrap();
         l.donate = 5000;
         assert_eq!(l.sanitized().unwrap().donate, 1000);
+    }
+
+    #[test]
+    fn chat_line_avatar_resolution_and_serde() {
+        // Sem o campo avatar no JSON (host legado), deve desserializar com 0 e avatar_id() resolver automático
+        let json = r#"{"sender":3,"role":"viewer","name":"Diego","friend":false,"text":"oi"}"#;
+        let line: ChatLine = serde_json::from_str(json).unwrap();
+        assert_eq!(line.avatar, 0);
+        assert_eq!(line.avatar_id(), crate::avatar::auto("Diego"));
+
+        // Avatar válido preservado
+        let mut line_valid = line.clone();
+        line_valid.avatar = 2;
+        assert_eq!(line_valid.avatar_id(), 2);
+
+        // Avatar inválido substituído pelo automático na criação
+        let line_invalid = ChatLine::from_viewer(3, "Diego", false, "oi", 99).unwrap();
+        assert_eq!(line_invalid.avatar, crate::avatar::auto("Diego"));
+
+        // Nome vazio usa chave "#{sender}"
+        let anon = ChatLine::from_viewer(7, "", false, "oi", 0).unwrap();
+        assert_eq!(anon.avatar, crate::avatar::auto("#7"));
     }
 }

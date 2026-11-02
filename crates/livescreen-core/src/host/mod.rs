@@ -52,6 +52,64 @@ impl Abr {
 pub(crate) fn rtt_congested(rtt: Duration, min: Duration) -> bool {
     rtt > min + min.max(Duration::from_millis(80))
 }
+
+/// Decide o teto de quadros por segundo com base no nível de congestionamento do ABR.
+///
+/// Em compartilhamento de tela, preservar a nitidez de texto e linhas finas é mais
+/// importante que alta fluidez. Quando a banda cai:
+/// - Bitrate >= 50% do teto: fluidez total sem teto (0 = sem restrição).
+/// - Bitrate < 50% do teto: metade do fps nominal (mínimo 15 fps).
+/// - Bitrate < 25% do teto: um quarto do fps nominal (mínimo 10 fps).
+///
+/// Histerese para recuperação (evita oscilação na borda a cada segundo do AIMD):
+/// - Para subir de 1/4 para 1/2: exige bitrate >= 30% do teto.
+/// - Para subir de 1/2 para sem teto: exige bitrate >= 55% do teto.
+pub fn decide_target_fps(
+    target_bps: u32,
+    ceiling_bps: u32,
+    base_fps: u32,
+    current_cap: u32,
+) -> u32 {
+    if ceiling_bps == 0 || base_fps == 0 {
+        return 0;
+    }
+    let half = (base_fps / 2).max(15).min(base_fps);
+    let quarter = (base_fps / 4).max(10).min(half);
+
+    if half >= base_fps {
+        return 0;
+    }
+
+    let ratio = (target_bps as u64 * 100 / ceiling_bps as u64) as u32;
+    let is_quarter = current_cap > 0 && current_cap <= quarter;
+    let is_half = current_cap > 0 && current_cap > quarter && current_cap <= half;
+
+    if is_quarter {
+        if ratio >= 55 {
+            0
+        } else if ratio >= 30 {
+            half
+        } else {
+            quarter
+        }
+    } else if is_half {
+        if ratio >= 55 {
+            0
+        } else if ratio < 25 {
+            quarter
+        } else {
+            half
+        }
+    } else {
+        if ratio < 25 {
+            quarter
+        } else if ratio < 50 {
+            half
+        } else {
+            0
+        }
+    }
+}
 /// GOP antigo: termina; se o peer não confirmar em STALE_VIDEO, descarta (para de retransmitir).
 fn retire(mut s: iroh::endpoint::SendStream) {
     let _ = s.finish();
@@ -70,6 +128,7 @@ pub struct ViewerInfo {
     pub friend: bool,
     pub path: String,
     pub rtt_ms: u32,
+    pub avatar: u8,
 }
 
 impl ViewerInfo {
@@ -167,6 +226,7 @@ pub(crate) struct Peer {
     pub(crate) name: String,
     pub(crate) decoders: Vec<Codec>,
     pub(crate) h264_baseline: bool,
+    pub(crate) avatar: u8,
 }
 
 pub(crate) struct Shared {
@@ -207,6 +267,7 @@ pub(crate) struct Shared {
     pub(crate) next_chat_id: AtomicU32,
     /// Doações simuladas ligadas nesta transmissão.
     pub(crate) donate: bool,
+    pub(crate) host_avatar: u8,
 }
 
 impl Shared {
@@ -327,6 +388,7 @@ async fn handle_viewer(
     let ViewerMsg::Hello {
         protocol,
         name,
+        avatar,
         room_proof,
         decoders,
         chat: wants_chat,
@@ -417,6 +479,14 @@ async fn handle_viewer(
             n = (n + 4).min(total);
         }
     };
+    let chat_id = sh.next_chat_id.fetch_add(1, Ordering::Relaxed);
+    let clean_name = sanitize(&name, 32);
+    let key = if clean_name.is_empty() {
+        format!("#{chat_id}")
+    } else {
+        clean_name.clone()
+    };
+    let viewer_avatar = crate::avatar::resolve(avatar, &key);
     let _guard = CountGuard(&sh, Some(id.clone()));
     {
         let mut conns = sh.conns.lock().unwrap();
@@ -430,15 +500,15 @@ async fn handle_viewer(
             id.clone(),
             Peer {
                 conn: PeerConn::Iroh(conn.clone()),
-                name: sanitize(&name, 32),
+                name: clean_name.clone(),
                 decoders,
                 h264_baseline: false,
+                avatar: viewer_avatar,
             },
         );
     }
     sh.codec_dirty.store(true, Ordering::Release);
 
-    let chat_id = sh.next_chat_id.fetch_add(1, Ordering::Relaxed);
     let mut prx = sh.params.subscribe();
     let (w, h, fps, audio) = *prx.borrow_and_update();
     tokio::time::timeout(
@@ -456,6 +526,7 @@ async fn handle_viewer(
                 chat: true,
                 chat_id,
                 donate: sh.donate,
+                host_avatar: sh.host_avatar,
             },
         ),
     )
@@ -483,7 +554,7 @@ async fn handle_viewer(
                 ViewerMsg::SetVisible { visible: v } => visible2.store(v, Ordering::Relaxed),
                 ViewerMsg::Chat { text, donate } => {
                     if limiter.allow(Instant::now())
-                        && let Some(l) = ChatLine::incoming(chat_id, &sender_name, is_friend, &text, donate, sh2.donate)
+                        && let Some(l) = ChatLine::incoming(chat_id, &sender_name, is_friend, &text, donate, sh2.donate, viewer_avatar)
                     {
                         sh2.post_chat(l);
                     }
@@ -581,6 +652,8 @@ pub struct HostStats {
     pub target_bps: AtomicU32,
     /// bitrate do preset do encoder atual
     pub ceiling_bps: AtomicU32,
+    /// teto de quadros por segundo decidido pelo controle adaptativo; 0 = sem teto
+    pub target_fps: AtomicU32,
 }
 
 pub struct HostConfig {
@@ -595,6 +668,8 @@ pub struct HostConfig {
     pub audio: bool,
     /// Doações simuladas no chat (experimental); vale pela transmissão inteira.
     pub donate: bool,
+    /// Avatar escolhido pelo host (0 = automático).
+    pub avatar: u8,
 }
 
 /// Entradas do encoder e da captura de áudio da plataforma. Áudio: datagrama `[seq u32 LE][Opus 20 ms]`.
@@ -657,6 +732,13 @@ impl Host {
                 .await
         })?;
         let (sd_tx, sd_rx) = watch::channel(false);
+        let host_name_clean = sanitize(&cfg.host_name, 32);
+        let host_key = if host_name_clean.is_empty() {
+            "#0".to_string()
+        } else {
+            host_name_clean.clone()
+        };
+        let host_avatar = crate::avatar::resolve(cfg.avatar, &host_key);
         let shared = Arc::new(Shared {
             status: status.clone(),
             viewers: AtomicUsize::new(0),
@@ -688,6 +770,7 @@ impl Host {
             chat: Arc::new(Mutex::new(ChatLog::default())),
             next_chat_id: AtomicU32::new(1),
             donate: cfg.donate,
+            host_avatar,
         });
         {
             let (ep, shared, status) = (ep.clone(), shared.clone(), status.clone());
@@ -776,6 +859,7 @@ impl Host {
                                         friend,
                                         path,
                                         rtt_ms: rtt,
+                                        avatar: peer.avatar,
                                     }
                                 }
                                 PeerConn::Web(w) => {
@@ -787,6 +871,7 @@ impl Host {
                                         friend: false,
                                         path: "Navegador".into(),
                                         rtt_ms: w.rtt_ms.load(Ordering::Relaxed),
+                                        avatar: peer.avatar,
                                     }
                                 }
                             }
@@ -810,6 +895,7 @@ impl Host {
                     let ceiling = stats.ceiling_bps.load(Ordering::Relaxed);
                     if samples.is_empty() && !has_web {
                         stats.target_bps.store(0, Ordering::Relaxed);
+                        stats.target_fps.store(0, Ordering::Relaxed);
                         abr = Abr::default();
                     } else {
                         let cur = match stats.target_bps.load(Ordering::Relaxed) {
@@ -821,6 +907,13 @@ impl Host {
                             tracing::debug!("abr: {} → {} kbps", cur / 1000, next / 1000);
                         }
                         stats.target_bps.store(next, Ordering::Relaxed);
+                        let base_fps = shared.params.borrow().2;
+                        let cur_fps = stats.target_fps.load(Ordering::Relaxed);
+                        let next_fps = decide_target_fps(next, ceiling, base_fps, cur_fps);
+                        if next_fps != cur_fps {
+                            tracing::debug!("abr: teto de fps {} → {}", cur_fps, next_fps);
+                        }
+                        stats.target_fps.store(next_fps, Ordering::Relaxed);
                     }
                     let d = stats.dropped.load(Ordering::Relaxed);
                     let mut s = shared.status.lock().unwrap();
@@ -845,7 +938,7 @@ impl Host {
 
     /// Mensagem do próprio host: sempre `role = Host`, sem limitador.
     pub fn send_chat(&self, text: &str) {
-        if let Some(l) = ChatLine::from_host(&self.shared.host_name, text) {
+        if let Some(l) = ChatLine::from_host(&self.shared.host_name, text, self.shared.host_avatar) {
             self.shared.post_chat(l);
         }
     }
@@ -1072,5 +1165,51 @@ mod tests {
             admit(false, false, "wrong_proof", false),
             Err("convite inválido ou substituído")
         );
+    }
+
+    #[test]
+    fn test_decide_target_fps_thresholds_and_hysteresis() {
+        let ceiling = 5_000_000;
+        let base_fps = 60;
+
+        // Sem perda de banda (>= 50%): sem teto (0)
+        assert_eq!(decide_target_fps(5_000_000, ceiling, base_fps, 0), 0);
+        assert_eq!(decide_target_fps(3_500_000, ceiling, base_fps, 0), 0);
+        assert_eq!(decide_target_fps(2_500_000, ceiling, base_fps, 0), 0); // 50%
+
+        // Queda para < 50%: corta para metade (30 fps)
+        let cap_half = decide_target_fps(2_400_000, ceiling, base_fps, 0); // 48%
+        assert_eq!(cap_half, 30);
+
+        // Queda para < 25%: corta para um quarto (15 fps)
+        let cap_quarter = decide_target_fps(1_000_000, ceiling, base_fps, cap_half); // 20%
+        assert_eq!(cap_quarter, 15);
+
+        // Histerese de 1/4: em 26% ainda não sobe para 1/2 (exige >= 30%)
+        assert_eq!(decide_target_fps(1_300_000, ceiling, base_fps, cap_quarter), 15);
+        // Em 32% (>= 30%), sobe para 1/2
+        let recovered_half = decide_target_fps(1_600_000, ceiling, base_fps, cap_quarter);
+        assert_eq!(recovered_half, 30);
+
+        // Histerese de 1/2: em 52% ainda não sobe para full (exige >= 55%)
+        assert_eq!(decide_target_fps(2_600_000, ceiling, base_fps, recovered_half), 30);
+        // Em 56% (>= 55%), recupera full (0)
+        assert_eq!(decide_target_fps(2_800_000, ceiling, base_fps, recovered_half), 0);
+
+        // Casos extremos
+        assert_eq!(decide_target_fps(1_000_000, 0, base_fps, 0), 0);
+        assert_eq!(decide_target_fps(1_000_000, ceiling, 0, 0), 0);
+
+        // base_fps baixo (15 fps): nunca corta abaixo de base_fps
+        assert_eq!(decide_target_fps(500_000, ceiling, 15, 0), 0);
+    }
+
+    #[test]
+    fn host_replaces_invalid_avatar_with_auto() {
+        // Quando o host recebe avatar 0 ou inválido (> COUNT), resolve automaticamente
+        assert_eq!(crate::avatar::resolve(0, "Diego"), crate::avatar::auto("Diego"));
+        assert_eq!(crate::avatar::resolve(99, "Diego"), crate::avatar::auto("Diego"));
+        // Quando válido, preserva o escolhido
+        assert_eq!(crate::avatar::resolve(2, "Diego"), 2);
     }
 }

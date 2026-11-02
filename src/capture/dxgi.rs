@@ -3,23 +3,26 @@ use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use tracing::warn;
+use tracing::{info, warn};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_GDI_COMPATIBLE,
     D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, ID3D11Device, ID3D11DeviceContext,
     ID3D11Texture2D,
 };
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_SAMPLE_DESC,
+};
 use windows::Win32::Graphics::Dxgi::{
     DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO, IDXGIDevice,
-    IDXGIOutput1, IDXGIOutputDuplication, IDXGIResource, IDXGISurface1,
+    IDXGIOutput1, IDXGIOutput5, IDXGIOutputDuplication, IDXGIResource, IDXGISurface1,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CURSOR_SHOWING, CURSORINFO, DI_NORMAL, DrawIconEx, GetCursorInfo, HICON,
 };
 use windows::core::Interface;
 
+use super::hdr::{self, HdrConverter};
 use super::{SinkHandle, SourceId};
 
 pub struct DxgiCapture {
@@ -102,6 +105,15 @@ fn create_duplication(device: &ID3D11Device, hmonitor: isize) -> Result<IDXGIOut
         if desc.Monitor.0 as isize != hmonitor {
             continue;
         }
+        if let Ok(output5) = output.cast::<IDXGIOutput5>() {
+            let formats = [
+                DXGI_FORMAT_R16G16B16A16_FLOAT,
+                DXGI_FORMAT_B8G8R8A8_UNORM,
+            ];
+            if let Ok(dup) = unsafe { output5.DuplicateOutput1(device, 0, &formats) } {
+                return Ok(dup);
+            }
+        }
         let output: IDXGIOutput1 = output.cast().context("IDXGIOutput1")?;
         return unsafe { output.DuplicateOutput(device) }.context("DuplicateOutput");
     }
@@ -123,6 +135,7 @@ fn run(
         }
     };
     let mut comp = Composer::default();
+    let mut hdr_converter: Option<HdrConverter> = None;
     // O primeiro quadro sempre vai (mesmo que o timestamp venha zerado), para a
     // transmissão começar com uma imagem e não só depois da próxima mudança.
     let mut delivered = false;
@@ -147,7 +160,36 @@ fn run(
                 {
                     let mut desc = D3D11_TEXTURE2D_DESC::default();
                     unsafe { texture.GetDesc(&mut desc) };
-                    if let Err(e) = comp.store(device, &context, &texture, desc.Width, desc.Height)
+
+                    let (tex_to_store, w, h) = if desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT {
+                        if hdr_converter.is_none() {
+                            let nits = hdr::query_sdr_white_level(hmonitor);
+                            match HdrConverter::new(device, nits) {
+                                Ok(c) => {
+                                    info!("captura HDR -> SDR (branco {nits} nits)");
+                                    hdr_converter = Some(c);
+                                }
+                                Err(e) => {
+                                    warn!("falha ao criar conversor HDR no DXGI: {e:#}");
+                                }
+                            }
+                        }
+                        if let Some(conv) = hdr_converter.as_mut() {
+                            match conv.convert(device, &context, &texture, desc.Width, desc.Height) {
+                                Ok(sdr) => (sdr, desc.Width, desc.Height),
+                                Err(e) => {
+                                    warn!("conversão HDR -> SDR DXGI falhou: {e:#}");
+                                    (texture, desc.Width, desc.Height)
+                                }
+                            }
+                        } else {
+                            (texture, desc.Width, desc.Height)
+                        }
+                    } else {
+                        (texture, desc.Width, desc.Height)
+                    };
+
+                    if let Err(e) = comp.store(device, &context, &tex_to_store, w, h)
                     {
                         sink.on_error(anyhow!("cópia do quadro DXGI: {e}"));
                         let _ = unsafe { duplication.ReleaseFrame() };

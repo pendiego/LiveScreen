@@ -37,12 +37,23 @@ pub fn panel(
                 let host = l.role == ChatRole::Host;
                 let who = if (l.role, l.sender) == me { "Você".to_string() } else { l.label() };
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(who)
-                            .size(13.0)
-                            .family(egui::FontFamily::Name("medium".into()))
-                            .color(if host { P.accent } else { P.text_muted }),
-                    );
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    super::avatar::avatar(ui, l.avatar_id(), 20.0);
+                    // nome de 32 caracteres não empurra as marcas para fora do painel
+                    let badges = [host, l.friend, l.donate > 0].iter().filter(|b| **b).count() as f32;
+                    let room = (ui.available_width() - badges * 84.0).max(40.0);
+                    ui.scope(|ui| {
+                        ui.set_max_width(room);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(who)
+                                    .size(13.0)
+                                    .family(egui::FontFamily::Name("medium".into()))
+                                    .color(if host { P.accent } else { P.text_muted }),
+                            )
+                            .truncate(),
+                        );
+                    });
                     if host {
                         theme::badge(ui, "anfitrião", P.accent);
                     }

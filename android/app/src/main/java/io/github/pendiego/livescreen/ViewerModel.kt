@@ -35,7 +35,8 @@ data class ChatItem(
     val host: Boolean,
     val friend: Boolean,
     val mine: Boolean,
-    val text: String
+    val text: String,
+    val avatar: Int = 0
 )
 
 fun parseChatItems(raw: String): List<ChatItem> = try {
@@ -48,7 +49,8 @@ fun parseChatItems(raw: String): List<ChatItem> = try {
             host = o.optBoolean("host", false),
             friend = o.optBoolean("friend", false),
             mine = o.optBoolean("mine", false),
-            text = o.optString("text", "")
+            text = o.optString("text", ""),
+            avatar = o.optInt("avatar", 0)
         )
     }
 } catch (e: JSONException) {
@@ -71,6 +73,7 @@ data class Status(
     val decodeMs: Double = 0.0,
     val hostId: String = "",
     val hostName: String = "",
+    val hostAvatar: Int = 0,
     val chat: Boolean = false
 )
 
@@ -86,6 +89,13 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("livescreen", Context.MODE_PRIVATE)
 
     var name: String by mutableStateOf(prefs.getString("name", "") ?: "")
+    var avatar: Int by mutableStateOf(prefs.getInt("avatar", 0))
+        private set
+
+    fun chooseAvatar(id: Int) {
+        avatar = id
+        prefs.edit().putInt("avatar", id).apply()
+    }
     var ticket: String by mutableStateOf("")
     var lastEnd: String? by mutableStateOf(null)
     var status: Status? by mutableStateOf(null)
@@ -321,7 +331,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
     fun connect(target: String = ticket.trim()) {
         if (handle != 0L || pollingJob?.isActive == true || Hosting.active) return
         starting = true
-        prefs.edit().putString("name", name).apply()
+        prefs.edit().putString("name", name).putInt("avatar", avatar).apply()
         lastEnd = null
         hidden = false
 
@@ -334,7 +344,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.IO + NonCancellable) {
                     viewerStop?.join()
                     Hosting.stopThread?.join()
-                    Native.start(target, name, identity)
+                    Native.start(target, name, identity, AvatarData.resolve(avatar, name.trim()))
                 }
             } catch (e: IllegalArgumentException) {
                 starting = false
@@ -487,7 +497,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
 
     fun beginHost(ctx: Context, code: Int, data: Intent) {
         if (handle != 0L || pollingJob?.isActive == true || Hosting.active) return
-        prefs.edit().putString("name", name).apply()
+        prefs.edit().putString("name", name).putInt("avatar", avatar).apply()
         Hosting.active = true
         Hosting.lastError = null
         val pj = presenceJob
@@ -500,7 +510,9 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             }
             Hosting.request = HostRequest(
                 identity, name, "Tela de ${Build.MODEL}",
-                friends.joinToString(",") { it.code }
+                friends.joinToString(",") { it.code },
+                // automático resolvido aqui, igual à prévia; com nome vazio o host usaria "#0"
+                AvatarData.resolve(avatar, name.trim())
             )
             ContextCompat.startForegroundService(ctx, HostService.startIntent(ctx, code, data))
         }
@@ -544,6 +556,7 @@ class ViewerModel(app: Application) : AndroidViewModel(app) {
             decodeMs = obj.optDouble("decode_ms", 0.0),
             hostId = obj.optString("host_id", ""),
             hostName = obj.optString("host_name", ""),
+            hostAvatar = obj.optInt("host_avatar", 0),
             chat = obj.optBoolean("chat", false)
         )
     }

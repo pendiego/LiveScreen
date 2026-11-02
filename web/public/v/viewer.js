@@ -75,7 +75,303 @@
   const sealedSignal = !!hashMatch[3];
 
   const savedName = localStorage.getItem("livescreen-name") || "";
-  nameInput.value = savedName.slice(0, 32);
+  // 32 caracteres, não unidades UTF-16: cortar um emoji ao meio gera JSON que o host recusa
+  const clipName = (v) => Array.from(v.trim()).slice(0, 32).join("");
+  nameInput.value = clipName(savedName);
+  const AVATAR_KEY = "livescreen.avatar";
+  let chosenAvatar = 0;
+  try {
+    const val = parseInt(localStorage.getItem(AVATAR_KEY) || localStorage[AVATAR_KEY], 10);
+    if (Number.isInteger(val) && val >= 0 && val <= 7) {
+      chosenAvatar = val;
+    }
+  } catch {}
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const FNV_OFFSET = 0x811c9dc5;
+  const FNV_PRIME = 0x01000193;
+  const textEncoder = new TextEncoder();
+
+  // automático resolvido aqui: com nome vazio o host usaria "#n" e daria outro bicho que o da prévia
+  const sentAvatar = () => chosenAvatar || autoAvatar(currentName);
+
+  function autoAvatar(key) {
+    const bytes = textEncoder.encode(key || "");
+    let hash = FNV_OFFSET >>> 0;
+    for (let i = 0; i < bytes.length; i++) {
+      hash ^= bytes[i];
+      hash = Math.imul(hash, FNV_PRIME) >>> 0;
+    }
+    return (hash % 7) + 1;
+  }
+
+  let avatarData = null;
+  const avatarMap = new Map();
+  const pendingSvgs = new Set();
+  const AVATAR_NAMES = {
+    1: "Gato",
+    2: "Raposa",
+    3: "Urso",
+    4: "Coelho",
+    5: "Sapo",
+    6: "Polvo",
+    7: "Peixe",
+  };
+
+  function renderAvatarShapes(svg, id) {
+    if (!avatarData) return;
+    const av = avatarMap.get(id);
+    if (!av || !Array.isArray(av.shapes)) return;
+
+    const palette = {
+      b: avatarData.back || "#1C2027",
+      d: avatarData.dark || "#0B0D10",
+      l: avatarData.light || "#F3F5F7",
+    };
+    const colorOf = (ink) => (ink === "a" ? (av.accent || palette.l) : (palette[ink] || palette.b));
+
+    for (const s of av.shapes) {
+      if (!Array.isArray(s) || s.length < 2) continue;
+      const type = s[0];
+      const ink = s[1];
+      const c = colorOf(ink);
+      const v = s.slice(2);
+
+      let el = null;
+      switch (type) {
+        case "circle":
+          if (v.length >= 3) {
+            el = document.createElementNS(SVG_NS, "circle");
+            el.setAttribute("cx", String(v[0]));
+            el.setAttribute("cy", String(v[1]));
+            el.setAttribute("r", String(v[2]));
+            el.setAttribute("fill", c);
+          }
+          break;
+        case "ellipse":
+          if (v.length >= 4) {
+            el = document.createElementNS(SVG_NS, "ellipse");
+            el.setAttribute("cx", String(v[0]));
+            el.setAttribute("cy", String(v[1]));
+            el.setAttribute("rx", String(v[2]));
+            el.setAttribute("ry", String(v[3]));
+            el.setAttribute("fill", c);
+          }
+          break;
+        case "rect":
+          if (v.length >= 5) {
+            el = document.createElementNS(SVG_NS, "rect");
+            el.setAttribute("x", String(v[0]));
+            el.setAttribute("y", String(v[1]));
+            el.setAttribute("width", String(v[2]));
+            el.setAttribute("height", String(v[3]));
+            el.setAttribute("rx", String(v[4]));
+            el.setAttribute("fill", c);
+          }
+          break;
+        case "poly":
+          if (v.length >= 4) {
+            el = document.createElementNS(SVG_NS, "polygon");
+            el.setAttribute("points", v.join(" "));
+            el.setAttribute("fill", c);
+            el.setAttribute("stroke", c);
+            el.setAttribute("stroke-width", "1");
+            el.setAttribute("stroke-linejoin", "round");
+          }
+          break;
+        case "line":
+          if (v.length >= 5) {
+            el = document.createElementNS(SVG_NS, "line");
+            el.setAttribute("stroke-width", String(v[0]));
+            el.setAttribute("x1", String(v[1]));
+            el.setAttribute("y1", String(v[2]));
+            el.setAttribute("x2", String(v[3]));
+            el.setAttribute("y2", String(v[4]));
+            el.setAttribute("stroke", c);
+            el.setAttribute("stroke-linecap", "round");
+          }
+          break;
+        case "pline":
+          if (v.length >= 3) {
+            el = document.createElementNS(SVG_NS, "polyline");
+            el.setAttribute("stroke-width", String(v[0]));
+            el.setAttribute("points", v.slice(1).join(" "));
+            el.setAttribute("fill", "none");
+            el.setAttribute("stroke", c);
+            el.setAttribute("stroke-linecap", "round");
+            el.setAttribute("stroke-linejoin", "round");
+          }
+          break;
+        case "ring":
+          if (v.length >= 5) {
+            el = document.createElementNS(SVG_NS, "ellipse");
+            el.setAttribute("stroke-width", String(v[0]));
+            el.setAttribute("cx", String(v[1]));
+            el.setAttribute("cy", String(v[2]));
+            el.setAttribute("rx", String(v[3]));
+            el.setAttribute("ry", String(v[4]));
+            el.setAttribute("fill", "none");
+            el.setAttribute("stroke", c);
+          }
+          break;
+      }
+      if (el) svg.append(el);
+    }
+  }
+
+  function updateAvatarSvg(svg, id) {
+    svg.dataset.avatarId = String(id);
+    while (svg.childNodes.length > 1) {
+      svg.removeChild(svg.lastChild);
+    }
+    const bg = svg.firstChild;
+    if (bg) {
+      bg.setAttribute("fill", (avatarData && avatarData.back) || "#1C2027");
+    }
+    renderAvatarShapes(svg, id);
+  }
+
+  function createAvatarSvg(id, size = 20, ariaLabel) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 64 64");
+    svg.setAttribute("width", String(size));
+    svg.setAttribute("height", String(size));
+    svg.setAttribute("class", "avatar-icon");
+    if (ariaLabel) {
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", ariaLabel);
+    } else {
+      svg.setAttribute("aria-hidden", "true");
+    }
+
+    const bg = document.createElementNS(SVG_NS, "circle");
+    bg.setAttribute("cx", "32");
+    bg.setAttribute("cy", "32");
+    bg.setAttribute("r", "32");
+    bg.setAttribute("fill", (avatarData && avatarData.back) || "#1C2027");
+    svg.append(bg);
+
+    if (avatarData) {
+      renderAvatarShapes(svg, id);
+    } else {
+      svg.dataset.avatarId = String(id);
+      pendingSvgs.add(svg);
+    }
+    return svg;
+  }
+
+  const avatarGrid = document.getElementById("avatarGrid");
+  let autoPreviewSvg = null;
+
+  function updateAutoAvatarPreview() {
+    if (!autoPreviewSvg) return;
+    const name = clipName(nameInput.value);
+    const autoId = autoAvatar(name);
+    updateAvatarSvg(autoPreviewSvg, autoId);
+  }
+
+  function selectAvatar(id) {
+    chosenAvatar = id;
+    try { localStorage.setItem(AVATAR_KEY, String(id)); } catch {}
+    if (!avatarGrid) return;
+    const buttons = avatarGrid.querySelectorAll(".avatar-opt");
+    for (const btn of buttons) {
+      const btnId = parseInt(btn.dataset.avatarId, 10);
+      const isSelected = btnId === id;
+      btn.setAttribute("aria-checked", String(isSelected));
+      btn.tabIndex = isSelected ? 0 : -1; // radiogroup: só o escolhido entra no Tab, setas trocam
+      btn.classList.toggle("selected", isSelected);
+    }
+  }
+
+  function initAvatarGrid() {
+    if (!avatarGrid) return;
+    const btnAuto = document.createElement("button");
+    btnAuto.type = "button";
+    btnAuto.className = "avatar-opt" + (chosenAvatar === 0 ? " selected" : "");
+    btnAuto.dataset.avatarId = "0";
+    btnAuto.setAttribute("role", "radio");
+    btnAuto.setAttribute("aria-checked", String(chosenAvatar === 0));
+    btnAuto.setAttribute("aria-label", "Avatar automático");
+    btnAuto.setAttribute("title", "Avatar automático");
+
+    btnAuto.tabIndex = chosenAvatar === 0 ? 0 : -1;
+    const currentAutoId = autoAvatar(clipName(nameInput.value));
+    autoPreviewSvg = createAvatarSvg(currentAutoId, 32);
+    btnAuto.append(autoPreviewSvg);
+
+    const badge = document.createElement("span");
+    badge.className = "avatar-badge";
+    badge.textContent = "Auto";
+    btnAuto.append(badge);
+
+    btnAuto.addEventListener("click", () => selectAvatar(0));
+    avatarGrid.append(btnAuto);
+
+    for (let id = 1; id <= 7; id++) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "avatar-opt" + (chosenAvatar === id ? " selected" : "");
+      btn.dataset.avatarId = String(id);
+      btn.setAttribute("role", "radio");
+      btn.setAttribute("aria-checked", String(chosenAvatar === id));
+      btn.tabIndex = chosenAvatar === id ? 0 : -1;
+      const avName = AVATAR_NAMES[id] || ("#" + id);
+      btn.setAttribute("aria-label", "Avatar " + avName);
+      btn.setAttribute("title", "Avatar " + avName);
+
+      const svg = createAvatarSvg(id, 32);
+      btn.append(svg);
+
+      btn.addEventListener("click", () => selectAvatar(id));
+      avatarGrid.append(btn);
+    }
+
+    avatarGrid.addEventListener("keydown", (e) => {
+      const buttons = Array.from(avatarGrid.querySelectorAll(".avatar-opt"));
+      const idx = buttons.findIndex((b) => b === document.activeElement);
+      if (idx === -1) return;
+      let nextIdx = -1;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        nextIdx = (idx + 1) % buttons.length;
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        nextIdx = (idx - 1 + buttons.length) % buttons.length;
+      }
+      if (nextIdx !== -1) {
+        e.preventDefault();
+        const nextBtn = buttons[nextIdx];
+        nextBtn.focus();
+        selectAvatar(Number(nextBtn.dataset.avatarId));
+      }
+    });
+
+    nameInput.addEventListener("input", updateAutoAvatarPreview);
+  }
+  initAvatarGrid();
+
+  async function loadAvatars() {
+    try {
+      const res = await fetch("avatars.json");
+      if (!res.ok) return;
+      avatarData = await res.json();
+      if (avatarData && Array.isArray(avatarData.avatars)) {
+        for (const av of avatarData.avatars) {
+          avatarMap.set(av.id, av);
+        }
+      }
+      for (const svg of pendingSvgs) {
+        if (svg.isConnected) {
+          const id = parseInt(svg.dataset.avatarId, 10);
+          if (Number.isInteger(id)) {
+            updateAvatarSvg(svg, id);
+          }
+        }
+      }
+      pendingSvgs.clear();
+      updateAutoAvatarPreview();
+    } catch {}
+  }
+  loadAvatars();
 
   let ws = null;
   let pc = null;
@@ -85,7 +381,13 @@
   let answerTimer = null;
   let offerNonce = null;
   let currentName = "";
-
+  let hostName = "";
+  let hostAvatar = 0;
+  let reconnectAttempts = 0;
+  let reconnectTimer = null;
+  let reconnecting = false;
+  const MAX_RECONNECT_ATTEMPTS = 5;
+  let pipWindow = null;
   function hexToBytes(hex) {
     const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < bytes.length; i++) {
@@ -201,7 +503,31 @@
     if (statsDd) statsDd.forEach((d) => { d.textContent = "—"; });
   }
 
-  function cleanup() {
+  function updateMediaMetadata() {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: "Transmissão ao vivo",
+        artist: hostName || "LiveScreen",
+        album: "LiveScreen",
+        artwork: [{ src: "logo.svg", sizes: "any", type: "image/svg+xml" }],
+      });
+    } catch {}
+  }
+
+  function updatePlaybackState(active = true) {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      if (!active || playerBox.hidden) {
+        navigator.mediaSession.playbackState = "none";
+        navigator.mediaSession.metadata = null;
+        return;
+      }
+      navigator.mediaSession.playbackState = video.paused ? "paused" : "playing";
+    } catch {}
+  }
+
+  function cleanup(isReconnect = false) {
     if (pingTimer) {
       clearInterval(pingTimer);
       pingTimer = null;
@@ -220,7 +546,15 @@
       idleTimer = null;
     }
     answered = false;
-    everConnected = false;
+    if (!isReconnect) {
+      everConnected = false;
+      reconnecting = false;
+      reconnectAttempts = 0;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    }
     stopStats();
     releaseAwake();
     hostCtl = false;
@@ -228,7 +562,11 @@
     qualityBtn.hidden = true;
     qualityMenu.hidden = true;
     qualityBtn.setAttribute("aria-expanded", "false");
-    netBadge.hidden = true;
+    if (!isReconnect) {
+      hostAvatar = 0;
+      netBadge.hidden = true;
+      updatePlaybackState(false);
+    }
     if (pc) {
       try { pc.close(); } catch {}
       pc = null;
@@ -249,7 +587,17 @@
   }
 
   function stopWithReason(text) {
-    cleanup();
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    reconnecting = false;
+    reconnectAttempts = 0;
+    cleanup(false);
+    if (pipWindow) {
+      try { pipWindow.close(); } catch {}
+      pipWindow = null;
+    }
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
     playerBox.hidden = true;
@@ -270,6 +618,26 @@
     showStatus(sentence(text), "error");
   }
 
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      reconnecting = false;
+      reconnectAttempts = 0;
+      stopWithReason("A conexão com quem transmite caiu. Tente entrar de novo.");
+      return;
+    }
+    reconnecting = true;
+    reconnectAttempts++;
+    netBadge.textContent = "Reconectando…";
+    netBadge.hidden = false;
+    const base = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 16000);
+    const delay = base + Math.random() * 1000;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect(true);
+    }, delay);
+  }
+
   // sem TURN, só o caminho direto existe: explica o que o espectador pode tentar
   // srflx só prova que o STUN respondeu; a causa real pode ser NAT de qualquer lado, firewall ou DTLS
   function connectTips() {
@@ -285,10 +653,11 @@
       pc = new RTCPeerConnection({ iceServers });
 
       const ms = new MediaStream();
-      video.srcObject = ms;
-
       pc.ontrack = (e) => {
         ms.addTrack(e.track);
+        if (video.srcObject !== ms) {
+          video.srcObject = ms;
+        }
         if (e.receiver && "jitterBufferTarget" in e.receiver) {
           try {
             e.receiver.jitterBufferTarget = 0;
@@ -302,18 +671,40 @@
         if (st === "failed") {
           const types = {};
           for (const m of (pc.localDescription?.sdp || "").matchAll(/^a=candidate:.* typ (\w+)/gm)) types[m[1]] = (types[m[1]] || 0) + 1;
-          // diagnóstico para quem reporta o erro: ICE x DTLS e quais candidatos foram oferecidos
           console.warn("LiveScreen: conexão falhou", { ice: pc.iceConnectionState, gathering: pc.iceGatheringState, candidatos: types });
-          stopWithReason(everConnected ? "A conexão com quem transmite caiu. Tente entrar de novo." : `${connectTips()} (ICE ${pc.iceConnectionState}; candidatos ${JSON.stringify(types)})`);
+          if (everConnected) {
+            scheduleReconnect();
+          } else {
+            stopWithReason(`${connectTips()} (ICE ${pc.iceConnectionState}; candidatos ${JSON.stringify(types)})`);
+          }
         } else if (st === "disconnected") {
+          netBadge.textContent = "Sinal instável, esperando a conexão voltar…";
           netBadge.hidden = false;
         } else if (st === "connected") {
           everConnected = true;
+          reconnecting = false;
+          reconnectAttempts = 0;
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
           netBadge.hidden = true;
+          updatePlaybackState(true);
         }
       };
 
-      pc.addTransceiver("video", { direction: "recvonly" });
+      const vtc = pc.addTransceiver("video", { direction: "recvonly" });
+      // como no app, o host só usa AV1 se todos decodificam pela placa: sem isso, tira o AV1 da oferta
+      try {
+        const codecs = RTCRtpReceiver.getCapabilities("video")?.codecs || [];
+        const hw = await navigator.mediaCapabilities
+          ?.decodingInfo({ type: "webrtc", video: { contentType: "video/AV1", width: 1920, height: 1080, bitrate: 8e6, framerate: 60 } })
+          .then((i) => i.supported && i.powerEfficient, () => false);
+        const isAv1 = (c) => c.mimeType.toLowerCase() === "video/av1";
+        if (codecs.length && vtc.setCodecPreferences) vtc.setCodecPreferences(hw ? [...codecs.filter(isAv1), ...codecs.filter((c) => !isAv1(c))] : codecs.filter((c) => !isAv1(c)));
+      } catch (e) {
+        console.warn("LiveScreen: setCodecPreferences falhou", e);
+      }
       pc.addTransceiver("audio", { direction: "recvonly" });
 
       chatCh = pc.createDataChannel("chat");
@@ -347,11 +738,11 @@
 
       let msg;
       if (sealedSignal) {
-        const s = await sealOffer({ sdp: localSdp, name: currentName });
+        const s = await sealOffer({ sdp: localSdp, name: currentName, avatar: sentAvatar() });
         offerNonce = s.nonce;
         msg = { t: "offer", sealed: s.sealed };
       } else {
-        msg = { t: "offer", sdp: localSdp, proof: await computeProof(roomKey, fp), name: currentName };
+        msg = { t: "offer", sdp: localSdp, proof: await computeProof(roomKey, fp), name: currentName, avatar: sentAvatar() };
       }
 
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -360,18 +751,42 @@
       }
 
       answerTimer = setTimeout(() => {
-        stopWithReason("Sem resposta de quem transmite.");
+        if (reconnecting) {
+          scheduleReconnect();
+        } else {
+          stopWithReason("Sem resposta de quem transmite.");
+        }
       }, 15000);
     } catch (err) {
       // pc nulo: a conexão já foi encerrada por outro caminho
-      if (pc) stopWithReason("Erro ao iniciar conexão: " + (err?.message || err));
+      if (pc) {
+        if (reconnecting) {
+          scheduleReconnect();
+        } else {
+          stopWithReason("Erro ao iniciar conexão: " + (err?.message || err));
+        }
+      }
     }
   }
 
-  function connect() {
-    cleanup();
+  function connect(isReconnect = false) {
+    if (!currentName) currentName = clipName(nameInput.value);
+    if (!isReconnect) {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      reconnecting = false;
+      reconnectAttempts = 0;
+    }
+    cleanup(isReconnect);
     joinForm.hidden = true;
-    showStatus("Conectando…", "busy");
+    if (!isReconnect) {
+      showStatus("Conectando…", "busy");
+    } else {
+      netBadge.textContent = "Reconectando…";
+      netBadge.hidden = false;
+    }
 
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProto}//${location.host}/ws/view/${roomId}`;
@@ -397,6 +812,10 @@
       }
 
       if (data.t === "nohost") {
+        if (reconnecting) {
+          scheduleReconnect();
+          return;
+        }
         cleanup();
         playerBox.hidden = true;
         card.hidden = false;
@@ -406,7 +825,7 @@
 
       if (data.t === "hello") {
         if (pc) return;
-        showStatus("Pedindo para entrar…", "busy");
+        if (!isReconnect) showStatus("Pedindo para entrar…", "busy");
         await start(data.iceServers || []);
         return;
       }
@@ -442,7 +861,11 @@
             });
             wake();
           } catch (e) {
-            stopWithReason("Erro ao aplicar resposta da transmissão.");
+            if (reconnecting) {
+              scheduleReconnect();
+            } else {
+              stopWithReason("Erro ao aplicar resposta da transmissão.");
+            }
           }
         }
         return;
@@ -466,15 +889,20 @@
       if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
       // depois da resposta o vídeo é P2P: a sinalização pode cair sem encerrar
       if (answered && pc) return;
+      if (reconnecting) {
+        scheduleReconnect();
+        return;
+      }
       stopWithReason(playerBox.hidden ? "A conexão com o servidor do link caiu." : "A transmissão terminou.");
     };
   }
 
   joinForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    const name = nameInput.value.trim().slice(0, 32);
+    const name = clipName(nameInput.value);
     currentName = name;
     localStorage.setItem("livescreen-name", name);
+    try { localStorage.setItem(AVATAR_KEY, String(chosenAvatar)); } catch {}
     connect();
   });
 
@@ -482,6 +910,8 @@
 
   // Primeiro quadro: tira a espera, inicia o relógio e o título.
   video.addEventListener("playing", () => {
+    updateMediaMetadata();
+    updatePlaybackState(true);
     if (elapsedTimer) return;
     waitOverlay.hidden = true;
     const startedAt = performance.now();
@@ -491,6 +921,8 @@
     }, 1000);
     document.title = "● Ao vivo — LiveScreen";
   });
+  video.addEventListener("play", () => updatePlaybackState(true));
+  video.addEventListener("pause", () => updatePlaybackState(true));
 
   // Mudo
   function toggleMute() {
@@ -510,6 +942,8 @@
 
   // Tela cheia
   function toggleFullscreen() {
+    // a janela do Document PiP não pode ir para tela cheia e o player está nela, não em #watch
+    if (pipWindow) return;
     if (document.fullscreenElement) {
       document.exitFullscreen();
     } else if (watch.requestFullscreen) {
@@ -524,16 +958,74 @@
     const on = !!document.fullscreenElement;
     fsBtn.dataset.state = on ? "on" : "off";
     fsBtn.setAttribute("aria-label", on ? "Sair da tela cheia" : "Tela cheia");
+    if (on) {
+      if (video.videoWidth > video.videoHeight && screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock("landscape").catch(() => {});
+      }
+    } else {
+      if (screen.orientation && screen.orientation.unlock) {
+        try { screen.orientation.unlock(); } catch {}
+      }
+    }
   });
 
   // Picture-in-Picture
-  if (document.pictureInPictureEnabled && !video.disablePictureInPicture) pipBtn.hidden = false;
-  function togglePip() {
+  if ((window.documentPictureInPicture || document.pictureInPictureEnabled) && !video.disablePictureInPicture) {
+    pipBtn.hidden = false;
+  }
+  async function openPip() {
+    if (playerBox.hidden || pipWindow) return;
+    if (document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch {}
+    }
+    if (window.documentPictureInPicture && window.documentPictureInPicture.requestWindow) {
+      try {
+        const chatW = !chatPanel.hidden ? 320 : 0;
+        const w = Math.max(480, Math.min(800, (video.videoWidth ? Math.round(video.videoWidth / 2) : 480) + chatW));
+        const h = Math.max(300, Math.min(600, video.videoHeight ? Math.round(video.videoHeight / 2) : 360));
+        const win = await window.documentPictureInPicture.requestWindow({ width: w, height: h });
+        pipWindow = win;
+        const link = win.document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = new URL("viewer.css", location.href).href; // o documento PiP não herda a base da página
+        win.document.head.append(link);
+
+        const stage = win.document.createElement("div");
+        stage.className = "watch pip-stage";
+        stage.append(playerBox, chatPanel);
+        win.document.body.append(stage);
+        fsBtn.hidden = true;
+
+        win.document.addEventListener("keydown", onKeyDown);
+        win.addEventListener("pagehide", () => {
+          pipWindow = null;
+          fsBtn.hidden = false;
+          watch.append(playerBox, chatPanel);
+          sendVisibility();
+        });
+        sendVisibility();
+        return;
+      } catch (err) {
+        console.warn("LiveScreen: falha ao abrir Document PiP", err);
+      }
+    }
     if (document.pictureInPictureElement) {
       document.exitPictureInPicture().catch(() => {});
     } else {
       video.requestPictureInPicture().catch(() => {});
     }
+  }
+
+  async function togglePip() {
+    if (pipWindow) {
+      pipWindow.close();
+      return;
+    }
+    if (document.pictureInPictureElement) {
+      document.exitPictureInPicture().catch(() => {});
+      return;
+    }
+    await openPip();
   }
   pipBtn.addEventListener("click", togglePip);
 
@@ -630,6 +1122,9 @@
     if (data.type === "chat_ready") {
       if (!Number.isInteger(data.chat_id)) return;
       myChatId = data.chat_id;
+      if (Number.isInteger(data.host_avatar) && data.host_avatar >= 1 && data.host_avatar <= 7) {
+        hostAvatar = data.host_avatar;
+      }
       chatBtn.hidden = false;
       donateRow.hidden = data.donate !== true;
       if (data.ctl === true) {
@@ -642,15 +1137,40 @@
     }
   }
 
+  function getLineAvatarId(m, host, mine) {
+    if (Number.isInteger(m.avatar) && m.avatar >= 1 && m.avatar <= 7) {
+      return m.avatar;
+    }
+    const name = typeof m.name === "string" ? m.name.slice(0, 32) : "";
+    if (host) {
+      if (Number.isInteger(hostAvatar) && hostAvatar >= 1 && hostAvatar <= 7) {
+        return hostAvatar;
+      }
+      return autoAvatar(name || hostName || "#0");
+    }
+    if (mine && Number.isInteger(chosenAvatar) && chosenAvatar >= 1 && chosenAvatar <= 7) {
+      return chosenAvatar;
+    }
+    return autoAvatar(name || (Number.isInteger(m.sender) ? "#" + m.sender : "#0"));
+  }
+
   function appendChat(m) {
     if (typeof m.text !== "string" || (!Number.isInteger(m.sender) && m.role !== "host")) return;
     const mine = m.role === "viewer" && m.sender === myChatId;
     const host = m.role === "host";
     const donate = Number.isInteger(m.donate) && m.donate > 0;
     const name = typeof m.name === "string" ? m.name.slice(0, 32) : "";
+    if (host && name && name !== hostName) {
+      hostName = name;
+      updateMediaMetadata();
+    }
     const label = mine ? "Você" : host ? (name || "Anfitrião") : `${name || "Anônimo"} #${m.sender}`;
     const li = document.createElement("li");
     li.className = (host ? "chat-msg host" : "chat-msg") + (donate ? " donate" : "");
+    const avatarId = getLineAvatarId(m, host, mine);
+    const av = createAvatarSvg(avatarId, 20);
+    av.classList.add("chat-avatar");
+    li.append(av);
     const who = document.createElement("span");
     who.className = "who";
     who.textContent = label;
@@ -765,7 +1285,7 @@
 
   // Aba escondida (sem PiP): avisa o host para parar o vídeo e economizar dados e bateria; o áudio segue.
   function pageVisible() {
-    return document.visibilityState === "visible" || document.pictureInPictureElement === video;
+    return document.visibilityState === "visible" || document.pictureInPictureElement === video || !!pipWindow;
   }
   function sendVisibility() {
     if (!hostCtl || !chatCh || chatCh.readyState !== "open") return;
@@ -777,6 +1297,24 @@
   document.addEventListener("visibilitychange", sendVisibility);
   video.addEventListener("enterpictureinpicture", sendVisibility);
   video.addEventListener("leavepictureinpicture", sendVisibility);
+
+  // Media Session
+  if ("mediaSession" in navigator && navigator.mediaSession.setActionHandler) {
+    try {
+      navigator.mediaSession.setActionHandler("play", () => {
+        video.muted = false;
+        video.play().catch(() => {});
+      });
+      navigator.mediaSession.setActionHandler("pause", () => {
+        toggleMute();
+      });
+    } catch {}
+    try {
+      navigator.mediaSession.setActionHandler("enterpictureinpicture", () => {
+        openPip();
+      });
+    } catch {}
+  }
 
   // Qualidade: pedido ao host, que só aplica se for mais leve e no máximo um a cada 5 s.
   let lastQualityAt = -Infinity;
@@ -819,7 +1357,7 @@
   });
 
   // Atalhos
-  document.addEventListener("keydown", (e) => {
+  function onKeyDown(e) {
     if (playerBox.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target instanceof Element && e.target.closest("input")) return;
     const k = e.key.toLowerCase();
@@ -830,5 +1368,6 @@
     else if (k === "c" && !chatBtn.hidden) toggleChat();
     else return;
     e.preventDefault();
-  });
+  }
+  document.addEventListener("keydown", onKeyDown);
 })();

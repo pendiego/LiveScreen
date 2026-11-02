@@ -189,6 +189,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_start(
     ticket: JString,
     name: JString,
     identity: JString,
+    avatar: jint,
 ) -> jlong {
     init_logging();
     let ticket_str: String = match env.get_string(&ticket) {
@@ -237,11 +238,13 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_start(
     });
 
     let notify = Arc::new(|| {});
+    let avatar_u8 = avatar.clamp(0, livescreen_core::avatar::COUNT as i32) as u8;
     match ViewerSession::start(
         RT.handle(),
         &ticket_str,
         secret_key,
         &name_str,
+        avatar_u8,
         env!("CARGO_PKG_VERSION"),
         // o MediaCodec do app só decodifica video/avc
         vec![livescreen_core::protocol::Codec::H264],
@@ -472,6 +475,17 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_presets(
         Err(_) => std::ptr::null_mut(),
     }
 }
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_pendiego_livescreen_Native_avatarsJson(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    let s = livescreen_core::avatar::json();
+    match env.new_string(s) {
+        Ok(js) => js.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_github_pendiego_livescreen_Native_nextVideo(
@@ -638,6 +652,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_chatSince(
                             "friend": l.friend,
                             "mine": l.role == ChatRole::Viewer && l.sender == chat_id,
                             "text": l.text,
+                            "avatar": l.avatar_id(),
                         })
                     })
                     .collect(),
@@ -764,6 +779,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_hostStart(
     encoder_name: JString,
     audio_on: jboolean,
     audio_error: JString,
+    avatar: jint,
 ) -> jlong {
     init_logging();
     let (Some(identity), Some(name), Some(title), Some(codes), Some(preset), Some(encoder), Some(audio_error)) = (
@@ -826,6 +842,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_hostStart(
         fps: f,
         audio: audio_on,
         donate: false,
+        avatar: avatar.clamp(0, livescreen_core::avatar::COUNT as i32) as u8,
     };
     match Host::start(RT.handle(), cfg, &feeds, status) {
         Ok(host) => {
@@ -1021,7 +1038,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_hostStatus(
         .map(|v| {
             serde_json::json!({
                 "id": v.id_short, "label": v.label(), "friend": v.friend,
-                "path": v.path, "rtt_ms": v.rtt_ms,
+                "path": v.path, "rtt_ms": v.rtt_ms, "avatar": v.avatar,
             })
         })
         .collect();
@@ -1116,6 +1133,7 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_hostChatSince(
                         "friend": l.friend,
                         "mine": l.role == ChatRole::Host,
                         "text": l.text,
+                        "avatar": l.avatar_id(),
                     })
                 })
                 .collect(),
