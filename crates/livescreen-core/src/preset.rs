@@ -79,6 +79,32 @@ pub fn is_reduction(cur: EncodeParams, new: EncodeParams) -> bool {
         && new != cur
 }
 
+/// Filtro conservador para o viewer, que só conhece o stream atual e não a fonte do host:
+/// usa o orçamento nominal da faixa (sem o limite da fonte), então só aceita faixa que não
+/// passa do tamanho e do fps transmitidos e que difere em ao menos um. Pode esconder uma
+/// redução válida; nunca oferece uma ampliação que o host recusaria. Tolera ±2% de pixels
+/// pelo alinhamento do tamanho.
+pub fn lighter_than_stream(preset: Preset, w: u32, h: u32, fps: u32) -> bool {
+    let (budget, pfps, _) = tier(preset).unwrap_or((LIMIT_PIXELS, LIMIT_FPS, 0));
+    let (budget, pfps) = (budget.min(LIMIT_PIXELS) * 100, pfps.min(LIMIT_FPS));
+    let px = w as u64 * h as u64 * 100;
+    pfps <= fps as u64 && budget <= px * 102 / 100 && (budget < px * 98 / 100 || pfps < fps as u64)
+}
+
+#[cfg(test)]
+mod stream_filter_tests {
+    use super::*;
+
+    #[test]
+    fn never_offers_upscale_of_a_reduced_stream() {
+        // fonte 1080p transmitindo 720p60: 1080p30 seria ampliação
+        assert!(!lighter_than_stream(Preset::P1080p30, 1280, 720, 60));
+        assert!(!lighter_than_stream(Preset::P720p60, 1280, 720, 60));
+        assert!(lighter_than_stream(Preset::P720p30, 1280, 720, 60));
+        assert!(lighter_than_stream(Preset::P480p30, 1280, 720, 60));
+    }
+}
+
 #[cfg(test)]
 mod reduction_tests {
     use super::*;

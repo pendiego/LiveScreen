@@ -322,7 +322,12 @@ fn controls(app: &mut App, ui: &mut egui::Ui, st: &WatchStatus) -> ControlAction
         .align(egui::RectAlign::TOP_START)
         .show(|ui| {
             ui.label(RichText::new("Só vale se for mais leve que a atual").small().weak());
+            // o viewer só conhece o stream atual, não a fonte: filtro conservador
+            let (cw, ch, cf) = (st.width, st.height, st.stream_fps);
             for p in livescreen_core::preset::Preset::ALL.into_iter().rev() {
+                if cf != 0 && !livescreen_core::preset::lighter_than_stream(p, cw, ch, cf) {
+                    continue;
+                }
                 if ui.button(p.name()).clicked() {
                     if let Some(w) = app.watch.as_ref() {
                         w.request_quality(p);
