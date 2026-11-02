@@ -37,6 +37,8 @@ pub struct WatchStatus {
     pub fps: f32,
     pub width: u32,
     pub height: u32,
+    /// fps nominal do stream (Welcome/StreamParams), não o medido.
+    pub stream_fps: u32,
     pub audio: bool,
     pub title: String,
     pub decoder_hw: bool,
@@ -148,6 +150,7 @@ impl ViewerSession {
             fps: 0.0,
             width: 0,
             height: 0,
+            stream_fps: 0,
             audio: false,
             title: String::new(),
             decoder_hw: false,
@@ -298,10 +301,11 @@ async fn run(
     let welcome: HostMsg = tokio::time::timeout(Duration::from_secs(15), read_msg(&mut recv))
         .await
         .map_err(|_| anyhow!("Sem resposta do host"))??;
-    let (w, h, audio, title, host_name, light_presets, host_chat, chat_id, host_donate, host_avatar) = match welcome {
+    let (w, h, stream_fps, audio, title, host_name, light_presets, host_chat, chat_id, host_donate, host_avatar) = match welcome {
         HostMsg::Welcome {
             width,
             height,
+            fps,
             audio,
             title,
             host_name,
@@ -311,7 +315,7 @@ async fn run(
             donate,
             host_avatar,
             ..
-        } => (width, height, audio, title, host_name, light_presets, chat, chat_id, donate, host_avatar),
+        } => (width, height, fps, audio, title, host_name, light_presets, chat, chat_id, donate, host_avatar),
         HostMsg::Rejected { reason } => return Ok(format!("Recusado: {reason}")),
         HostMsg::StreamEnded => return Ok("Transmissão encerrada".into()),
         HostMsg::StreamParams { .. } => return Ok("Resposta inesperada do host".into()),
@@ -322,6 +326,7 @@ async fn run(
         s.phase = Phase::Playing;
         s.width = w;
         s.height = h;
+        s.stream_fps = stream_fps;
         s.audio = audio;
         s.title = crate::protocol::sanitize(&title, 120);
         let host_name_clean = crate::protocol::sanitize(&host_name, 32);
@@ -517,10 +522,11 @@ async fn run(
         ended = async {
             loop {
                 match read_msg::<HostMsg>(&mut recv).await {
-                    Ok(HostMsg::StreamParams { width, height, .. }) => {
+                    Ok(HostMsg::StreamParams { width, height, fps }) => {
                         let mut s = status.lock().unwrap();
                         s.width = width;
                         s.height = height;
+                        s.stream_fps = fps;
                     }
                     Ok(HostMsg::StreamEnded) => break true,
                     Ok(HostMsg::Chat(line)) => {
