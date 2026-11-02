@@ -7,6 +7,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod audio;
 mod capture;
+mod clipboard;
 mod config;
 mod gpu;
 mod icon;

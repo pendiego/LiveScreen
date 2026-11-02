@@ -1018,6 +1018,8 @@ fn confirm_modal(
     (start && !close, close, remeasure)
 }
 
+const COPY_FAILED: &str = "Não deu para copiar com proteção; tente de novo";
+
 fn format_elapsed(secs: u64) -> String {
     format!("{:02}:{:02}", secs / 60, secs % 60)
 }
@@ -1029,6 +1031,8 @@ fn invite_card(
     copied_at: &mut Option<Instant>,
     new_invite: &mut bool,
     copy_web: &mut bool,
+    copy_failed: &mut bool,
+    web_checking: bool,
 ) {
     theme::card(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -1063,8 +1067,11 @@ fn invite_card(
                 ui.scope(|ui| {
                     ui.spacing_mut().interact_size.y = 36.0;
                     if theme::button_full(ui, theme::Kind::Primary, &btn_text).clicked() {
-                        ctx.copy_text(t.clone());
-                        *copied_at = Some(Instant::now());
+                        if crate::clipboard::copy_sensitive(t).is_ok() {
+                            *copied_at = Some(Instant::now());
+                        } else {
+                            *copy_failed = true;
+                        }
                     }
                     if theme::button_full(ui, theme::Kind::Secondary, "Novo convite")
                         .on_hover_text("O código anterior deixa de funcionar; quem já está assistindo continua")
@@ -1072,10 +1079,15 @@ fn invite_card(
                     {
                         *new_invite = true;
                     }
+                    let web_btn_text = if web_checking {
+                        "Conferindo a página do espectador…".to_string()
+                    } else {
+                        format!("{I_COPY}  Copiar link do navegador")
+                    };
                     if theme::button_full(
                         ui,
                         theme::Kind::Secondary,
-                        format!("{I_COPY}  Copiar link do navegador"),
+                        web_btn_text,
                     )
                     .on_hover_text("Quem não tem o LiveScreen assiste pelo navegador, sem instalar nada")
                     .clicked()
@@ -1428,12 +1440,18 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     if let Some(t) = &st.ticket
         && !app.code_auto_copied
     {
-        ctx.copy_text(t.clone());
-        app.copied_at = Some(Instant::now());
+        let copied = crate::clipboard::copy_sensitive(t).is_ok();
+        if copied {
+            app.copied_at = Some(Instant::now());
+        }
         app.code_auto_copied = true;
         app.toasts.push(
-            "Código de convite copiado: é só colar para quem vai assistir",
-            ToastKind::Info,
+            if copied {
+                "Código de convite copiado: é só colar para quem vai assistir"
+            } else {
+                COPY_FAILED
+            },
+            if copied { ToastKind::Info } else { ToastKind::Warn },
         );
     }
 
@@ -1463,6 +1481,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     let mut toggle_mic = false;
     let mut new_invite = false;
     let mut copy_web = false;
+    let mut copy_failed = false;
     let mut add_friend: Option<(String, iroh::EndpointId)> = None;
     let busy = app.share_job.is_some();
     let status = format!(
@@ -1543,7 +1562,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                                     |ui| {
                                         ui.spacing_mut().item_spacing = sp;
                                         ui.set_width(right_w);
-                                        invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web);
+                                        invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web, &mut copy_failed, app.web_copy_job.is_some());
                                         ui.add_space(24.0);
                                         viewers_card(
                                             ui,
@@ -1563,7 +1582,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                         } else {
                             preview_card(ui, &st, &app.share_source, &app.share_preview, f32::INFINITY);
                             ui.add_space(24.0);
-                            invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web);
+                            invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web, &mut copy_failed, app.web_copy_job.is_some());
                             ui.add_space(24.0);
                             viewers_card(
                                 ui,
@@ -1739,6 +1758,44 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
+    if let Some(rx) = &app.web_copy_job {
+        match rx.try_recv() {
+            Ok(res) => {
+                app.web_copy_job = None;
+                match res {
+                    Ok(link) => {
+                        let copied = crate::clipboard::copy_sensitive(&link).is_ok();
+                        if copied {
+                            app.copied_at = Some(Instant::now());
+                        }
+                        app.toasts.push(
+                            if copied {
+                                "Link do navegador copiado: quem abrir assiste sem instalar nada"
+                            } else {
+                                COPY_FAILED
+                            },
+                            if copied { ToastKind::Info } else { ToastKind::Warn },
+                        );
+                    }
+                    Err(e) => {
+                        app.toasts.push(
+                            format!("Falha ao conferir a página do espectador: {e}"),
+                            ToastKind::Warn,
+                        );
+                    }
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                app.web_copy_job = None;
+                app.toasts.push(
+                    "Falha ao conferir a página do espectador: tarefa cancelada",
+                    ToastKind::Warn,
+                );
+            }
+        }
+    }
+
     if picked.is_some() && picked != cur_choice {
         if app.share_job.is_some() {
             app.toasts.push(
@@ -1820,6 +1877,9 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             error: None,
         });
     }
+    if copy_failed {
+        app.toasts.push(COPY_FAILED, ToastKind::Warn);
+    }
     if new_invite {
         if let Some(share) = app.share.as_ref() {
             share.host.new_invite();
@@ -1828,27 +1888,62 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                 (s.ticket.clone(), s.web != WebState::Off)
             };
             if let Some(t) = ticket {
-                ctx.copy_text(t);
-                let now = Instant::now();
-                app.copied_at = Some(now);
+                let copied = crate::clipboard::copy_sensitive(&t).is_ok();
+                if copied {
+                    app.copied_at = Some(Instant::now());
+                }
                 app.toasts.push(
-                    if web_on {
+                    if !copied {
+                        COPY_FAILED
+                    } else if web_on {
                         "Novo código e novo link do navegador copiados; os anteriores não funcionam mais"
                     } else {
                         "Novo código copiado; o anterior não funciona mais"
                     },
-                    ToastKind::Info,
+                    if copied { ToastKind::Info } else { ToastKind::Warn },
                 );
             }
         }
     }
     if copy_web {
-        if let Some(share) = app.share.as_ref() {
-            ctx.copy_text(share.host.web_link());
+        if app.web_copy_job.is_some() {
             app.toasts.push(
-                "Link do navegador copiado: quem abrir assiste sem instalar nada",
+                "Aguarde: conferindo a página do espectador…",
                 ToastKind::Info,
             );
+        } else if let Some(share) = app.share.clone() {
+            if let Some(link) = share.host.web_link() {
+                let copied = crate::clipboard::copy_sensitive(&link).is_ok();
+                if copied {
+                    app.copied_at = Some(Instant::now());
+                }
+                app.toasts.push(
+                    if copied {
+                        "Link do navegador copiado: quem abrir assiste sem instalar nada"
+                    } else {
+                        COPY_FAILED
+                    },
+                    if copied { ToastKind::Info } else { ToastKind::Warn },
+                );
+            } else {
+                share.host.start_web();
+                app.toasts.push(
+                    "Conferindo a página do espectador…",
+                    ToastKind::Info,
+                );
+                let (tx, rx) = std::sync::mpsc::channel();
+                let ctx_clone = ctx.clone();
+                app.rt.spawn(async move {
+                    let r = share
+                        .host
+                        .wait_for_web_link(Duration::from_secs(20))
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = tx.send(r);
+                    ctx_clone.request_repaint();
+                });
+                app.web_copy_job = Some(rx);
+            }
         }
     }
     if stop {

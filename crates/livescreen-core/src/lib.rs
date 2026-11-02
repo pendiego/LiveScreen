@@ -8,3 +8,4 @@ pub mod preset;
 pub mod protocol;
 pub mod viewer;
 pub mod web;
+pub mod page_check;

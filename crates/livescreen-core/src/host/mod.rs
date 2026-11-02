@@ -169,6 +169,14 @@ pub enum WebState {
     Retrying(String),
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WebVerifyStatus {
+    Idle,
+    Checking,
+    Verified,
+    Failed(String),
+}
+
 #[derive(Clone, Debug)]
 pub struct ShareStatus {
     pub ticket: Option<String>,
@@ -252,15 +260,19 @@ pub(crate) struct Shared {
     /// Algum espectador ficou para trás desde o último tick.
     pub(crate) congested: AtomicBool,
     pub(crate) room_key: Mutex<[u8; ROOM_KEY_LEN]>,
+    pub(crate) web_keys: Mutex<Arc<crate::web::WebKeys>>,
+    pub(crate) web_keys_tx: tokio::sync::watch::Sender<u64>,
     pub(crate) web_secret: [u8; ROOM_KEY_LEN],
     pub(crate) web_started: AtomicBool,
+    pub(crate) web_verify: tokio::sync::watch::Sender<WebVerifyStatus>,
+    pub(crate) web_verify_rx: tokio::sync::watch::Receiver<WebVerifyStatus>,
     ticket: Mutex<Option<EndpointTicket>>,
     host_id: iroh::EndpointId,
     friends: Mutex<HashSet<iroh::EndpointId>>,
     banned: Mutex<HashSet<iroh::EndpointId>>,
-    /// Nonces de offers do navegador já aceitos com a chave atual: um offer capturado não entra de novo.
-    pub(crate) web_offers: Mutex<HashSet<[u8; 12]>>,
-    host_name: String,
+    /// Replay IDs de offers do navegador já aceitos com a chave atual: um offer capturado não entra de novo.
+    pub(crate) web_offers: Mutex<HashSet<[u8; 16]>>,
+    pub(crate) host_name: String,
     pub(crate) chat_tx: broadcast::Sender<Arc<HostMsg>>,
     pub(crate) chat: Arc<Mutex<ChatLog>>,
     /// Ids de remetente de chat; o 0 é do host.
@@ -297,7 +309,9 @@ impl Shared {
     fn new_invite(&self) {
         let key = new_room_key();
         *self.room_key.lock().unwrap() = key;
+        *self.web_keys.lock().unwrap() = Arc::new(crate::web::WebKeys::generate());
         self.web_offers.lock().unwrap().clear();
+        self.web_keys_tx.send_modify(|v| *v += 1);
         if let Some(t) = self.ticket.lock().unwrap().as_ref() {
             let invite = format_invite(t, &key);
             self.status.lock().unwrap().ticket = Some(invite);
@@ -739,6 +753,13 @@ impl Host {
             host_name_clean.clone()
         };
         let host_avatar = crate::avatar::resolve(cfg.avatar, &host_key);
+        let (web_verify_tx, web_verify_rx) = tokio::sync::watch::channel(
+            if crate::page_check::is_verified(&web::base_url()) {
+                WebVerifyStatus::Verified
+            } else {
+                WebVerifyStatus::Idle
+            },
+        );
         let shared = Arc::new(Shared {
             status: status.clone(),
             viewers: AtomicUsize::new(0),
@@ -758,8 +779,12 @@ impl Host {
             shutdown: sd_rx,
             congested: AtomicBool::new(false),
             room_key: Mutex::new(new_room_key()),
+            web_keys: Mutex::new(Arc::new(crate::web::WebKeys::generate())),
+            web_keys_tx: tokio::sync::watch::channel(0u64).0,
             web_secret: new_room_key(),
             web_started: AtomicBool::new(false),
+            web_verify: web_verify_tx,
+            web_verify_rx,
             ticket: Mutex::new(None),
             host_id: ep.id(),
             friends: Mutex::new(cfg.friends),

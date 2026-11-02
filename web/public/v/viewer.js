@@ -8,7 +8,8 @@
   } else {
     try { link = sessionStorage.getItem(LINK_KEY) || ""; } catch { link = ""; }
   }
-  const hashMatch = link.match(/^([0-9a-f]{32})\.([0-9a-f]{32})(\.v2)?$/i);
+  const v3Match = link.match(/^([0-9a-f]{32})\.([0-9a-f]{64})\.([0-9a-f]{64})\.v3$/i);
+  const hashMatch = v3Match || link.match(/^([0-9a-f]{32})\.([0-9a-f]{32})(\.v2)?$/i);
   if (hashMatch) { try { sessionStorage.setItem(LINK_KEY, link); } catch {} }
 
   const card = document.getElementById("card");
@@ -55,7 +56,9 @@
     codeForm.hidden = false;
     codeForm.addEventListener("submit", (e) => {
       e.preventDefault();
-      const m = codeInput.value.match(/([0-9a-f]{32}\.[0-9a-f]{32}(?:\.v2)?)\s*$/i);
+      const m3 = codeInput.value.match(/([0-9a-f]{32}\.[0-9a-f]{64}\.[0-9a-f]{64}\.v3)\s*$/i);
+      const mLegacy = !m3 && codeInput.value.match(/([0-9a-f]{32}\.[0-9a-f]{32}(?:\.v2)?)\s*$/i);
+      const m = m3 || mLegacy;
       if (!m) { codeError.hidden = false; return; }
       location.hash = m[1];
     });
@@ -70,9 +73,64 @@
     location.reload();
   });
 
+  const isV3 = !!v3Match;
   const roomId = hashMatch[1].toLowerCase();
-  const roomKey = hashMatch[2].toLowerCase();
-  const sealedSignal = !!hashMatch[3];
+  const roomKey = !isV3 ? hashMatch[2].toLowerCase() : "";
+  const webKeyHex = isV3 ? hashMatch[2].toLowerCase() : "";
+  const pkHashHex = isV3 ? hashMatch[3].toLowerCase() : "";
+  const sealedSignal = isV3 || !!hashMatch[3];
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`);
+      if (existing) {
+        if (existing.dataset.loaded === "true") {
+          resolve();
+          return;
+        }
+        existing.addEventListener("load", () => resolve(), { once: true });
+        existing.addEventListener("error", () => reject(new Error("Falha ao carregar " + src)), { once: true });
+        return;
+      }
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = false;
+      s.onload = () => {
+        s.dataset.loaded = "true";
+        resolve();
+      };
+      s.onerror = () => reject(new Error("Falha ao carregar " + src));
+      document.head.appendChild(s);
+    });
+  }
+
+  let v3CryptoPromise = null;
+  function ensureV3Crypto() {
+    if (v3CryptoPromise) return v3CryptoPromise;
+    v3CryptoPromise = (async () => {
+      if (!window.crypto || !window.crypto.subtle) {
+        throw new Error("crypto.subtle unavailable");
+      }
+      await loadScript("pq.js");
+      await loadScript("signal3.js");
+      if (!globalThis.LiveScreenPQ?.ml_kem768 || !globalThis.LiveScreenPQ?.x25519) {
+        throw new Error("LiveScreenPQ unavailable");
+      }
+      if (!globalThis.LiveScreenSignal3?.checkHostPk || !globalThis.LiveScreenSignal3?.sealOffer) {
+        throw new Error("LiveScreenSignal3 unavailable");
+      }
+    })();
+    return v3CryptoPromise;
+  }
+
+  if (isV3) {
+    ensureV3Crypto().catch(() => {});
+  }
+
+  let currentHostPk = null;
+  let v3State = null;
+  let lastIceServers = null;
+  let pkTimer = null;
 
   const savedName = localStorage.getItem("livescreen-name") || "";
   // 32 caracteres, não unidades UTF-16: cortar um emoji ao meio gera JSON que o host recusa
@@ -537,6 +595,15 @@
       answerTimer = null;
     }
     offerNonce = null;
+    if (pkTimer) {
+      clearTimeout(pkTimer);
+      pkTimer = null;
+    }
+    v3State = null;
+    lastIceServers = null;
+    if (!isReconnect) {
+      currentHostPk = null;
+    }
     if (elapsedTimer) {
       clearInterval(elapsedTimer);
       elapsedTimer = null;
@@ -737,7 +804,17 @@
       }
 
       let msg;
-      if (sealedSignal) {
+      if (isV3) {
+        const offerObj = { sdp: localSdp, name: currentName, avatar: sentAvatar() };
+        const s = await LiveScreenSignal3.sealOffer({
+          room: roomId,
+          webKey: webKeyHex,
+          hostPk: currentHostPk,
+          obj: offerObj,
+        });
+        v3State = s.state;
+        msg = { t: "offer", sealed: s.sealed };
+      } else if (sealedSignal) {
         const s = await sealOffer({ sdp: localSdp, name: currentName, avatar: sentAvatar() });
         offerNonce = s.nonce;
         msg = { t: "offer", sealed: s.sealed };
@@ -769,7 +846,7 @@
     }
   }
 
-  function connect(isReconnect = false) {
+  async function connect(isReconnect = false) {
     if (!currentName) currentName = clipName(nameInput.value);
     if (!isReconnect) {
       if (reconnectTimer) {
@@ -788,6 +865,14 @@
       netBadge.hidden = false;
     }
 
+    if (isV3) {
+      try {
+        await ensureV3Crypto();
+      } catch {
+        stopWithReason("Este navegador não consegue abrir a transmissão com segurança. Abra o link no Chrome, Edge, Firefox ou Safari atualizados.");
+        return;
+      }
+    }
     const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${wsProto}//${location.host}/ws/view/${roomId}`;
 
@@ -810,6 +895,26 @@
       } catch {
         return;
       }
+      async function handlePk(pkHex) {
+        if (pkTimer) {
+          clearTimeout(pkTimer);
+          pkTimer = null;
+        }
+        const verifiedPk = await LiveScreenSignal3.checkHostPk(pkHex, pkHashHex);
+        if (!verifiedPk) {
+          stopWithReason("O convite foi trocado ou não é de quem transmite. Peça o link novo.");
+          return;
+        }
+        if (currentHostPk && !LiveScreenSignal3.constantTimeEqual(currentHostPk, verifiedPk)) {
+          stopWithReason("O convite foi trocado ou não é de quem transmite. Peça o link novo.");
+          return;
+        }
+        currentHostPk = verifiedPk;
+        if (!pc && lastIceServers) {
+          if (!isReconnect) showStatus("Pedindo para entrar…", "busy");
+          await start(lastIceServers);
+        }
+      }
 
       if (data.t === "nohost") {
         if (reconnecting) {
@@ -825,8 +930,29 @@
 
       if (data.t === "hello") {
         if (pc) return;
+        if (isV3) {
+          lastIceServers = data.iceServers || [];
+          if (data.pk) {
+            await handlePk(data.pk);
+          } else {
+            if (!isReconnect) showStatus("Esperando quem transmite responder…", "busy");
+            if (!pkTimer) {
+              pkTimer = setTimeout(() => {
+                stopWithReason("Quem transmite não respondeu. Confira se a transmissão ainda está no ar.");
+              }, 10000);
+            }
+          }
+          return;
+        }
         if (!isReconnect) showStatus("Pedindo para entrar…", "busy");
         await start(data.iceServers || []);
+        return;
+      }
+
+      if (data.t === "pk" && isV3) {
+        if (typeof data.pk === "string") {
+          await handlePk(data.pk);
+        }
         return;
       }
 
@@ -837,7 +963,19 @@
         }
         if (pc) {
           let sdp = data.sdp;
-          if (sealedSignal) {
+          if (isV3) {
+            if (typeof data.sealed !== "string") {
+              stopWithReason("A resposta de quem transmite está inválida.");
+              return;
+            }
+            const ans = await LiveScreenSignal3.openAnswer(v3State, data.sealed);
+            if (!pc) return;
+            if (!ans || typeof ans.sdp !== "string") {
+              stopWithReason("A resposta não veio de quem transmite: a chave da sala não confere. Por segurança, a conexão foi recusada.");
+              return;
+            }
+            sdp = ans.sdp;
+          } else if (sealedSignal) {
             const ans = await openAnswer(data.sealed, offerNonce);
             if (!pc) return;
             if (!ans) {
