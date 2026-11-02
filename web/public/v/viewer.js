@@ -313,7 +313,18 @@
         }
       };
 
-      pc.addTransceiver("video", { direction: "recvonly" });
+      const vtc = pc.addTransceiver("video", { direction: "recvonly" });
+      // como no app, o host só usa AV1 se todos decodificam pela placa: sem isso, tira o AV1 da oferta
+      try {
+        const codecs = RTCRtpReceiver.getCapabilities("video")?.codecs || [];
+        const hw = await navigator.mediaCapabilities
+          ?.decodingInfo({ type: "webrtc", video: { contentType: "video/AV1", width: 1920, height: 1080, bitrate: 8e6, framerate: 60 } })
+          .then((i) => i.supported && i.powerEfficient, () => false);
+        const isAv1 = (c) => c.mimeType.toLowerCase() === "video/av1";
+        if (codecs.length && vtc.setCodecPreferences) vtc.setCodecPreferences(hw ? [...codecs.filter(isAv1), ...codecs.filter((c) => !isAv1(c))] : codecs.filter((c) => !isAv1(c)));
+      } catch (e) {
+        console.warn("LiveScreen: setCodecPreferences falhou", e);
+      }
       pc.addTransceiver("audio", { direction: "recvonly" });
 
       chatCh = pc.createDataChannel("chat");

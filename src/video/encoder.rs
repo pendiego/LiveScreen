@@ -175,6 +175,9 @@ enum Feed {
     Idle,
 }
 
+/// Reenvios rápidos (250 ms) depois que a tela para; somam ~1 s de refinamento.
+const FAST_REPEATS: u32 = 4;
+
 struct Encoder {
     t: IMFTransform,
     events: Option<IMFMediaEventGenerator>,
@@ -185,6 +188,8 @@ struct Encoder {
     fps: u32,
     seq: u64,
     last: Option<Nv12Frame>,
+    /// Reenvios do último quadro desde o último quadro novo.
+    repeats: u32,
     start: Instant,
     input: Receiver<Nv12Frame>,
     out: broadcast::Sender<Arc<EncodedFrame>>,
@@ -238,6 +243,7 @@ impl Encoder {
             fps: params.fps,
             seq: 0,
             last: None,
+            repeats: 0,
             start: Instant::now(),
             input,
             out,
@@ -326,9 +332,13 @@ impl Encoder {
         }
     }
 
+    /// Tela parada: os primeiros reenvios saem rápido para o encoder refinar o quadro que
+    /// saiu borrado no movimento; depois 1 por segundo só mantém o stream vivo.
     fn timeout(&self) -> Duration {
         if self.force_key.load(Ordering::Relaxed) {
             Duration::from_millis(100)
+        } else if self.repeats < FAST_REPEATS {
+            Duration::from_millis(250)
         } else {
             Duration::from_secs(1)
         }
@@ -340,12 +350,14 @@ impl Encoder {
         match self.input.recv_timeout(t) {
             Ok(f) => {
                 self.last = Some(f.clone());
+                self.repeats = 0;
                 Feed::Frame(f)
             }
             Err(RecvTimeoutError::Timeout) => match &self.last {
                 Some(last) => {
                     let mut f = last.clone();
                     f.pts = self.start.elapsed();
+                    self.repeats = self.repeats.saturating_add(1);
                     Feed::Frame(f)
                 }
                 None => Feed::Idle,
@@ -354,7 +366,7 @@ impl Encoder {
         }
     }
 
-    fn make_sample(&mut self, f: &Nv12Frame) -> Result<IMFSample> {
+    fn make_sample(&mut self, f: &Nv12Frame, effective_fps: u32) -> Result<IMFSample> {
         let sample = unsafe { MFCreateSample()? };
         unsafe {
             let buf = if let Some(cpu) = &mut self.cpu {
@@ -374,16 +386,26 @@ impl Encoder {
             };
             sample.AddBuffer(&buf)?;
             sample.SetSampleTime((f.pts.as_nanos() / 100) as i64)?;
-            sample.SetSampleDuration((10_000_000f64 / self.fps as f64) as i64)?;
+            sample.SetSampleDuration((10_000_000f64 / effective_fps.max(1) as f64) as i64)?;
         }
         Ok(sample)
     }
 
     fn process_input(&mut self, f: &Nv12Frame) -> Result<()> {
-        let want = match self.stats.target_bps.load(Ordering::Relaxed) {
+        let target = match self.stats.target_bps.load(Ordering::Relaxed) {
             0 => self.ceiling,
             t => t.min(self.ceiling),
         };
+        let target_fps = self.stats.target_fps.load(Ordering::Relaxed);
+        let effective_fps = if target_fps > 0 {
+            target_fps.min(self.fps).max(1)
+        } else {
+            self.fps
+        };
+        // O MFT reparte MeanBitRate pelo fps do tipo de mídia: com menos quadros (teto do ABR)
+        // o bitrate real cairia junto. Medido no NVENC: 15 de 60 fps sem compensação dá ~1/4
+        // do alvo; compensando, ~o alvo, e cada quadro ganha os bits que sobraram.
+        let want = ((target as u64 * self.fps as u64) / effective_fps as u64).min(u32::MAX as u64) as u32;
         if want != self.bitrate {
             if let Some(api) = &self.api {
                 mf::set_codec_value(api, &CODECAPI_AVEncCommonMeanBitRate, mf::variant_u32(want));
@@ -396,7 +418,7 @@ impl Encoder {
                 mf::set_codec_value(api, &CODECAPI_AVEncVideoForceKeyFrame, mf::variant_u32(1));
             }
         }
-        let sample = self.make_sample(f)?;
+        let sample = self.make_sample(f, effective_fps)?;
         match unsafe { self.t.ProcessInput(self.input_id, &sample, 0) } {
             Ok(()) => Ok(()),
             Err(e) if e.code() == MF_E_NOTACCEPTING => {

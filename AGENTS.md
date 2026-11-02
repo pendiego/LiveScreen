@@ -45,7 +45,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |`src/main.rs`|entrada: flags de diagnóstico, limpeza do updater, `ui::run()`|
 |`src/share.rs`|lado Windows de quem transmite: captura, encoder e áudio entregues ao `livescreen_core::host` por `Feeds`; troca de qualidade e codec ao vivo|
 |`src/watch.rs`|lado de quem assiste: usa `livescreen_core::viewer`, recebe vídeo e áudio, publica `WatchStatus`|
-|`src/capture/`|`wgc.rs` (Windows Graphics Capture), `dxgi.rs` (Desktop Duplication, fallback de tela), `sources.rs` (enumeração/miniaturas); `FrameSink` recebe texturas D3D11|
+|`src/capture/`|`wgc.rs` (Windows Graphics Capture), `dxgi.rs` (Desktop Duplication, fallback de tela), `hdr.rs` (monitor em HDR: captura FP16 → BGRA8 SDR por shader, branco SDR do Windows), `sources.rs` (enumeração/miniaturas); `FrameSink` recebe sempre texturas D3D11 BGRA8 SDR|
 |`src/video/`|`encoder.rs`/`decoder.rs` H.264/HEVC/AV1 via Media Foundation, `mf.rs` helpers, `convert.rs` RGB→NV12 com escala no D3D11 Video Processor (GPU) e NV12→RGBA (pool compartilhável), `present.rs` viewer zero-copy (texturas D3D11 compartilhadas → wgpu DX12, fences `produced`/`consumed`), `probe.rs` detecção do encoder em processo filho|
 |`src/audio/`|`capture.rs` loopback WASAPI → Opus; `playback.rs` datagram → Opus → cpal|
 |`src/speedtest.rs`|medição de upload contra `speed.cloudflare.com`|
@@ -65,7 +65,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 |`viewer.rs`|sessão do viewer compartilhada por desktop e Android: convite (`Target::Invite`/`Target::Friend`), conexão, GOPs, keyframe, estatísticas, parada|
 |`friends.rs`|`SecretKey` persistente, código de amigo (id hex), ALPN de presença, `Prober`, `PresenceState`|
 |`host/mod.rs`|host sem plataforma: endpoint iroh (ALPN + presença), handshake, sala (limite, kick, ban), fan-out de vídeo/áudio/chat, ABR; a plataforma entrega quadros codificados por `Feeds`|
-|`host/web.rs`|espectadores do navegador: WebRTC com `str0m` (uma sessão e um socket UDP por peer), sinalização com o Worker (`LIVESCREEN_WEB_URL`, padrão `https://livescreen.pendiego.com`), reconexão com backoff|
+|`host/web.rs`|espectadores do navegador: WebRTC com `str0m` (uma sessão e um socket UDP por peer; H.264 sempre, AV1 quando o navegador oferece), sinalização com o Worker (`LIVESCREEN_WEB_URL`, padrão `https://livescreen.pendiego.com`), reconexão com backoff|
 |`web.rs`|link do navegador, sinalização cifrada (AES-256-GCM), STUN manual (srflx)|
 |`chat.rs`|mensagens do chat, papéis e limites|
 
@@ -98,7 +98,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 - Dependências: `reqwest`/`rustls` reaproveitam o que o iroh já traz (provider `ring`); evite adicionar crates para o que a stdlib, `windows` ou as dependências atuais resolvem.
 - Novas conexões de rede externas precisam entrar na tabela "Conexões que o app faz" do `README.md`.
 - Viewer desktop: decoder por hardware (`video/decoder.rs`, MFT com `IMFDXGIDeviceManager` + `Converter::new_rgb`) cai para software após 3 falhas seguidas; preservar os dois caminhos. O quadro vai à UI por textura compartilhada (`GpuOut::Shared`, `video/present.rs`) e cai para readback (`GpuOut::Readback`) quando o egui não roda em DX12, o adaptador difere, falta saída RGBA, a importação falha ou há `deny-zero-copy`; preservar os dois caminhos. `ViewerMsg::SetQuality` é pedido, não ordem: `share.rs::apply_quality_request` só aceita redução real (`preset::is_reduction`).
-- ABR (`host/mod.rs`, tick de 1 s): congestionamento de qualquer espectador (iroh ou navegador) reduz o bitrate da sala inteira até o teto do preset.
+- ABR (`host/mod.rs`, tick de 1 s): congestionamento de qualquer espectador (iroh ou navegador) reduz o bitrate da sala inteira até o teto do preset. Abaixo de 50%/25% do teto, `HostStats.target_fps` corta o fps (com histerese) e o encoder desktop compensa o `MeanBitRate` pela razão de fps, senão o MFT gasta só a fração do fps nominal. O Android ignora `target_fps`.
 - Android: o Kotlin só chama `Native.stop` depois de dar join nas threads de vídeo e áudio e não chama nada depois dele; `presenceStop` só é chamado pela corrotina dona do handle. Em segundo plano o viewer pausa áudio e pede ao host (0.5) para parar o vídeo; hosts 0.4 ignoram o pedido.
 - Android como host: o Kotlin entrega H.264 Annex B e Opus já codificados; `hostPush*`, `hostTakeKeyframe` e `hostTargetBps` só são chamados pelas threads dos encoders, e `hostStop` só depois de dar join nelas e de esperar a corrotina de status. O estado do host vive no `HostService` (sobrevive à Activity).
 

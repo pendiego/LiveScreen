@@ -131,16 +131,21 @@ impl FrameSink for Sink {
                 *self.tx.lock().unwrap() = Some(r.tx);
             }
         }
+        // teto de fps do ABR: sob congestionamento menos quadros, cada um mais nítido
+        let interval = match self.stats.target_fps.load(Ordering::Relaxed) {
+            0 => self.interval,
+            f => self.interval.max(Duration::from_secs(1) / f),
+        };
         let now = Instant::now();
         // agenda fixa: o próximo horário é o anterior + intervalo, não o quadro aceito +
         // intervalo; senão a captura a 144 Hz vira 48 fps num alvo de 60 (sempre o 3º quadro)
         if now + Duration::from_millis(2) < self.due {
             return;
         }
-        self.due = if now.duration_since(self.due) > self.interval {
-            now + self.interval // ficou para trás (tela parada): recomeça daqui
+        self.due = if now.duration_since(self.due) > interval {
+            now + interval // ficou para trás (tela parada): recomeça daqui
         } else {
-            self.due + self.interval
+            self.due + interval
         };
         let nv12 = match self.conv.convert(tex) {
             Ok(t) => t,

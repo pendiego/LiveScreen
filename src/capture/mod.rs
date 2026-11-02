@@ -1,4 +1,5 @@
 pub mod dxgi;
+pub mod hdr;
 pub mod sources;
 pub mod wgc;
 
