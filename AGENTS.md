@@ -134,7 +134,7 @@ O build release usa `windows_subsystem = "windows"`: sem console, a saída só a
 
 ## CI
 
-`.github/workflows/ci.yml` roda em PR e em push na `main`: `build` (`cargo build --release` + `cargo test`, windows-latest), `android` (`gradlew assembleDebug testDebugUnitTest`, ubuntu), `changelog` (`.github/scripts/test-changelog.sh`, valida o `cliff.toml`) e `web` (`npm run check` em `web/`).
+`.github/workflows/ci.yml` roda em push na `main` e à mão (`workflow_dispatch`; PR não dispara sozinho, rode em qualquer branch com `gh workflow run CI --ref <branch>`): `build` (`cargo build --release` + `cargo test`, windows-latest), `android` (`gradlew assembleDebug testDebugUnitTest`, ubuntu), `changelog` (`.github/scripts/test-changelog.sh`, valida o `cliff.toml`) e `web` (`npm run check` em `web/`).
 
 `deploy-web.yml` publica o Worker (`wrangler deploy`, segredos `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`) em push que mexe em `web/**` na branch do workflow ou por `workflow_dispatch`. `pages.yml` publica o site estático de `site/` no GitHub Pages. O Worker não depende de release: entra no ar no deploy e precisa continuar compatível com hosts já instalados.
 
