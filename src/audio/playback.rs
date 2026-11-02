@@ -69,6 +69,7 @@ async fn decode_loop(
     };
     let mut pcm = [0f32; DECODE_FLOATS];
     let mut expected: Option<u32> = None;
+    let mut frame = 960usize; // amostras por canal do último pacote (capture.rs: FRAME_SAMPLES)
 
     while !stop.load(Ordering::Relaxed) {
         let datagram = match conn.read_datagram().await {
@@ -81,18 +82,29 @@ async fn decode_loop(
         let Some(lost) = livescreen_core::protocol::audio_gap(&mut expected, seq) else {
             continue;
         };
-        for _ in 0..lost.min(3) {
-            if let Ok(n) = decoder.decode_float(&[], &mut pcm, false) {
-                push(&samples, &pcm[..n * 2]);
-            }
-        }
+        conceal(&mut decoder, &mut pcm, frame, lost, |s| push(&samples, s));
 
         match decoder.decode_float(payload, &mut pcm, false) {
-            Ok(n) => push(&samples, &pcm[..n * 2]),
+            Ok(n) => {
+                if n > 0 {
+                    frame = n;
+                }
+                push(&samples, &pcm[..n * 2]);
+            }
             Err(e) => debug!("decodificar Opus falhou: {e}"),
         }
     }
     debug!("recepção de áudio encerrada");
+}
+
+/// Compensa até 3 pacotes perdidos, cada um com a duração do último pacote bom: o Opus gera o
+/// tamanho do buffer recebido, e o buffer inteiro (60 ms) inseriria 40 ms a mais por perda de 20 ms.
+fn conceal(decoder: &mut Decoder, pcm: &mut [f32], frame: usize, lost: u32, mut emit: impl FnMut(&[f32])) {
+    for _ in 0..lost.min(3) {
+        if let Ok(n) = decoder.decode_float(&[], &mut pcm[..frame * 2], false) {
+            emit(&pcm[..n * 2]);
+        }
+    }
 }
 
 fn push(samples: &Mutex<VecDeque<f32>>, data: &[f32]) {
@@ -197,5 +209,35 @@ mod tests {
         assert_eq!(n, 960);
         let rms = (pcm[..n * 2].iter().map(|s| s * s).sum::<f32>() / (n * 2) as f32).sqrt();
         assert!(rms > 0.01, "sinal decodificado silencioso: {rms}");
+    }
+
+    #[test]
+    fn conceal_matches_lost_duration() {
+        let mut encoder =
+            opus::Encoder::new(48_000, Channels::Stereo, opus::Application::Audio).unwrap();
+        let mut decoder = Decoder::new(48_000, Channels::Stereo).unwrap();
+
+        let sine: Vec<f32> = (0..960)
+            .flat_map(|i| {
+                let v = (i as f32 * 2.0 * std::f32::consts::PI * 440.0 / 48_000.0).sin() * 0.5;
+                [v, v]
+            })
+            .collect();
+
+        let mut packet = [0u8; 1500];
+        let len = encoder.encode_float(&sine, &mut packet).unwrap();
+        let mut pcm = [0f32; DECODE_FLOATS];
+        let n = decoder.decode_float(&packet[..len], &mut pcm, false).unwrap();
+        assert_eq!(n, 960);
+
+        for lost in [1, 2, 3] {
+            let mut total = 0;
+            conceal(&mut decoder, &mut pcm, 960, lost, |s| total += s.len());
+            assert_eq!(total, lost as usize * 960 * 2);
+        }
+
+        let mut total = 0;
+        conceal(&mut decoder, &mut pcm, 960, 5, |s| total += s.len());
+        assert_eq!(total, 3 * 960 * 2);
     }
 }

@@ -1,3 +1,5 @@
+mod chat;
+mod friends;
 mod home;
 mod prefs;
 mod settings;
@@ -73,7 +75,7 @@ pub struct App {
     pub overrides: Overrides,
     pub encoder: Arc<Mutex<Option<Vec<EncoderKind>>>>,
     pub picker: Option<share_view::Picker>,
-    pub share: Option<ShareSession>,
+    pub share: Option<Arc<ShareSession>>,
     pub share_title: String,
     pub watch: Option<WatchSession>,
     pub watch_view: watch_view::WatchView,
@@ -85,6 +87,8 @@ pub struct App {
     background: Vec<std::thread::JoinHandle<()>>,
     pub starting: Option<share_view::Starting>,
     pub share_started: Instant,
+    pub share_chat_draft: String,
+    pub share_chat_seen: u64,
     pub share_source: Option<SourceId>,
     pub share_preview: Option<share_view::Preview>,
     pub known_viewers: HashMap<String, String>,
@@ -100,6 +104,10 @@ pub struct App {
     pub update: Arc<Mutex<Option<crate::update::Release>>>,
     /// Download/instalação em andamento.
     pub updating: Option<std::sync::mpsc::Receiver<Result<()>>>,
+    /// Troca de qualidade/codec rodando numa thread; o resultado vira toast.
+    pub share_job: Option<std::sync::mpsc::Receiver<Option<(String, toast::ToastKind)>>>,
+    /// Última redução automática; a próxima espera AUTO_QUALITY_COOLDOWN.
+    pub auto_quality_at: Option<Instant>,
     /// Popups da tela de transmissão.
     pub quality_open: bool,
     pub confirm_stop: bool,
@@ -111,6 +119,17 @@ pub struct App {
     pub settings_open: bool,
     pub settings_tab: settings::Tab,
     update_check: Option<tokio::task::AbortHandle>,
+    pub identity: iroh::SecretKey,
+    pub identity_temporary: bool,
+    _identity_lock: Option<std::fs::File>,
+    pub presence_cache: HashMap<iroh::EndpointId, livescreen_core::friends::PresenceState>,
+    pub friends: Vec<friends::Friend>,
+    pub prober: Option<livescreen_core::friends::Prober>,
+    prober_retry: Option<Instant>,
+    pub add_friend: Option<friends::Draft>,
+    pub friend_remove_pending: Option<(String, Instant)>,
+    pub watch_target: String,
+    pub update_prompt_dismissed: bool,
 }
 
 impl App {
@@ -119,6 +138,8 @@ impl App {
         let overrides = crate::config::overrides();
         let encoder = Arc::new(Mutex::new(None));
         let update = Arc::new(Mutex::new(None));
+        let (id_key, identity_temporary, _identity_lock) = crate::config::identity().into_parts();
+        let friends = friends::load();
         let mut app = App {
             rt,
             screen: Screen::Home,
@@ -137,6 +158,8 @@ impl App {
             background: vec![],
             starting: None,
             share_started: Instant::now(),
+            share_chat_draft: String::new(),
+            share_chat_seen: 0,
             share_source: None,
             share_preview: None,
             known_viewers: HashMap::new(),
@@ -150,6 +173,8 @@ impl App {
             capture_hidden: false,
             update,
             updating: None,
+            share_job: None,
+            auto_quality_at: None,
             quality_open: false,
             confirm_stop: false,
             code_auto_copied: false,
@@ -157,12 +182,23 @@ impl App {
             settings_open: false,
             settings_tab: settings::Tab::Video,
             update_check: None,
+            identity: id_key,
+            identity_temporary,
+            _identity_lock,
+            friends,
+            prober: None,
+            prober_retry: None,
+            add_friend: None,
+            presence_cache: HashMap::new(),
+            friend_remove_pending: None,
+            watch_target: String::new(),
+            update_prompt_dismissed: false,
         };
         app.detect_encoder();
         if app.prefs.check_updates {
             app.check_updates(&ctx);
         }
-        ctx.set_theme(app.prefs.theme);
+        ctx.set_theme(egui::ThemePreference::Dark);
         app
     }
 
@@ -251,8 +287,10 @@ impl App {
             d.reset();
         }
         self.kick_pending = None;
+        self.friend_remove_pending = None;
         self.copied_at = None;
         self.quality_open = false;
+        self.share_job = None;
         self.confirm_stop = false;
         self.code_auto_copied = false;
         self.save_prefs();
@@ -261,7 +299,11 @@ impl App {
     pub fn end(&mut self, message: String, from_watch: bool) {
         self.stop_all();
         let kind = classify(&message);
-        let retry = from_watch && kind != EndKind::Info && message != "Você foi removido";
+        let retry = from_watch
+            && kind != EndKind::Info
+            && message != "Você foi removido"
+            && message != "Removido pelo host"
+            && !message.starts_with("Recusado: você foi removido");
         self.screen = Screen::Ended {
             message,
             kind,
@@ -274,21 +316,46 @@ impl App {
         let mut confirm = false;
         let mut focus_in = false;
         let modal = theme::modal(ctx, "quit").show(ctx, |ui| {
-            ui.set_width(340.0);
-            theme::heading(ui, "Encerrar a transmissão?");
-            ui.label("Quem está assistindo será desconectado.");
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                let keep = ui.button("Continuar transmitindo");
-                focus_in |= keep.has_focus();
-                if keep.clicked() {
-                    cancel = true;
-                }
-                let quit = theme::danger_button(ui, "Encerrar e sair");
-                focus_in |= quit.has_focus();
-                if quit.clicked() {
-                    confirm = true;
-                }
+            ui.set_width(440.0);
+            ui.vertical_centered(|ui| {
+                theme::icon_ring(ui, theme::I_HANGUP, theme::P.danger);
+                ui.add_space(12.0);
+                theme::heading(ui, "Encerrar a transmissão?");
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("Quem está assistindo será desconectado.")
+                        .text_style(egui::TextStyle::Body)
+                        .color(theme::P.text_muted),
+                );
+                ui.add_space(16.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    let w = ui.available_width();
+                    let btn_w = (w - 12.0) / 2.0;
+                    let mut keep_focus = false;
+                    let mut quit_focus = false;
+                    ui.scope(|ui| {
+                        ui.set_width(btn_w);
+                        let keep = theme::button_full(ui, theme::Kind::Secondary, "Continuar transmitindo");
+                        keep_focus = keep.has_focus();
+                        if keep.clicked() {
+                            cancel = true;
+                        }
+                    });
+                    ui.scope(|ui| {
+                        ui.set_width(btn_w);
+                        let quit = theme::button_full(
+                            ui,
+                            theme::Kind::Danger,
+                            format!("{}  Encerrar e sair", theme::I_HANGUP),
+                        );
+                        quit_focus = quit.has_focus();
+                        if quit.clicked() {
+                            confirm = true;
+                        }
+                    });
+                    focus_in = keep_focus || quit_focus;
+                });
             });
         });
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || modal.should_close() {
@@ -394,6 +461,11 @@ impl eframe::App for App {
         {
             self.settings_open = false;
         }
+        if self.add_friend.is_some()
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+        {
+            self.add_friend = None;
+        }
         match self.screen {
             Screen::Home => home::home(self, ui),
             Screen::SharePicker => share_view::picker(self, ui),
@@ -401,6 +473,10 @@ impl eframe::App for App {
             Screen::WatchInput => watch_view::input(self, ui),
             Screen::Watching => watch_view::watching(self, ui),
             Screen::Ended { .. } => home::ended(self, ui),
+        }
+        self.sync_prober(&ctx);
+        if self.add_friend.is_some() {
+            friends::add_friend_modal(self, &ctx);
         }
         // único acesso às configurações em tela cheia
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Comma)) {
@@ -455,7 +531,7 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
         }
-        self.toasts.show(&ctx);
+        self.toasts.show(&ctx, matches!(self.screen, Screen::Watching | Screen::Sharing));
     }
 
     fn on_exit(&mut self) {

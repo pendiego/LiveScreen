@@ -19,12 +19,14 @@ pub struct WatchSession {
     pub frame: Arc<Mutex<Option<VideoFrame>>>,
     gain: Arc<AtomicU32>,
     readback_only: Arc<AtomicBool>,
+    pub chat: Arc<Mutex<livescreen_core::chat::ChatLog>>,
 }
 
 impl WatchSession {
     pub fn start(
         rt: &Handle,
         ticket: &str,
+        identity: iroh::SecretKey,
         name: &str,
         gain: f32,
         hardware_decode: bool,
@@ -78,6 +80,7 @@ impl WatchSession {
         let inner = ViewerSession::start(
             rt,
             ticket,
+            identity,
             name,
             env!("CARGO_PKG_VERSION"),
             decoder::supported_codecs(hardware_decode),
@@ -88,17 +91,27 @@ impl WatchSession {
         )?;
 
         let status = inner.status.clone();
+        let chat = inner.chat.clone();
         Ok(WatchSession {
             inner,
             status,
             frame,
             gain,
             readback_only,
+            chat,
         })
     }
 
     pub fn request_quality(&self, preset: livescreen_core::preset::Preset) {
         self.inner.request_quality(preset);
+    }
+
+    pub fn send_chat(&self, text: &str) {
+        self.inner.send_chat(text);
+    }
+
+    pub fn donate(&self, amount: u32, text: &str) {
+        self.inner.donate(amount, text);
     }
 
     /// Avisa o host que a janela foi minimizada/restaurada: escondido, ele para de mandar vídeo.

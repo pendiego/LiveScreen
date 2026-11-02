@@ -9,3 +9,13 @@ android/build/
 android/app/build/
 android/app/src/main/jniLibs/
 android/local.properties
+
+*PLAN.md
+plan.md
+
+web/node_modules/
+web/dist/
+web/.wrangler/
+
+# vídeo de lançamento (fontes e render local)
+/video/

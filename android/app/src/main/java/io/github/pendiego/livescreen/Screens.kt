@@ -1,21 +1,31 @@
 package io.github.pendiego.livescreen
 
+import android.Manifest
 import android.app.Activity
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.content.pm.ActivityInfo
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -25,37 +35,38 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SnackbarVisuals
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -67,30 +78,45 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.Image
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.compose.LifecycleStartEffect
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val LEGACY_MSG = "Código sem chave de sala: só conecta em quem transmite com o LiveScreen 0.4. Se veio de uma versão mais nova, falta o final do código (a parte depois do ponto)."
 
+// Mesmo `OVERLAY_TIMEOUT` do desktop (watch_view.rs).
+private const val OVERLAY_TIMEOUT_MS = 2500L
+
 @Composable
 fun App(vm: ViewerModel) {
-    if (vm.status == null) {
+    if (Hosting.active) {
+        HostScreen(vm)
+    } else if (vm.status == null) {
         HomeScreen(vm)
     } else {
         WatchScreen(vm)
@@ -104,9 +130,217 @@ private fun clipboardText(context: Context): String? {
     return clip.getItemAt(0)?.coerceToText(context)?.toString()
 }
 
+// region Componentes Sinal
+
+private enum class BtnKind { Primary, Secondary, Ghost, Danger }
+
+@Composable
+private fun SinalButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    kind: BtnKind = BtnKind.Primary,
+    height: Dp = 40.dp,
+    hPad: Dp = 20.dp,
+    icon: Int? = null,
+    enabled: Boolean = true
+) {
+    val (fill, contentColor) = when (kind) {
+        BtnKind.Primary -> Sinal.accent to Sinal.onAccent
+        BtnKind.Secondary -> Sinal.raised to Sinal.text
+        BtnKind.Ghost -> Color.Transparent to Sinal.text
+        BtnKind.Danger -> Sinal.danger to Sinal.onDanger
+    }
+    Row(
+        modifier
+            .alpha(if (enabled) 1f else 0.4f)
+            .height(height)
+            .clip(CircleShape)
+            .background(fill)
+            .then(if (kind == BtnKind.Secondary) Modifier.border(1.dp, Sinal.border, CircleShape) else Modifier)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = hPad),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (icon != null) {
+            Icon(
+                painterResource(icon),
+                null,
+                tint = contentColor,
+                modifier = Modifier.size(if (height >= 48.dp) 20.dp else 16.dp)
+            )
+        }
+        Text(
+            text,
+            style = if (height >= 48.dp) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelLarge,
+            color = contentColor,
+            maxLines = 1
+        )
+    }
+}
+
+private enum class FieldTone { Normal, Error, Warn }
+
+@Composable
+private fun SinalField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    mono: Boolean = false,
+    leadingIcon: Int? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    tone: FieldTone = FieldTone.Normal,
+    help: String? = null,
+    singleLine: Boolean = true,
+    maxLines: Int = 1,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default
+) {
+    val src = remember { MutableInteractionSource() }
+    val focused by src.collectIsFocusedAsState()
+    val (borderWidth, borderColor) = when {
+        tone == FieldTone.Error -> 2.dp to Sinal.danger
+        tone == FieldTone.Warn -> 1.dp to Sinal.warn
+        focused -> 2.dp to Sinal.accent
+        else -> 1.dp to Sinal.border
+    }
+    val textStyle = (if (mono) MonoStyle else MaterialTheme.typography.bodyLarge).copy(color = Sinal.text)
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (label != null) {
+            Text(label, style = MaterialTheme.typography.titleSmall, color = Sinal.textMuted)
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = singleLine,
+            maxLines = maxLines,
+            textStyle = textStyle,
+            cursorBrush = SolidColor(Sinal.accent),
+            interactionSource = src,
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            decorationBox = { innerTextField ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .background(Sinal.bg, RoundedCornerShape(12.dp))
+                        .border(borderWidth, borderColor, RoundedCornerShape(12.dp))
+                        .padding(start = 12.dp, end = if (trailing != null) 4.dp else 12.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (leadingIcon != null) {
+                        Icon(painterResource(leadingIcon), null, tint = Sinal.textMuted, modifier = Modifier.size(18.dp))
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        if (value.isEmpty()) {
+                            Text(placeholder, style = textStyle.copy(color = Sinal.textFaint))
+                        }
+                        innerTextField()
+                    }
+                    trailing?.invoke()
+                }
+            }
+        )
+        if (help != null) {
+            Text(
+                help,
+                style = MaterialTheme.typography.bodySmall,
+                color = when (tone) {
+                    FieldTone.Error -> Sinal.danger
+                    FieldTone.Warn -> Sinal.warn
+                    FieldTone.Normal -> Sinal.textMuted
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SinalDialog(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .widthIn(max = 340.dp)
+                .fillMaxWidth()
+                .shadow(16.dp, RoundedCornerShape(20.dp))
+                .background(Sinal.raised, RoundedCornerShape(20.dp))
+                .border(1.dp, Sinal.border, RoundedCornerShape(20.dp))
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            content = content
+        )
+    }
+}
+
+private enum class CallState { Neutral, Active, Alert, HangUp }
+
+@Composable
+private fun CallButton(
+    icon: Int,
+    description: String,
+    onClick: () -> Unit,
+    state: CallState = CallState.Neutral
+) {
+    val (fill, ic) = when (state) {
+        CallState.Neutral -> Sinal.raised to Sinal.text
+        CallState.Active -> Sinal.accent to Sinal.onAccent
+        CallState.Alert -> Sinal.danger.copy(alpha = 0.16f) to Sinal.danger
+        CallState.HangUp -> Sinal.danger to Sinal.onDanger
+    }
+    Box(
+        Modifier
+            .size(width = if (state == CallState.HangUp) 64.dp else 48.dp, height = 48.dp)
+            .clip(CircleShape)
+            .background(fill)
+            .then(if (state == CallState.Neutral) Modifier.border(1.dp, Sinal.border, CircleShape) else Modifier)
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(painterResource(icon), description, tint = ic, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun Badge(text: String, color: Color, container: Color) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = color,
+        modifier = Modifier
+            .background(container, CircleShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+    )
+}
+
+private enum class SnackTone { Success, Error }
+
+private class SinalSnack(override val message: String, val tone: SnackTone) : SnackbarVisuals {
+    override val actionLabel: String? = null
+    override val withDismissAction = false
+    override val duration = SnackbarDuration.Short
+}
+
+// endregion
+
 @Composable
 fun HomeScreen(vm: ViewerModel) {
     val context = LocalContext.current
+    LifecycleStartEffect(Unit) {
+        vm.startPresence()
+        onStopOrDispose {
+            vm.stopPresence()
+        }
+    }
+
+    var showAddDialog by remember { mutableStateOf(false) }
+    var friendToRemove by remember { mutableStateOf<Friend?>(null) }
     val isTicketValid = remember(vm.ticket) { Native.isValidTicket(vm.ticket) }
     val isLegacy = remember(vm.ticket) { Native.isLegacyInvite(vm.ticket) }
     val isTicketNotEmpty = vm.ticket.isNotEmpty()
@@ -119,35 +353,94 @@ fun HomeScreen(vm: ViewerModel) {
 
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val sc = LocalStatusColors.current
-    val colors = MaterialTheme.colorScheme
-    val type = MaterialTheme.typography
+    val projectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val d = r.data
+        if (r.resultCode == Activity.RESULT_OK && d != null) vm.beginHost(context, r.resultCode, d)
+    }
+    // O resultado das permissões é ignorado: sem áudio ou notificação a transmissão ainda funciona.
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        projectionLauncher.launch(
+            context.getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent()
+        )
+    }
     val paste: () -> Unit = {
         val inv = clipboardText(context)?.let(Native::findInvite)
         if (inv == null) {
-            scope.launch { snackbar.showSnackbar("O texto colado não tem um código de convite") }
+            scope.launch { snackbar.showSnackbar(SinalSnack("O texto colado não tem um código de convite", SnackTone.Error)) }
         } else {
             vm.ticket = inv
-            if (!Native.isLegacyInvite(inv)) vm.connect()
+            if (!Native.isLegacyInvite(inv) && !vm.starting) vm.connect()
         }
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        containerColor = Sinal.bg,
+        snackbarHost = {
+            SnackbarHost(snackbar) { data ->
+                val tone = (data.visuals as? SinalSnack)?.tone ?: SnackTone.Success
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .shadow(8.dp, RoundedCornerShape(12.dp))
+                        .background(Sinal.raised, RoundedCornerShape(12.dp))
+                        .border(1.dp, Sinal.border, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painterResource(if (tone == SnackTone.Success) R.drawable.ic_circle_check else R.drawable.ic_circle_x),
+                        null,
+                        tint = if (tone == SnackTone.Success) Sinal.success else Sinal.danger,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(data.visuals.message, style = MaterialTheme.typography.bodyLarge, color = Sinal.text)
+                }
+            }
+        },
         bottomBar = {
-            Button(
-                onClick = { vm.connect() },
-                enabled = isTicketValid,
-                modifier = Modifier
+            Box(
+                Modifier
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-                    .padding(16.dp)
-                    .height(56.dp)
-            ) { Text("Assistir", style = type.titleMedium) }
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SinalButton(
+                        "Transmitir tela",
+                        onClick = {
+                            permLauncher.launch(
+                                buildList {
+                                    add(Manifest.permission.RECORD_AUDIO)
+                                    if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+                                }.toTypedArray()
+                            )
+                        },
+                        kind = BtnKind.Secondary,
+                        height = 56.dp,
+                        hPad = 24.dp,
+                        enabled = !vm.starting,
+                        icon = R.drawable.ic_cast,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    SinalButton(
+                        if (vm.starting) "Conectando…" else "Assistir pelo convite",
+                        onClick = { vm.connect() },
+                        height = 56.dp,
+                        hPad = 24.dp,
+                        enabled = isTicketValid && !vm.starting,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         }
     ) { inner ->
         Box(
-            Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner),
+            Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .consumeWindowInsets(inner),
             contentAlignment = Alignment.TopCenter
         ) {
             Column(
@@ -155,7 +448,7 @@ fun HomeScreen(vm: ViewerModel) {
                     .widthIn(max = 560.dp)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 32.dp),
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Column(
@@ -163,90 +456,239 @@ fun HomeScreen(vm: ViewerModel) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Surface(shape = CircleShape, color = colors.primaryContainer, modifier = Modifier.size(72.dp)) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                painterResource(R.drawable.ic_live_tv), null,
-                                tint = colors.onPrimaryContainer, modifier = Modifier.size(36.dp)
-                            )
-                        }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(painterResource(R.drawable.ic_logo), null, Modifier.size(40.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("LiveScreen", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
                     }
-                    Text("LiveScreen", style = type.headlineMedium)
                     Text(
                         "Assista a uma tela compartilhada pelo LiveScreen do Windows.",
-                        style = type.bodyLarge, color = colors.onSurfaceVariant, textAlign = TextAlign.Center
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Sinal.textMuted,
+                        textAlign = TextAlign.Center
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+
                 UpdateBanner(vm)
-                OutlinedTextField(
+
+                (vm.lastEnd ?: Hosting.lastError)?.let { end ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(Sinal.danger.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
+                            .border(1.dp, Sinal.danger, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_circle_x),
+                            null,
+                            tint = Sinal.danger,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(end, style = MaterialTheme.typography.bodyLarge, color = Sinal.danger)
+                    }
+                }
+
+                if (vm.friends.isNotEmpty()) {
+                    FriendsSection(
+                        vm = vm,
+                        onAddClick = { showAddDialog = true },
+                        onRemoveFriend = { friendToRemove = it },
+                        onCopied = {
+                            scope.launch {
+                                snackbar.showSnackbar(SinalSnack("Código de amigo copiado", SnackTone.Success))
+                            }
+                        }
+                    )
+                }
+
+                SinalField(
                     value = vm.ticket,
                     onValueChange = { vm.ticket = Native.findInvite(it) ?: it.filterNot(Char::isWhitespace) },
-                    label = { Text("Código de convite") },
-                    placeholder = { Text("Cole o código que você recebeu") },
-                    textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                    placeholder = "Cole o código que você recebeu",
+                    label = "Código de convite",
+                    mono = true,
+                    singleLine = false,
                     maxLines = 4,
-                    isError = isTicketNotEmpty && !isTicketValid,
-                    supportingText = when {
-                        isTicketNotEmpty && !isTicketValid -> { { Text("Código inválido — confira se copiou o código inteiro.") } }
-                        isTicketValid && isLegacy -> { { Text(LEGACY_MSG, color = sc.warn) } }
+                    trailing = {
+                        IconButton(onClick = paste, modifier = Modifier.size(40.dp)) {
+                            Icon(
+                                painterResource(R.drawable.ic_clipboard_paste),
+                                "Colar",
+                                tint = Sinal.textMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    tone = when {
+                        isTicketNotEmpty && !isTicketValid -> FieldTone.Error
+                        isTicketValid && isLegacy -> FieldTone.Warn
+                        else -> FieldTone.Normal
+                    },
+                    help = when {
+                        isTicketNotEmpty && !isTicketValid -> "Código inválido — confira se copiou o código inteiro."
+                        isTicketValid && isLegacy -> LEGACY_MSG
                         else -> null
                     },
-                    trailingIcon = {
-                        IconButton(onClick = paste) {
-                            Icon(painterResource(R.drawable.ic_content_paste), contentDescription = "Colar")
-                        }
-                    },
                     keyboardOptions = KeyboardOptions(
-                        autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Go
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Ascii,
+                        imeAction = ImeAction.Go
                     ),
-                    keyboardActions = KeyboardActions(onGo = { if (isTicketValid) vm.connect() }),
-                    modifier = Modifier.fillMaxWidth()
+                    keyboardActions = KeyboardActions(onGo = { if (isTicketValid && !vm.starting) vm.connect() })
                 )
-                OutlinedTextField(
+
+                SinalField(
                     value = vm.name,
                     onValueChange = { vm.name = it },
-                    label = { Text("Seu nome (opcional)") },
-                    leadingIcon = { Icon(painterResource(R.drawable.ic_person), null) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    modifier = Modifier.fillMaxWidth()
+                    placeholder = "Seu nome (opcional)",
+                    leadingIcon = R.drawable.ic_user,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
                 )
-                vm.lastEnd?.let { end ->
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = colors.errorContainer, contentColor = colors.onErrorContainer
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(painterResource(R.drawable.ic_error), null)
-                            Text(end, style = type.bodyMedium)
+
+                if (vm.friends.isEmpty()) {
+                    FriendsSection(
+                        vm = vm,
+                        onAddClick = { showAddDialog = true },
+                        onRemoveFriend = { friendToRemove = it },
+                        onCopied = {
+                            scope.launch {
+                                snackbar.showSnackbar(SinalSnack("Código de amigo copiado", SnackTone.Success))
+                            }
                         }
-                    }
+                    )
                 }
             }
         }
     }
+
+    if (showAddDialog) {
+        AddFriendDialog(
+            vm = vm,
+            initialName = "",
+            initialCode = "",
+            onDismiss = { showAddDialog = false },
+            onAdded = { addedName ->
+                showAddDialog = false
+                scope.launch {
+                    snackbar.showSnackbar(
+                        SinalSnack("$addedName adicionado aos amigos. Peça para ele adicionar você também.", SnackTone.Success)
+                    )
+                }
+            }
+        )
+    }
+
+    friendToRemove?.let { friend ->
+        SinalDialog({ friendToRemove = null }) {
+            Column(
+                Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(56.dp)
+                        .background(Sinal.danger.copy(alpha = 0.16f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(painterResource(R.drawable.ic_trash), null, tint = Sinal.danger, modifier = Modifier.size(24.dp))
+                }
+                Text(
+                    "Remover ${friend.name}?",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Sinal.text,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    "Você deixará de ver quando esse amigo estiver transmitindo.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Sinal.textMuted,
+                    textAlign = TextAlign.Center
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                ) {
+                    SinalButton("Cancelar", { friendToRemove = null }, kind = BtnKind.Ghost, height = 48.dp, hPad = 16.dp)
+                    SinalButton(
+                        "Remover",
+                        {
+                            vm.removeFriend(friend.code)
+                            friendToRemove = null
+                        },
+                        kind = BtnKind.Danger,
+                        height = 48.dp,
+                        hPad = 24.dp
+                    )
+                }
+            }
+        }
+    }
+
+    (vm.update as? UpdateState.Available)?.takeIf { !vm.updatePromptDismissed && !showAddDialog && friendToRemove == null }?.let { s ->
+        UpdatePrompt(
+            s.info,
+            onLater = { vm.updatePromptDismissed = true },
+            onUpdate = {
+                vm.updatePromptDismissed = true
+                vm.startUpdate()
+            }
+        )
+    }
 }
 
 @Composable
-fun WatchScreen(vm: ViewerModel) {
-    // Vídeo sempre sobre preto: o overlay usa o esquema escuro mesmo com o sistema claro.
-    LiveScreenTheme(dark = true) { WatchContent(vm) }
+private fun UpdatePrompt(info: UpdateInfo, onLater: () -> Unit, onUpdate: () -> Unit) = SinalDialog(onLater) {
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            Modifier
+                .size(56.dp)
+                .background(Sinal.accent.copy(alpha = 0.16f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_download),
+                null,
+                tint = Sinal.accent,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Text(
+            "Atualização disponível",
+            style = MaterialTheme.typography.titleLarge,
+            color = Sinal.text,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            "A versão ${info.version} está disponível. Você está na ${BuildConfig.VERSION_NAME}.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = Sinal.textMuted,
+            textAlign = TextAlign.Center
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp)
+        ) {
+            SinalButton("Agora não", onLater, kind = BtnKind.Ghost, height = 48.dp, hPad = 16.dp)
+            SinalButton("Atualizar", onUpdate, height = 48.dp, hPad = 24.dp, icon = R.drawable.ic_download)
+        }
+    }
 }
-
-// Mesmo `OVERLAY_TIMEOUT` do desktop (watch_view.rs).
-private const val OVERLAY_TIMEOUT_MS = 2500L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WatchContent(vm: ViewerModel) {
+fun WatchScreen(vm: ViewerModel) {
     val view = LocalView.current
+    val context = LocalContext.current
     DisposableEffect(Unit) {
         val window = (view.context as? Activity)?.window
         if (window != null) {
@@ -273,6 +715,7 @@ private fun WatchContent(vm: ViewerModel) {
     }
 
     val status = vm.status
+    val hostId = status?.hostId.orEmpty()
     val videoSize = vm.videoSize
     val (w, h) = when {
         videoSize != null && videoSize.first > 0 && videoSize.second > 0 -> videoSize
@@ -280,19 +723,18 @@ private fun WatchContent(vm: ViewerModel) {
         else -> Pair(16, 9)
     }
     val aspectRatio = w.toFloat() / h.toFloat()
-    val type = MaterialTheme.typography
-    val colors = MaterialTheme.colorScheme
-    val sc = LocalStatusColors.current
 
     var showOverlay by remember { mutableStateOf(true) }
+    var addHost by remember { mutableStateOf(false) }
     var qualitySheet by remember { mutableStateOf(false) }
+    var chatSheet by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
     var landscape by remember { mutableStateOf(false) }
     var lastTouchTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val bump = { lastTouchTime = System.currentTimeMillis() }
 
-    LaunchedEffect(showOverlay, qualitySheet, lastTouchTime) {
-        if (showOverlay && !qualitySheet) {
+    LaunchedEffect(showOverlay, qualitySheet, chatSheet, lastTouchTime) {
+        if (showOverlay && !qualitySheet && !chatSheet) {
             delay(OVERLAY_TIMEOUT_MS)
             showOverlay = false
         }
@@ -345,8 +787,13 @@ private fun WatchContent(vm: ViewerModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                CircularProgressIndicator(Modifier.size(32.dp), color = Color.White, strokeWidth = 3.dp)
-                Text("Conectando…", style = type.bodyLarge, color = Color.White.copy(alpha = 0.8f))
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    color = Sinal.accent,
+                    trackColor = Color.Transparent,
+                    strokeWidth = 3.dp
+                )
+                Text("Conectando…", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
             }
         }
 
@@ -362,10 +809,10 @@ private fun WatchContent(vm: ViewerModel) {
                     status?.path == "Relay" -> "Via servidor"
                     else -> "Conexão direta"
                 }
-                val badgeColor = when {
-                    status?.connecting == true -> Color.White.copy(alpha = 0.7f)
-                    status?.path == "Relay" -> sc.warn
-                    else -> sc.success
+                val (badgeColor, badgeContainer) = when {
+                    status?.connecting == true -> Sinal.textMuted to Sinal.raised
+                    status?.path == "Relay" -> Sinal.warn to Sinal.warn.copy(alpha = 0.16f)
+                    else -> Sinal.success to Sinal.success.copy(alpha = 0.16f)
                 }
                 Row(
                     Modifier
@@ -373,23 +820,18 @@ private fun WatchContent(vm: ViewerModel) {
                         .fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.7f), Color.Transparent)))
                         .windowInsetsPadding(WindowInsets.displayCutout)
-                        .padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
+                        .padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 24.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { vm.leave() }) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), "Sair", tint = Color.White)
-                    }
                     Text(
                         status?.title?.takeIf { it.isNotEmpty() } ?: "LiveScreen",
-                        style = type.titleMedium, color = Color.White,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (status?.connecting == true) Sinal.textMuted else Sinal.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
-                    Surface(shape = CircleShape, color = badgeColor.copy(alpha = 0.2f)) {
-                        Text(
-                            badgeText, style = type.labelMedium, color = badgeColor,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
+                    Badge(badgeText, badgeColor, badgeContainer)
                 }
 
                 val rttStr = status?.rttMs?.let { "$it ms" } ?: "- ms"
@@ -399,67 +841,500 @@ private fun WatchContent(vm: ViewerModel) {
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
                         .windowInsetsPadding(WindowInsets.displayCutout)
-                        .padding(start = 4.dp, end = 4.dp, top = 24.dp, bottom = 8.dp)
+                        .padding(bottom = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (showStats) Text(
-                        infoText, style = type.bodySmall, color = Color.White.copy(alpha = 0.8f),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (status?.audio == true) IconButton(onClick = { vm.muted = !vm.muted; bump() }) {
-                            Icon(
-                                painterResource(if (vm.muted) R.drawable.ic_volume_off else R.drawable.ic_volume_up),
-                                if (vm.muted) "Ativar som" else "Silenciar", tint = Color.White
+                    if (showStats) {
+                        Text(
+                            infoText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Sinal.textMuted,
+                            modifier = Modifier
+                                .background(Sinal.surface, CircleShape)
+                                .border(1.dp, Sinal.border, CircleShape)
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
+                    Row(
+                        Modifier
+                            .background(Sinal.raised, CircleShape)
+                            .border(1.dp, Sinal.border, CircleShape)
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (hostId.isNotEmpty() && status?.connecting == false && vm.friends.none { it.code == hostId }) {
+                            CallButton(
+                                icon = R.drawable.ic_user_plus,
+                                description = "Adicionar aos amigos",
+                                onClick = { addHost = true; bump() }
                             )
                         }
-                        IconButton(onClick = { qualitySheet = true }) {
-                            Icon(painterResource(R.drawable.ic_tune), "Qualidade", tint = Color.White)
+                        if (status?.audio == true) {
+                            CallButton(
+                                icon = if (vm.muted) R.drawable.ic_volume_x else R.drawable.ic_volume_2,
+                                description = if (vm.muted) "Ativar som" else "Silenciar",
+                                onClick = { vm.muted = !vm.muted; bump() },
+                                state = if (vm.muted) CallState.Alert else CallState.Neutral
+                            )
                         }
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { showStats = !showStats; bump() }) {
-                            Icon(painterResource(R.drawable.ic_info), "Estatísticas", tint = Color.White)
+                        CallButton(
+                            icon = R.drawable.ic_sliders,
+                            description = "Qualidade",
+                            onClick = { qualitySheet = true; bump() }
+                        )
+                        if (status?.chat == true) {
+                            CallButton(
+                                icon = R.drawable.ic_message_square,
+                                description = "Chat",
+                                onClick = { chatSheet = true; vm.chatOpen = true; vm.chatPreview = null; bump() },
+                                state = if (chatSheet) CallState.Active else CallState.Neutral
+                            )
                         }
-                        IconButton(onClick = {
-                            landscape = !landscape
-                            activity?.requestedOrientation =
-                                if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                            bump()
-                        }) {
-                            Icon(painterResource(R.drawable.ic_screen_rotation), "Girar tela", tint = Color.White)
-                        }
+                        CallButton(
+                            icon = R.drawable.ic_chart,
+                            description = "Estatísticas",
+                            onClick = { showStats = !showStats; bump() },
+                            state = if (showStats) CallState.Active else CallState.Neutral
+                        )
+                        CallButton(
+                            icon = R.drawable.ic_rotate_cw,
+                            description = "Girar tela",
+                            onClick = {
+                                landscape = !landscape
+                                activity?.requestedOrientation =
+                                    if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                    else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                bump()
+                            },
+                            state = if (landscape) CallState.Active else CallState.Neutral
+                        )
+                        CallButton(
+                            icon = R.drawable.ic_phone_off,
+                            description = "Sair",
+                            onClick = { vm.leave() },
+                            state = CallState.HangUp
+                        )
                     }
                 }
             }
         }
 
         if (qualitySheet) {
-            ModalBottomSheet(onDismissRequest = { qualitySheet = false; bump() }) {
-                Text("Qualidade", style = type.titleLarge, modifier = Modifier.padding(horizontal = 24.dp))
-                Text(
-                    "Só vale se for mais leve que a atual", style = type.bodyMedium,
-                    color = colors.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 8.dp)
-                )
-                for ((id, name) in vm.presets) {
-                    ListItem(
-                        headlineContent = { Text(name) },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        modifier = Modifier.clickable { vm.requestQuality(id); qualitySheet = false; bump() }
+            ModalBottomSheet(
+                onDismissRequest = { qualitySheet = false; bump() },
+                sheetMaxWidth = 560.dp,
+                containerColor = Sinal.raised,
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                scrimColor = Color.Black.copy(alpha = 0.6f),
+                dragHandle = {
+                    Box(
+                        Modifier
+                            .padding(top = 12.dp, bottom = 8.dp)
+                            .size(width = 36.dp, height = 4.dp)
+                            .background(Sinal.textFaint, RoundedCornerShape(2.dp))
                     )
                 }
-                Spacer(Modifier.height(16.dp))
+            ) {
+                Column(
+                    Modifier.padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Qualidade", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
+                    Text(
+                        "Só vale se for mais leve que a atual",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Sinal.textMuted
+                    )
+                    for ((id, name) in vm.presets) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Sinal.surface)
+                                .border(1.dp, Sinal.border, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    vm.requestQuality(id)
+                                    qualitySheet = false
+                                    bump()
+                                }
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                name,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Sinal.text,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(
+                                painterResource(R.drawable.ic_chevron_right),
+                                null,
+                                tint = Sinal.textMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        val preview = vm.chatPreview
+        if (preview != null && !chatSheet) {
+            LaunchedEffect(preview) {
+                delay(4000)
+                vm.chatPreview = null
+            }
+            Text(
+                "${preview.label}: ${preview.text}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Sinal.text,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.displayCutout)
+                    .padding(top = 72.dp, start = 24.dp, end = 24.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Sinal.raised)
+                    .border(1.dp, Sinal.border, RoundedCornerShape(16.dp))
+                    .clickable { chatSheet = true; vm.chatOpen = true; vm.chatPreview = null; bump() }
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+            )
+        }
+
+        if (chatSheet) {
+            ChatSheet(
+                items = vm.chat,
+                onSend = { vm.sendChat(it) },
+                onDismiss = { chatSheet = false; vm.chatOpen = false; bump() }
+            )
+        }
+
+        if (addHost) {
+            AddFriendDialog(
+                vm = vm,
+                initialName = status?.hostName.orEmpty(),
+                initialCode = hostId,
+                onDismiss = { addHost = false; bump() },
+                onAdded = { addedName ->
+                    addHost = false
+                    Toast.makeText(
+                        context,
+                        "$addedName adicionado aos amigos. Peça para ele adicionar você também.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    bump()
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatSheet(items: List<ChatItem>, onSend: (String) -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetMaxWidth = 560.dp,
+        containerColor = Sinal.raised,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        scrimColor = Color.Black.copy(alpha = 0.6f),
+        dragHandle = { SheetHandle() }
+    ) {
+        var draft by remember { mutableStateOf("") }
+        val listState = rememberLazyListState()
+        val send = {
+            onSend(draft)
+            draft = ""
+        }
+        LaunchedEffect(items.size) {
+            if (items.isNotEmpty()) listState.animateScrollToItem(items.size - 1)
+        }
+        Column(
+            Modifier
+                .imePadding()
+                .padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("Chat", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
+            if (items.isEmpty()) {
+                Text(
+                    "Nenhuma mensagem ainda",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Sinal.textMuted
+                )
+            } else {
+                LazyColumn(
+                    Modifier.heightIn(max = 360.dp),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(items, key = { it.seq }) { m ->
+                        Column {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    if (m.mine) "Você" else m.label,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = if (m.host) Sinal.accent else Sinal.text
+                                )
+                                if (m.host) {
+                                    Text("anfitrião", style = MaterialTheme.typography.bodySmall, color = Sinal.accent)
+                                }
+                                if (m.friend) {
+                                    Text("amigo", style = MaterialTheme.typography.bodySmall, color = Sinal.success)
+                                }
+                            }
+                            Text(m.text, style = MaterialTheme.typography.bodyLarge, color = Sinal.text)
+                        }
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SinalField(
+                    value = draft,
+                    onValueChange = { if (it.length <= 500) draft = it },
+                    placeholder = "Escreva uma mensagem",
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { send() })
+                )
+                SinalButton("Enviar", { send() }, hPad = 16.dp)
             }
         }
     }
 }
 
 @Composable
+private fun SheetHandle() {
+    Box(
+        Modifier
+            .padding(top = 12.dp, bottom = 8.dp)
+            .size(width = 36.dp, height = 4.dp)
+            .background(Sinal.textFaint, RoundedCornerShape(2.dp))
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HostScreen(vm: ViewerModel) {
+    val ctx = LocalContext.current
+    BackHandler { (ctx as? Activity)?.moveTaskToBack(true) }
+    val st = Hosting.status
+    var qualitySheet by remember { mutableStateOf(false) }
+    var webHidden by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val copy: (String) -> Unit = { t ->
+        (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .setPrimaryClip(ClipData.newPlainText("LiveScreen", t))
+        Toast.makeText(ctx, "Copiado", Toast.LENGTH_SHORT).show()
+    }
+    val io: ((Long) -> Unit) -> Unit = { block ->
+        val h = Hosting.handle
+        if (h != 0L) scope.launch(Dispatchers.IO) { Hosting.withHandle(h, block) }
+    }
+
+    Scaffold(containerColor = Sinal.bg) { inner ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(inner)
+                .consumeWindowInsets(inner),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Column(
+                Modifier
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Transmitindo", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
+                if (st == null) {
+                    Text("Iniciando…", style = MaterialTheme.typography.bodyLarge, color = Sinal.textMuted)
+                } else {
+                    Text(
+                        "${st.width}×${st.height} · ${st.fps} fps · ${st.kbps} kbps · ${st.viewers.size} assistindo",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Sinal.text
+                    )
+                    Text(
+                        "Áudio: " + when (st.audio) {
+                            "on" -> "ligado"
+                            "unavailable" -> "indisponível: ${st.audioError}"
+                            else -> "desligado"
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Sinal.textMuted
+                    )
+                    if (st.overloaded) {
+                        Text("Aparelho sem fôlego para esta qualidade", style = MaterialTheme.typography.bodyLarge, color = Sinal.warn)
+                    }
+                    if (st.onlineWarning) {
+                        Text(
+                            "Sem conexão com o relay: o convite pode não funcionar fora da sua rede",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = Sinal.warn
+                        )
+                    }
+                    when (st.web) {
+                        "connecting" -> "Conectando"
+                        "online" -> "Online"
+                        "retrying" -> "Tentando de novo: ${st.webError}"
+                        else -> null
+                    }?.let {
+                        Text("Navegador: $it", style = MaterialTheme.typography.bodyLarge, color = Sinal.textMuted)
+                    }
+                }
+                Hosting.notice?.let {
+                    Text(it, style = MaterialTheme.typography.bodyLarge, color = Sinal.warn)
+                }
+
+                SinalButton(
+                    "Copiar convite",
+                    onClick = { st?.ticket?.let(copy) },
+                    icon = R.drawable.ic_copy,
+                    enabled = st?.ticket != null,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (!webHidden) {
+                    SinalButton(
+                        "Copiar link do navegador",
+                        onClick = {
+                            val h = Hosting.handle
+                            if (h != 0L) scope.launch {
+                                val link = withContext(Dispatchers.IO) { Hosting.withHandle(h) { Native.hostWebLink(it) } }
+                                if (link == null) webHidden = true else copy(link)
+                            }
+                        },
+                        icon = R.drawable.ic_copy,
+                        kind = BtnKind.Secondary,
+                        enabled = st != null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                SinalButton(
+                    "Novo convite",
+                    onClick = { io { Native.hostNewInvite(it) } },
+                    icon = R.drawable.ic_user_plus,
+                    kind = BtnKind.Secondary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                SinalButton(
+                    "Qualidade",
+                    onClick = { qualitySheet = true },
+                    icon = R.drawable.ic_sliders,
+                    kind = BtnKind.Secondary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                SinalButton(
+                    "Chat",
+                    onClick = { Hosting.chatOpen = true },
+                    icon = R.drawable.ic_message_square,
+                    kind = BtnKind.Secondary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (st != null && st.viewers.isNotEmpty()) {
+                    Text("Assistindo", style = MaterialTheme.typography.titleSmall, color = Sinal.textMuted)
+                    for (v in st.viewers) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Sinal.raised, RoundedCornerShape(12.dp))
+                                .border(1.dp, Sinal.border, RoundedCornerShape(12.dp))
+                                .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(v.label, style = MaterialTheme.typography.titleSmall, color = Sinal.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    if (v.friend) Text("amigo", style = MaterialTheme.typography.bodySmall, color = Sinal.success)
+                                }
+                                Text(
+                                    listOfNotNull(v.path, v.rttMs?.let { "$it ms" }).joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Sinal.textMuted
+                                )
+                            }
+                            SinalButton("Remover", { io { h -> Native.hostKick(h, v.id) } }, kind = BtnKind.Ghost, height = 32.dp, hPad = 12.dp)
+                        }
+                    }
+                }
+
+                SinalButton(
+                    "Parar transmissão",
+                    onClick = { Hosting.stop(ctx) },
+                    kind = BtnKind.Danger,
+                    height = 56.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+
+    if (qualitySheet) {
+        ModalBottomSheet(
+            onDismissRequest = { qualitySheet = false },
+            sheetMaxWidth = 560.dp,
+            containerColor = Sinal.raised,
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            scrimColor = Color.Black.copy(alpha = 0.6f),
+            dragHandle = { SheetHandle() }
+        ) {
+            Column(
+                Modifier.padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Qualidade", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
+                for ((id, name) in vm.presets) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Sinal.surface)
+                            .border(1.dp, Sinal.border, RoundedCornerShape(12.dp))
+                            .clickable {
+                                Hosting.setPreset(ctx, id)
+                                qualitySheet = false
+                            }
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(name, style = MaterialTheme.typography.titleSmall, color = Sinal.text, modifier = Modifier.weight(1f))
+                        if (id == Hosting.presetId) {
+                            Icon(painterResource(R.drawable.ic_circle_check), "Atual", tint = Sinal.accent, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (Hosting.chatOpen) {
+        ChatSheet(
+            items = Hosting.chat,
+            onSend = { t -> if (t.isNotBlank()) io { h -> Native.hostSendChat(h, t.trim()) } },
+            onDismiss = { Hosting.chatOpen = false }
+        )
+    }
+}
+
+@Composable
 private fun UpdateBanner(vm: ViewerModel) {
-    val colors = MaterialTheme.colorScheme
-    val type = MaterialTheme.typography
     val s = vm.update
     val info = when (s) {
         is UpdateState.Available -> s.info
@@ -474,26 +1349,228 @@ private fun UpdateBanner(vm: ViewerModel) {
         is UpdateState.Failed -> "Tentar de novo"
         else -> "Atualizar"
     }
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = colors.secondaryContainer, contentColor = colors.onSecondaryContainer
-        ),
-        modifier = Modifier.fillMaxWidth()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Sinal.raised, RoundedCornerShape(20.dp))
+            .border(1.dp, Sinal.border, RoundedCornerShape(20.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
-            Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(painterResource(R.drawable.ic_system_update), null)
-            Text("Versão ${info.version} disponível", style = type.bodyMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = { vm.startUpdate() }, enabled = s !is UpdateState.Downloading) { Text(label) }
+            Icon(
+                painterResource(R.drawable.ic_download),
+                null,
+                tint = Sinal.accent,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                "Versão ${info.version} disponível",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Sinal.text,
+                modifier = Modifier.weight(1f)
+            )
+            SinalButton(label, { vm.startUpdate() }, height = 32.dp, hPad = 14.dp, enabled = s !is UpdateState.Downloading)
         }
         if (s is UpdateState.Failed) {
             Text(
-                s.message, style = type.bodySmall, color = colors.error,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                s.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = Sinal.danger
             )
+        }
+    }
+}
+
+@Composable
+private fun FriendsSection(
+    vm: ViewerModel,
+    onAddClick: () -> Unit,
+    onRemoveFriend: (Friend) -> Unit,
+    onCopied: () -> Unit,
+) {
+    val context = LocalContext.current
+
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Amigos", style = MaterialTheme.typography.titleLarge, color = Sinal.text, modifier = Modifier.weight(1f))
+        SinalButton(
+            "Adicionar amigo",
+            onAddClick,
+            kind = BtnKind.Secondary,
+            height = 32.dp,
+            hPad = 12.dp,
+            icon = R.drawable.ic_user_plus
+        )
+    }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(Sinal.raised, RoundedCornerShape(20.dp))
+            .border(1.dp, Sinal.border, RoundedCornerShape(20.dp))
+            .padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Seu código de amigo", style = MaterialTheme.typography.bodySmall, color = Sinal.textMuted)
+            Text(
+                vm.myCode,
+                style = MonoStyle,
+                color = Sinal.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        IconButton(onClick = {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            cm?.setPrimaryClip(ClipData.newPlainText("LiveScreen", vm.myCode))
+            onCopied()
+        }) {
+            Icon(painterResource(R.drawable.ic_copy), "Copiar", tint = Sinal.textMuted, modifier = Modifier.size(20.dp))
+        }
+    }
+
+    if (vm.friends.isEmpty()) {
+        Text(
+            "Adicione o código de um amigo que transmite pelo Windows. Ele também precisa adicionar o seu.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = Sinal.textMuted
+        )
+    } else {
+        Column(
+            Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            for (friend in vm.friends) {
+                val pres = vm.presence[friend.code]
+                val state = pres?.state ?: "unknown"
+                val isLive = state == "live"
+                val subtitle = when (state) {
+                    "live" -> if (pres?.title.isNullOrBlank()) "Transmitindo agora" else "Transmitindo: ${pres?.title}"
+                    "offline" -> "Offline"
+                    "not_friend" -> "Ainda não te adicionou"
+                    "removed" -> "Você foi removido desta transmissão"
+                    else -> "Verificando…"
+                }
+                val subtitleColor = when (state) {
+                    "live" -> Sinal.success
+                    "offline" -> Sinal.textFaint
+                    "not_friend" -> Sinal.warn
+                    "removed" -> Sinal.danger
+                    else -> Sinal.textFaint
+                }
+
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(friend.name, style = MaterialTheme.typography.titleSmall, color = Sinal.text)
+                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = subtitleColor)
+                    }
+                    if (state != "not_friend" && state != "removed") {
+                        SinalButton(
+                            "Assistir",
+                            { vm.watchFriend(friend.code) },
+                            height = 32.dp,
+                            hPad = 14.dp,
+                            enabled = isLive && !vm.starting
+                        )
+                    }
+                    IconButton(onClick = { onRemoveFriend(friend) }) {
+                        Icon(
+                            painterResource(R.drawable.ic_trash),
+                            contentDescription = "Remover ${friend.name}",
+                            tint = Sinal.textMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddFriendDialog(
+    vm: ViewerModel,
+    initialName: String,
+    initialCode: String,
+    onDismiss: () -> Unit,
+    onAdded: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    var name by remember { mutableStateOf(initialName) }
+    var code by remember { mutableStateOf(initialCode) }
+    var nameError by remember { mutableStateOf<String?>(null) }
+    var codeError by remember { mutableStateOf<String?>(null) }
+
+    SinalDialog(onDismiss) {
+        Text("Adicionar amigo", style = MaterialTheme.typography.titleLarge, color = Sinal.text)
+        SinalField(
+            value = name,
+            onValueChange = {
+                name = it.take(32)
+                nameError = null
+            },
+            placeholder = "Como você quer reconhecer o amigo",
+            label = "Nome",
+            tone = if (nameError != null) FieldTone.Error else FieldTone.Normal,
+            help = nameError
+        )
+        SinalField(
+            value = code,
+            onValueChange = {
+                code = it
+                codeError = null
+            },
+            placeholder = "Cole o código de 64 caracteres",
+            label = "Código de amigo",
+            mono = true,
+            singleLine = false,
+            maxLines = 3,
+            trailing = {
+                IconButton(onClick = {
+                    clipboardText(context)?.let { code = it.filterNot(Char::isWhitespace) }
+                    codeError = null
+                }, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        painterResource(R.drawable.ic_clipboard_paste),
+                        "Colar",
+                        tint = Sinal.textMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            },
+            tone = if (codeError != null) FieldTone.Error else FieldTone.Normal,
+            help = codeError
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+        ) {
+            SinalButton("Cancelar", onDismiss, kind = BtnKind.Ghost, hPad = 16.dp)
+            SinalButton("Adicionar", {
+                if (name.isBlank()) {
+                    nameError = "Dê um nome para reconhecer o amigo."
+                } else {
+                    val err = vm.addFriend(name, code)
+                    if (err != null) {
+                        codeError = err
+                    } else {
+                        onAdded(name.trim())
+                    }
+                }
+            }, hPad = 20.dp)
         }
     }
 }

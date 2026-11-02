@@ -1,6 +1,6 @@
-//! Ícone do app desenhado em código num espaço de 64×64 unidades: monitor com "play" branco
-//! sobre quadrado arredondado azul. Sem dependências: o `build.rs` inclui este arquivo para
-//! gerar o ícone do .exe, e a UI o usa no ícone da janela; os dois nunca divergem.
+//! Ícone do app desenhado em código num espaço de 64×64 unidades: monitor com "play" escuro
+//! sobre quadrado arredondado verde-limão (accent #C8F135 do tema "Sinal"). Sem dependências: o
+//! `build.rs` inclui este arquivo para gerar o ícone do .exe, e a UI o usa no ícone da janela; os dois nunca divergem.
 
 /// RGBA (não pré-multiplicado) `size`×`size`, com antialiasing por supersampling 4×4.
 pub fn rgba(size: u32) -> Vec<u8> {
@@ -54,8 +54,8 @@ fn sample(x: f32, y: f32) -> Option<[u8; 3]> {
     );
     let play = (a >= 0.0 && b >= 0.0 && c >= 0.0) || (a <= 0.0 && b <= 0.0 && c <= 0.0);
     Some(if frame || foot || play {
-        [255, 255, 255]
+        [0x0B, 0x0D, 0x10]
     } else {
-        [0x00, 0x67, 0xC0]
+        [0xC8, 0xF1, 0x35]
     })
 }

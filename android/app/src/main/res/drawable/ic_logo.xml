@@ -1,0 +1,11 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp" android:height="64dp"
+    android:viewportWidth="64" android:viewportHeight="64">
+    <!-- Mesmo desenho de src/icon.rs: monitor com play sobre quadrado arredondado verde-limão. -->
+    <path android:fillColor="#C8F135"
+        android:pathData="M14,0H50A14,14 0 0 1 64,14V50A14,14 0 0 1 50,64H14A14,14 0 0 1 0,50V14A14,14 0 0 1 14,0Z" />
+    <path android:fillColor="#0B0D10" android:fillType="evenOdd"
+        android:pathData="M14,16H50V42H14ZM18,20V38H46V20Z" />
+    <path android:fillColor="#0B0D10"
+        android:pathData="M29,42H35V47H29ZM22,47H42V50H22ZM27,22L39,29L27,36Z" />
+</vector>

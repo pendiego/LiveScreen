@@ -1,5 +1,8 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Preset {
+    P240p30,
+    P360p30,
+    P480p15,
     P480p30,
     P720p30,
     P720p60,
@@ -15,7 +18,10 @@ pub enum Preset {
 
 impl Preset {
     /// Da mais leve à mais pesada; `options` mantém a primeira de cada imagem repetida.
-    pub const ALL: [Preset; 9] = [
+    pub const ALL: [Preset; 12] = [
+        Preset::P240p30,
+        Preset::P480p15,
+        Preset::P360p30,
         Preset::P480p30,
         Preset::P720p30,
         Preset::P720p60,
@@ -29,6 +35,9 @@ impl Preset {
 
     pub fn name(self) -> &'static str {
         match self {
+            Preset::P240p30 => "240p 30 fps",
+            Preset::P360p30 => "360p 30 fps",
+            Preset::P480p15 => "480p 15 fps",
             Preset::P480p30 => "480p 30 fps",
             Preset::P720p30 => "720p 30 fps",
             Preset::P720p60 => "720p 60 fps",
@@ -38,6 +47,15 @@ impl Preset {
             Preset::P2160p60 => "4K 60 fps",
             Preset::Native60 => "Nativa 60 fps",
             Preset::NativeHigh => "Nativa na taxa do monitor",
+        }
+    }
+
+    /// Hosts sem `light_presets` no Welcome não conhecem as faixas leves: o pedido viraria
+    /// erro de parse e derrubaria o canal de controle deles. Vai a mais leve que eles conhecem.
+    pub fn for_old_host(self) -> Preset {
+        match self {
+            Preset::P240p30 | Preset::P360p30 | Preset::P480p15 => Preset::P480p30,
+            p => p,
         }
     }
 }
@@ -144,6 +162,9 @@ const LIMIT_FPS: u64 = 60;
 /// Orçamento de pixels, fps e bitrate de cada faixa fixa.
 fn tier(preset: Preset) -> Option<(u64, u64, u64)> {
     Some(match preset {
+        Preset::P240p30 => (426 * 240, 30, 600_000),
+        Preset::P360p30 => (640 * 360, 30, 1_000_000),
+        Preset::P480p15 => (854 * 480, 15, 900_000),
         Preset::P480p30 => (854 * 480, 30, 1_500_000),
         Preset::P720p30 => (1280 * 720, 30, 4_000_000),
         Preset::P720p60 => (1280 * 720, 60, 6_000_000),
@@ -230,7 +251,9 @@ pub fn label(preset: Preset, p: &EncodeParams, src_w: u32, src_h: u32) -> String
         return format!("Nativa ({}×{}) {}fps", p.width, p.height, p.fps);
     }
     let name = match preset {
-        Preset::P480p30 => "480p",
+        Preset::P240p30 => "240p",
+        Preset::P360p30 => "360p",
+        Preset::P480p30 | Preset::P480p15 => "480p",
         Preset::P720p30 | Preset::P720p60 => "720p",
         Preset::P1080p30 | Preset::P1080p60 => "1080p",
         Preset::P1440p60 => "1440p",
@@ -381,6 +404,9 @@ mod tests {
         assert_eq!(
             names(1920, 1080, 60),
             [
+                "240p 30fps",
+                "480p 15fps",
+                "360p 30fps",
                 "480p 30fps",
                 "720p 30fps",
                 "720p 60fps",
@@ -389,7 +415,7 @@ mod tests {
             ]
         );
         // 1440p a 144 Hz: teto temporário 1080p60, só a faixa 1080p60
-        assert_eq!(names(2560, 1440, 144)[4..], ["1080p 60fps"]);
+        assert_eq!(names(2560, 1440, 144)[7..], ["1080p 60fps"]);
         // 4K a 240 Hz: a taxa para no teto e a resolução cai para caber no nível 5.2
         let v = options(3840, 2160, 240);
         let (pr, p) = v.last().unwrap();
@@ -400,11 +426,27 @@ mod tests {
         assert_eq!(
             names(800, 600, 60),
             [
+                "240p 30fps",
+                "480p 15fps",
+                "360p 30fps",
                 "480p 30fps",
                 "Nativa (800×600) 30fps",
-                "Nativa (800×600) 60fps"
+                "Nativa (800×600) 60fps",
             ]
         );
+    }
+
+    #[test]
+    fn light_presets_are_reductions_and_fall_back() {
+        let cur = encode_params(Preset::P480p30, 1920, 1080, 60);
+        for p in [Preset::P240p30, Preset::P360p30, Preset::P480p15] {
+            assert!(
+                is_reduction(cur, encode_params(p, 1920, 1080, 60)),
+                "{p:?} deve ser redução de 480p 30"
+            );
+            assert_eq!(p.for_old_host(), Preset::P480p30);
+        }
+        assert_eq!(Preset::P720p30.for_old_host(), Preset::P720p30);
     }
 
     #[test]

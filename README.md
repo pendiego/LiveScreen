@@ -1,23 +1,25 @@
 <div align="center">
 
-<img src="docs/logo.svg" width="96" height="96" alt="LiveScreen">
+<img src="site/assets/logo.svg" width="96" height="96" alt="LiveScreen">
 
 # LiveScreen
 
 **Compartilhe a tela do Windows com seus amigos, direto de um PC para o outro.**<br>
 Sem cadastro e sem servidor de vídeo no meio: quem assiste só precisa do LiveScreen e de um código de convite.
 
-[![Versão](https://img.shields.io/github/v/release/pendiego/LiveScreen?label=vers%C3%A3o&color=0067C0)](https://github.com/pendiego/LiveScreen/releases/latest)
+[![Versão](https://img.shields.io/github/v/release/pendiego/LiveScreen?label=vers%C3%A3o&color=C8F135)](https://github.com/pendiego/LiveScreen/releases/latest)
 [![CI](https://github.com/pendiego/LiveScreen/actions/workflows/ci.yml/badge.svg)](https://github.com/pendiego/LiveScreen/actions/workflows/ci.yml)
-![Windows 10 2004+ x64](https://img.shields.io/badge/Windows-10%202004%2B%20x64-0067C0)
+![Windows 10 2004+ x64](https://img.shields.io/badge/Windows-10%202004%2B%20x64-C8F135)
 [![Licença: MIT ou Apache-2.0](https://img.shields.io/badge/licen%C3%A7a-MIT%20ou%20Apache--2.0-555)](#licença)
 
-**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases)
+**[Baixar o livescreen.exe](https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe)** · [todas as versões](https://github.com/pendiego/LiveScreen/releases) · [site](https://pendiego.github.io/LiveScreen/)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/home-dark.png">
-  <img src="docs/screenshots/home-light.png" width="820" alt="Tela inicial do LiveScreen, com as opções Compartilhar tela e Assistir">
-</picture>
+<img src="site/assets/img/home.webp" width="820" alt="Tela inicial do LiveScreen, com as opções Compartilhar tela e Assistir">
+
+<a href="https://pendiego.github.io/LiveScreen/assets/video/livescreen-v0.6.0.mp4"><img src="site/assets/img/video.webp" width="820" alt="Vídeo de lançamento do LiveScreen 0.6 (45 s): clique para assistir"></a>
+
+▶ **[Assista ao vídeo de lançamento da 0.6](https://pendiego.github.io/LiveScreen/assets/video/livescreen-v0.6.0.mp4)** (45 s)<br>
+<sub>Vídeo feito com o Claude Opus 5.5.</sub>
 
 </div>
 
@@ -40,8 +42,10 @@ Sem cadastro e sem servidor de vídeo no meio: quem assiste só precisa do LiveS
 <td valign="top">
 
 1. Copie o código que recebeu.
-2. Clique em **Assistir**: o código já entra preenchido.
-3. Clique em **Conectar**.
+2. Cole no campo **Assistir** da tela inicial e clique em **Assistir** (ou Enter): conecta direto.
+3. Com o campo vazio, **Assistir** abre a tela de convite com o código da área de transferência já preenchido; clique em **Conectar**.
+
+Amigos na lista entram sem convite: o botão **Assistir** aparece na linha do amigo só enquanto ele está transmitindo.
 
 </td>
 </tr>
@@ -65,6 +69,9 @@ flowchart LR
 
 Cada pessoa que assiste recebe do seu PC a própria cópia do vídeo e do áudio. Quando a conexão direta não é possível, os pacotes passam por um servidor de retransmissão, que só repassa dados criptografados de ponta a ponta.
 
+> [!NOTE]
+> O servidor de retransmissão padrão é a infraestrutura pública e gratuita da n0 (equipe do iroh). Ela é compartilhada com outros apps, [feita para desenvolvimento e testes e tem limite de taxa](https://docs.iroh.computer/add-a-relay). Com conexão direta, nada passa por ela. Quando alguém aparece como **Via servidor**, qualidades altas podem travar: baixe a qualidade da transmissão ou peça uma mais leve no menu **Qualidade** de quem assiste.
+
 ## Qualidade, sala e internet
 
 Quem limita o tamanho da sala é o **upload** da sua internet:
@@ -83,8 +90,10 @@ Para ajudar na escolha:
 - **Upload medido:** ao abrir a escolha de tela, o app mede o seu upload (~5 s) e mostra quantas pessoas cada qualidade aguenta.
 - **Qualidade recomendada:** o app marca a mais pesada que o seu PC e a sua internet sustentam para o tamanho da sala, até 1080p 60fps.
 - **Limite da sala:** começa em 4 pessoas e pode ser aumentado durante a transmissão. Se o limite passar do que a internet aguenta, aparece um aviso. Quem tenta entrar com a sala cheia recebe "Recusado: sala cheia".
-- **Opções conforme a fonte:** só aparecem as que cabem na tela ou janela escolhida. Por enquanto a transmissão vai até 1080p 60fps, mesmo em monitores maiores ou acima de 60 Hz.
-- **Aviso de PC sobrecarregado:** se o computador não der conta da qualidade, o app avisa e sugere uma mais leve.
+- **Opções conforme a fonte:** só aparecem as que cabem na tela ou janela escolhida, das maiores para as menores (a mesma ordem vale para a qualidade padrão nas Configurações e para o menu **Qualidade** de quem assiste, no desktop e no Android). Por enquanto a transmissão vai até 1080p 60fps, mesmo em monitores maiores ou acima de 60 Hz.
+- **PC sobrecarregado:** se o computador não der conta da qualidade, o app avisa e, com "Baixar a qualidade sozinho" ligado (padrão), reduz uma faixa sozinho, no máximo a cada 10 s. Só reduz, e só por sobrecarga do PC; a rede continua só com o bitrate adaptativo. Trocas de qualidade ou codec rodam em segundo plano e não travam a janela.
+- **Sem custo de servidor:** não há servidor de vídeo para pagar. Cada pessoa recebe a própria cópia, então o upload necessário é o valor da tabela vezes o número de pessoas. Para caber mais gente, baixe a qualidade ou o limite da sala.
+- **Leve para quem assiste:** o codec é escolhido automaticamente entre os que todos na sala decodificam. HEVC e AV1 só entram se todo mundo os decodifica pela placa de vídeo; senão vai H.264, que o Android sempre usa. Se o PC ou o celular de quem assiste esquentar ou travar, peça uma qualidade mais leve no menu **Qualidade**.
 
 ## Recursos
 
@@ -96,27 +105,29 @@ Para ajudar na escolha:
 | **Conexão** | Direta entre os PCs via [iroh](https://iroh.computer), com servidor de retransmissão quando a conexão direta não é possível. A conexão é criptografada de ponta a ponta. |
 | **Rede** | Controle de congestionamento BBR e bitrate adaptativo: quando a fila de algum espectador cresce, o bitrate cai na hora e volta aos poucos até o teto da qualidade. Vídeo atrasado é descartado em vez de acumular. |
 | **Atualização** | Pelo próprio app, com conferência do arquivo baixado. |
-| **Android** | Visual Material 3 e decodificação H.264 por hardware (com fallback para software). |
-| **Interface** | Visual no estilo Vercel/Geist, com fonte Geist embutida, tema claro e escuro (ou seguindo o Windows), anel de foco azul para navegar pelo teclado e nomes acessíveis nos botões só com ícone. Quando as animações estão desligadas no Windows, o app desativa as animações de transição e de rolagem; os indicadores de carregamento continuam girando. |
+| **Android** | Tema escuro Sinal, fontes Space Grotesk, Inter e JetBrains Mono, ícones Lucide, popup de atualização e decodificação H.264 por hardware (com fallback para software). |
+| **Interface** | Tema escuro único "Sinal" (verde-limão sobre grafite), com as fontes Space Grotesk, Inter e JetBrains Mono embutidas e ícones Lucide, anel de foco verde-limão para navegar pelo teclado e nomes acessíveis nos botões só com ícone. Quando as animações estão desligadas no Windows, o app desativa as animações de transição e de rolagem; os indicadores de carregamento continuam girando. |
+| **Tela cheia (desktop)** | Ao conectar, o viewer do PC abre em tela cheia. `F11` ou o botão da barra alternam, `Esc` sai da tela cheia e **Sair** volta à Home. |
+| **Navegador** | "Copiar link do navegador" gera um link para assistir sem instalar nada. A página usa o tema Sinal e mostra cada etapa (conectando, esperando o host aceitar, recebendo vídeo, sinal instável, encerrado, com "Tentar de novo" nos erros). O player tem selo AO VIVO com tempo, painel de estatísticas (resolução, fps, taxa, perda, latência e caminho direto, IPv4 ou IPv6), chat, mudo, Picture-in-Picture e tela cheia, com controles que somem sozinhos e atalhos `M`, `P`, `I`, `F` e `C` (chat). O chat abre numa coluna ao lado do vídeo, como na Twitch; no celular em pé desce para baixo do vídeo, e no celular deitado volta para o lado. Ele fecha pelo X do cabeçalho, pelo `C` ou por `Esc` no campo de mensagem, e a tela cheia leva vídeo e chat juntos. Ao abrir o link, a chave da sala sai da barra de endereço e fica só na aba (recarregar continua funcionando). A página tem CSP e cabeçalhos que impedem embutir em outro site. Se a sinalização cair (queda de rede de quem transmite ou atualização do servidor do link), quem já está assistindo continua vendo e conversando. Abrindo a página sem link, dá para colar o link inteiro ou só o código `sala.chave`; com uma sala já guardada na aba, o botão **Trocar transmissão** esquece a anterior e volta ao campo de colar. Funciona no Chrome, Edge, Firefox e Safari: o Firefox só decodifica H.264 Baseline, então enquanto houver um espectador assim o host codifica a sala em Baseline (o rótulo do encoder mostra "H.264 Baseline (navegador)") e volta ao normal quando ele sai. No celular, com a aba em segundo plano (e sem Picture-in-Picture), a página avisa o host e ele para de mandar o vídeo para ela, economizando dados e bateria; o áudio continua, e a imagem volta em cerca de 1 s ao reabrir a aba. Se uma VPN for a rota padrão do host, o app avisa na tela de transmissão e o link do navegador também tenta pela placa de rede física; se a VPN bloquear o tráfego fora dela, desligue-a. Links gerados a partir desta versão (terminam em `.v2`) trocam a sinalização cifrada com a chave do link (AES-256-GCM): o servidor de sinalização não vê nome, endereços nem impressões digitais e não consegue se passar por quem transmite, mas continua sendo quem entrega a página. |
+| **Chat** | Chat de texto na transmissão, no host e em quem assiste (desktop, Android e navegador). Quem assiste manda a mensagem ao host, e o host repassa para a sala toda, inclusive para quem enviou (o eco confirma o envio). Uma linha por mensagem, até 500 caracteres, no máximo 5 em rajada e 2 por segundo por pessoa (o excesso é descartado). Não há histórico para quem entra no meio nem gravação em disco, e não tem horário. Quem assiste aparece como `Nome #N` (o número é atribuído pelo host, então nomes iguais não se confundem), o host leva a marca **anfitrião** e amigos (por chave) levam a marca **amigo**; no navegador não há selo de amigo. Suas próprias mensagens aparecem como "Você". Com o chat fechado, chega um aviso da mensagem nova. Tudo passa pela mesma conexão da transmissão: não há servidor novo nem conexão externa extra. |
+| **Doações simuladas (experimental)** | Em Configurações → Experimental, o host liga "Doações simuladas no chat" (vale na próxima transmissão). Quem assiste pelo desktop ou pelo navegador vê botões de moedas fictícias (5, 10, 50, 100) no chat; a doação vira uma linha destacada ("doou N moedas") e host e espectadores recebem um aviso. Nenhum dinheiro de verdade. O Android só mostra a linha, sem botões. |
 
 ## Configurações
 
-Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar pela placa de vídeo, estatísticas de vídeo ao assistir (overlay com fps e ms por quadro), qualidade e áudio padrão, limite da sala, nome, tema, verificação de atualização e backends de captura. Tudo fica em `ui.json`.
+Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar pela placa de vídeo, mostrar o vídeo direto da placa de vídeo sem cópia pelo processador, estatísticas de vídeo ao assistir (overlay com fps e ms por quadro), qualidade e áudio padrão, baixar a qualidade sozinho quando o PC não der conta, aceitar pedidos de qualidade de quem assiste, limite da sala, nome, verificação de atualização e backends de captura. Tudo fica em `ui.json`.
 
 <div align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-dark.png">
-  <img src="docs/screenshots/settings-light.png" width="820" alt="Janela de Configurações do LiveScreen">
-</picture>
+<img src="site/assets/img/settings.webp" width="820" alt="Janela de Configurações do LiveScreen">
 </div>
 
-**Qualidade pelo espectador:** quem assiste pode pedir ao host uma qualidade mais leve (menu "Qualidade"). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda.
+**Qualidade pelo espectador:** quem assiste (no app ou no navegador, que tem o mesmo menu a partir desta versão do host) pode pedir ao host uma qualidade mais leve (menu "Qualidade"), inclusive as faixas 240p 30, 360p 30 e 480p 15 (hosts mais antigos, que não conhecem essas faixas, recebem 480p 30). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda. O host pode desligar os pedidos em Configurações ("Aceitar pedidos de qualidade mais leve de quem assiste"); desligado, eles só aparecem como aviso.
 
 ## Requisitos
 
 - **Host (quem transmite):** Windows 10 versão 2004 ou superior, 64 bits.
-- **Viewer (quem assiste):** Windows 10 2004+ x64 ou Android 8.0 (API 26) ou superior. O Android não transmite.
-- **Versões:** o host 0.5 só aceita viewers 0.5 (protocolo 5). Viewers 0.5.x conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com "versão incompatível".
+- **Viewer (quem assiste):** Windows 10 2004+ x64 ou Android 8.0 (API 26) ou superior.
+- **Host Android (quem transmite):** Android 8.0 (API 26) ou superior; a transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior, a permissão de microfone/áudio e só captura apps que permitem; o microfone não é transmitido. O aparelho precisa de um codificador Opus; sem ele a transmissão segue sem áudio.
+- **Versões:** hosts 0.5 e 0.6 aceitam viewers 0.5 e 0.6 (protocolo 5). Viewers 0.5 e 0.6 conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com "versão incompatível". O chat exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona normalmente, só sem chat (o botão não aparece). O número do protocolo não mudou na 0.6.
 
 ## Download e atualização
 
@@ -124,34 +135,41 @@ Baixe o `livescreen.exe` (ou o `.zip`) em [Releases](https://github.com/pendiego
 
 Ao abrir, o app verifica se há versão nova. Se houver, aparece o botão **Atualizar para a versão X** no rodapé da tela inicial. Ele:
 
-1. baixa o `livescreen.exe` da release;
+1. baixa a assinatura `livescreen.exe.sig` e o `livescreen.exe` da release;
 2. confere o sha256 publicado pelo GitHub;
-3. troca o executável e reabre o app.
+3. confere a assinatura Ed25519 (feita offline pelo mantenedor) sobre a versão e o sha256, com a chave pública embutida no app; sem assinatura válida a release é ignorada;
+4. troca o executável e reabre o app.
+
+> [!NOTE]
+> Publicação (mantenedor): o CI cria a release como rascunho; `.github/scripts/sign-release.ps1 -Tag vX.Y.Z` baixa o exe, assina com a chave privada local (`%USERPROFILE%\.livescreen-release\update-key.pk8`, fora do repositório), sobe `livescreen.exe.sig` e publica. Enquanto estiver em rascunho, nenhum updater vê a release.
 
 > [!NOTE]
 > Para atualizar, o executável precisa estar numa pasta com permissão de escrita (fora de `Program Files`, por exemplo).
 
-### Android (só para assistir)
+### Android (assistir e transmitir)
 
-O app Android só **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases). Cole o código de convite e toque em **Assistir**. Ele conecta a hosts 0.5 e também a hosts 0.4 (convite sem chave de sala).
+O app Android **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases), cole o código de convite e toque em **Assistir**. Ele conecta a hosts 0.5 e 0.6 e também a hosts 0.4 (convite sem chave de sala).
 
-- **Bateria:** com o app em segundo plano o áudio pausa e, em hosts 0.5, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar. Hosts 0.4 não entendem esse pedido e continuam enviando vídeo. Mudo também pausa a decodificação do áudio.
+Também **transmite** a tela: toque em **Transmitir tela** na Home, aceite o pedido de captura e a notificação (a transmissão roda num serviço em primeiro plano, com a ação **Parar**). A tela mostra o convite, o link do navegador, a qualidade (padrão 720p 30 fps), quem assiste (com **Remover**) e o chat. A sala começa com 4 pessoas, e amigos adicionados assistem sem convite. Girar o aparelho não muda o tamanho da transmissão. Se um espectador pedir qualidade menor, o app reduz sozinho. O link do navegador depende de o navegador alcançar o aparelho (NAT, emuladores).
+
+- **Bateria:** com o app em segundo plano o áudio pausa e, em hosts 0.5 ou mais novos, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar. Hosts 0.4 não entendem esse pedido e continuam enviando vídeo. Mudo também pausa a decodificação do áudio.
 - **Atualização:** o app confere a release pelo GitHub e baixa o APK novo.
 
 ## Conexões que o app faz
 
 | Destino | Quando | Para quê |
 |---|---|---|
-| Servidores públicos da n0 (equipe do iroh) | ao transmitir e ao assistir | Encontrar o outro PC e retransmitir quando não há conexão direta. Os servidores repassam pacotes criptografados e não veem o vídeo. |
+| Servidores públicos da n0 (equipe do iroh) | ao transmitir, ao assistir e com o app aberto fora de uma transmissão quando há amigos na lista | Encontrar o outro PC e retransmitir quando não há conexão direta, e ver quais amigos estão transmitindo (uma conexão curta por amigo a cada 15 s). Os servidores repassam pacotes criptografados e não veem o vídeo. É infraestrutura pública compartilhada, para testes e com limite de taxa: não há garantia de banda quando o vídeo passa por ela. |
 | `api.github.com` / `github.com` | ao abrir o app; ao clicar em Atualizar (desktop e Android) | Verificar e baixar versões novas |
 | `speed.cloudflare.com` | ao abrir a escolha de tela, uma vez por execução, e ao clicar em "Medir de novo" | Medir o upload. O teste dura ~5 s e envia dados de teste: cerca de 60 MB numa fibra de 100 Mbps, com teto de 150 MB. |
+| `livescreen.pendiego.com` (Cloudflare Worker) e `stun.cloudflare.com` | ao clicar em "Copiar link do navegador" durante uma transmissão | Sinalização do espectador no navegador (só o offer/answer WebRTC, sem vídeo) e descoberta do endereço público por STUN (o host consulta `stun.cloudflare.com`, `stun.l.google.com`, `global.stun.twilio.com`, `stun.nextcloud.com` e `stun.sipgate.net` a cada espectador do navegador para achar o endereço público e prever portas). O vídeo vai direto do PC para o navegador (WebRTC), sem TURN. |
 
 ## Avançado
 
 <details>
 <summary><b>Arquivos em <code>%APPDATA%\LiveScreen\</code> e <code>config.json</code></b></summary>
 
-- **`ui.json`:** preferências (qualidade, áudio, nome, volume, limite da sala, posição da janela, decodificação/codificação por hardware, estatísticas, tema, atualização, backends de captura).
+- **`ui.json`:** preferências (qualidade, áudio, nome, volume, limite da sala, posição da janela, decodificação/codificação por hardware, estatísticas, atualização, backends de captura).
 - **`livescreen.log`:** registro para diagnóstico.
 - **`config.json`** (opcional): desliga partes da captura ou do encoder para contornar problemas de driver:
 
@@ -207,4 +225,4 @@ cargo test --release e2e_window -- --ignored --nocapture        # transmite uma 
 
 Dual: [MIT](LICENSE-MIT) ou [Apache-2.0](LICENSE-APACHE), à sua escolha.
 
-A fonte [Geist](https://github.com/vercel/geist-font) (Geist Sans e Geist Mono), embutida no `.exe`, é distribuída sob a [SIL Open Font License 1.1](assets/fonts/OFL.txt).
+As fontes [Space Grotesk](assets/fonts/OFL-SpaceGrotesk.txt), [Inter](assets/fonts/OFL-Inter.txt) e [JetBrains Mono](assets/fonts/OFL-JetBrainsMono.txt), embutidas no `.exe` e no app Android, são distribuídas sob a SIL Open Font License 1.1. Os ícones são do [Lucide](assets/fonts/LICENSE-Lucide.txt).

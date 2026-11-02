@@ -3,9 +3,9 @@
     android:viewportWidth="108" android:viewportHeight="108">
     <!-- Mesmo desenho de src/icon.rs (64x64), centrado na zona segura do ícone adaptativo. -->
     <group android:translateX="22" android:translateY="22">
-        <path android:fillColor="#FFFFFF" android:fillType="evenOdd"
+        <path android:fillColor="#0B0D10" android:fillType="evenOdd"
             android:pathData="M14,16H50V42H14ZM18,20V38H46V20Z" />
-        <path android:fillColor="#FFFFFF"
+        <path android:fillColor="#0B0D10"
             android:pathData="M29,42H35V47H29ZM22,47H42V50H22ZM27,22L39,29L27,36Z" />
     </group>
 </vector>

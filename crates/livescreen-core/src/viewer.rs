@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use iroh::Endpoint;
-use iroh::endpoint::{Connection, ConnectionError, presets};
+use iroh::{Endpoint, SecretKey};
+use iroh::endpoint::{Connection, ConnectionError};
 use serde::Serialize;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::UnboundedSender;
@@ -30,6 +30,8 @@ pub enum Phase {
 #[derive(Clone, Debug, Serialize)]
 pub struct WatchStatus {
     pub phase: Phase,
+    pub host_id: String,
+    pub host_name: String,
     pub path: String,
     pub rtt_ms: u32,
     pub fps: f32,
@@ -42,6 +44,9 @@ pub struct WatchStatus {
     pub decode_ms: f32,
     pub codec: String,
     pub zero_copy: bool,
+    pub chat: bool,
+    pub chat_id: u32,
+    pub donate: bool,
 }
 
 pub fn close_reason(e: &ConnectionError) -> &'static str {
@@ -111,6 +116,8 @@ pub struct ViewerSession {
     ep: Endpoint,
     task: JoinHandle<()>,
     pub status: Arc<Mutex<WatchStatus>>,
+    /// Mensagens do chat recebidas do host (já limpas).
+    pub chat: Arc<Mutex<crate::chat::ChatLog>>,
     ctl_tx: UnboundedSender<ViewerMsg>,
     stopped: AtomicBool,
 }
@@ -119,6 +126,7 @@ impl ViewerSession {
     pub fn start(
         rt: &Handle,
         ticket: &str,
+        identity: SecretKey,
         name: &str,
         app_version: &str,
         decoders: Vec<Codec>,
@@ -127,19 +135,12 @@ impl ViewerSession {
         notify: Arc<dyn Fn() + Send + Sync>,
         outputs: StartOutputs,
     ) -> Result<ViewerSession> {
-        let (t, key) = parse_invite(ticket).ok_or_else(|| anyhow!("Código de convite inválido"))?;
-        let ep = rt.block_on(async {
-            let transport = iroh::endpoint::QuicTransportConfig::builder()
-                .max_concurrent_uni_streams(noq_proto::VarInt::from_u32(8))
-                .max_concurrent_bidi_streams(noq_proto::VarInt::from_u32(0))
-                .build();
-            Endpoint::builder(presets::N0)
-                .transport_config(transport)
-                .bind()
-                .await
-        })?;
+        let target = Target::parse(ticket).ok_or_else(|| anyhow!("Código de convite inválido"))?;
+        let ep = rt.block_on(crate::friends::dial_endpoint(identity))?;
         let status = Arc::new(Mutex::new(WatchStatus {
             phase: Phase::Connecting,
+            host_id: target.addr().id.to_string(),
+            host_name: String::new(),
             path: "?".into(),
             rtt_ms: 0,
             fps: 0.0,
@@ -152,12 +153,16 @@ impl ViewerSession {
             decode_ms: 0.0,
             codec: String::new(),
             zero_copy: false,
+            chat: false,
+            chat_id: 0,
+            donate: false,
         }));
         let (ctl_tx, ctl_rx) = tokio::sync::mpsc::unbounded_channel();
+        let chat = Arc::new(Mutex::new(crate::chat::ChatLog::default()));
         let task = {
             let (ep, status) = (ep.clone(), status.clone());
+            let chat = chat.clone();
             let (name, app_version) = (name.to_string(), app_version.to_string());
-            let addr = t.endpoint_addr().clone();
             let notify = notify.clone();
             rt.spawn(async move {
                 let end = |m: String| {
@@ -169,8 +174,7 @@ impl ViewerSession {
                 };
                 match run(
                     &ep,
-                    addr,
-                    key,
+                    target,
                     &status,
                     name,
                     app_version,
@@ -180,6 +184,7 @@ impl ViewerSession {
                     notify.clone(),
                     outputs,
                     ctl_rx,
+                    chat,
                 )
                 .await
                 {
@@ -194,6 +199,7 @@ impl ViewerSession {
         Ok(ViewerSession {
             rt: rt.clone(),
             status,
+            chat,
             ep,
             task,
             ctl_tx,
@@ -205,6 +211,18 @@ impl ViewerSession {
     /// ou ignorar (há um intervalo mínimo entre pedidos).
     pub fn request_quality(&self, preset: Preset) {
         let _ = self.ctl_tx.send(ViewerMsg::SetQuality { preset });
+    }
+
+    /// Manda uma mensagem de chat ao host (ignorada se o host não suporta chat).
+    pub fn send_chat(&self, text: &str) {
+        if let Some(t) = crate::chat::clean_chat(text) {
+            let _ = self.ctl_tx.send(ViewerMsg::Chat { text: t, donate: 0 });
+        }
+    }
+
+    /// Doação simulada; o texto é opcional. O host recusa se não ligou a função.
+    pub fn donate(&self, amount: u32, text: &str) {
+        let _ = self.ctl_tx.send(ViewerMsg::Chat { text: crate::protocol::sanitize(text, crate::chat::MAX_CHAT_CHARS), donate: amount });
     }
 
     /// Avisa o host que a janela foi minimizada/restaurada: escondido, ele para de mandar vídeo.
@@ -220,7 +238,7 @@ impl ViewerSession {
         self.task.abort();
         let ep = self.ep.clone();
         self.rt.block_on(async {
-            let _ = tokio::time::timeout(Duration::from_secs(1), ep.close()).await;
+            let _ = tokio::time::timeout(Duration::from_millis(3500), ep.close()).await;
         });
     }
 }
@@ -233,8 +251,7 @@ impl Drop for ViewerSession {
 
 async fn run(
     ep: &Endpoint,
-    addr: iroh::EndpointAddr,
-    key: Option<[u8; ROOM_KEY_LEN]>,
+    target: Target,
     status: &Arc<Mutex<WatchStatus>>,
     name: String,
     app_version: String,
@@ -244,11 +261,17 @@ async fn run(
     notify: Arc<dyn Fn() + Send + Sync>,
     outputs: StartOutputs,
     mut ctl_rx: tokio::sync::mpsc::UnboundedReceiver<ViewerMsg>,
+    chat: Arc<Mutex<crate::chat::ChatLog>>,
 ) -> Result<String> {
-    let legacy = key.is_none();
-    if legacy {
-        info!("convite sem chave de sala: host 0.4, protocolo {LEGACY_PROTOCOL_VERSION}");
-    }
+    let addr = target.addr();
+    let (protocol, proof) = match &target {
+        Target::Invite(_, None) => {
+            info!("convite sem chave de sala: host 0.4, protocolo {LEGACY_PROTOCOL_VERSION}");
+            (LEGACY_PROTOCOL_VERSION, String::new())
+        }
+        Target::Invite(_, Some(k)) => (PROTOCOL_VERSION, room_proof(k, &addr.id, &ep.id())),
+        Target::Friend(_) => (PROTOCOL_VERSION, String::new()),
+    };
     let conn = tokio::time::timeout(Duration::from_secs(30), ep.connect(addr.clone(), ALPN))
         .await
         .map_err(|_| anyhow!("Não foi possível conectar (tempo esgotado)"))?
@@ -257,28 +280,35 @@ async fn run(
     write_msg(
         &mut send,
         &ViewerMsg::Hello {
-            protocol: if legacy { LEGACY_PROTOCOL_VERSION } else { PROTOCOL_VERSION },
+            protocol,
             app_version,
             name,
-            room_proof: key.map(|k| room_proof(&k, &addr.id, &ep.id())).unwrap_or_default(),
+            room_proof: proof,
             decoders,
+            chat: true,
         },
     )
     .await?;
     let welcome: HostMsg = tokio::time::timeout(Duration::from_secs(15), read_msg(&mut recv))
         .await
         .map_err(|_| anyhow!("Sem resposta do host"))??;
-    let (w, h, audio, title) = match welcome {
+    let (w, h, audio, title, host_name, light_presets, host_chat, chat_id, host_donate) = match welcome {
         HostMsg::Welcome {
             width,
             height,
             audio,
             title,
+            host_name,
+            light_presets,
+            chat,
+            chat_id,
+            donate,
             ..
-        } => (width, height, audio, title),
+        } => (width, height, audio, title, host_name, light_presets, chat, chat_id, donate),
         HostMsg::Rejected { reason } => return Ok(format!("Recusado: {reason}")),
         HostMsg::StreamEnded => return Ok("Transmissão encerrada".into()),
         HostMsg::StreamParams { .. } => return Ok("Resposta inesperada do host".into()),
+        HostMsg::Chat(_) => return Ok("Resposta inesperada do host".into()),
     };
     {
         let mut s = status.lock().unwrap();
@@ -287,6 +317,10 @@ async fn run(
         s.height = h;
         s.audio = audio;
         s.title = crate::protocol::sanitize(&title, 120);
+        s.host_name = crate::protocol::sanitize(&host_name, 32);
+        s.chat = host_chat;
+        s.chat_id = chat_id;
+        s.donate = host_donate;
     }
     let (tx, _audio) = outputs(&conn, audio);
 
@@ -368,9 +402,19 @@ async fn run(
                 }
                 Some(msg) = ctl_rx.recv() => {
                     // host 0.4 não conhece SetVisible: a mensagem derrubaria o canal de controle dele
-                    if legacy && matches!(msg, ViewerMsg::SetVisible { .. }) {
+                    if matches!(target, Target::Invite(_, None)) && matches!(msg, ViewerMsg::SetVisible { .. }) {
                         continue;
                     }
+                    // host sem chat fecharia o canal ao ver a variante; host sem doação mostraria só o texto
+                    if let ViewerMsg::Chat { donate, .. } = &msg
+                        && (!host_chat || (*donate > 0 && !host_donate))
+                    {
+                        continue;
+                    }
+                    let msg = match msg {
+                        ViewerMsg::SetQuality { preset } if !light_presets => ViewerMsg::SetQuality { preset: preset.for_old_host() },
+                        m => m,
+                    };
                     if write_msg(&mut send, &msg).await.is_err() {
                         return;
                     }
@@ -461,6 +505,12 @@ async fn run(
                         s.height = height;
                     }
                     Ok(HostMsg::StreamEnded) => break true,
+                    Ok(HostMsg::Chat(line)) => {
+                        if let Some(l) = line.sanitized() {
+                            chat.lock().unwrap().push(l);
+                            notify();
+                        }
+                    }
                     Ok(_) => {}
                     Err(_) => break false,
                 }

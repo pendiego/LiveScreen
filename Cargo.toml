@@ -4,7 +4,7 @@ default-members = [".", "crates/livescreen-core"]
 
 [package]
 name = "livescreen"
-version = "0.5.1"
+version = "0.6.2"
 edition = "2024"
 description = "Compartilhamento de tela P2P para Windows"
 readme = "README.md"
@@ -19,7 +19,7 @@ tracing-subscriber = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bytes = "1"
-tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 iroh = "1.4.1"
 egui = "0.37"
 iroh-tickets = "1.0.0"

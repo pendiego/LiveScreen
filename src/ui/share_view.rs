@@ -1,22 +1,26 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use livescreen_core::chat::{ChatLog, ChatRole, HOST_SENDER};
 use egui::{
     Align, Align2, Color32, CursorIcon, Layout, RichText, Sense, Stroke, UiBuilder,
     pos2, vec2,
 };
 
 use super::theme::{
-    self, I_BACK, I_CHECK, I_COPY, I_MONITOR, I_PEOPLE, I_PERSON, I_PLAY, I_REFRESH, I_REMOVE,
-    I_MIC, I_MIC_OFF, I_SEARCH, I_STOP, I_VOLUME, I_WARN, I_WINDOW,
+    self, I_ADD_FRIEND, I_BACK, I_CHECK, I_CIRCLE_CHECK, I_COPY, I_HANGUP, I_MIC, I_MIC_OFF,
+    I_MONITOR, I_PEOPLE, I_PERSON, I_PLAY, I_QUALITY, I_REFRESH, I_REMOVE, I_SEARCH, I_VOLUME,
+    I_WARN, I_WINDOW,
 };
 use super::toast::ToastKind;
 use super::{App, Screen};
 use crate::audio::capture::Mic;
 use crate::capture::{self, SourceId, SourceInfo};
 use livescreen_core::preset::{self, EncodeParams, Preset, viewers_for};
-use crate::share::{AudioState, ShareSession, ShareStatus};
+use crate::share::ShareSession;
+use livescreen_core::host::{AudioState, ShareStatus, WebState};
 use crate::speedtest::Upload;
 
 type Thumb = Option<(u32, u32, Vec<u8>)>;
@@ -244,8 +248,24 @@ fn begin_start(app: &mut App, ctx: &egui::Context) {
     let (rt, overrides, ctx2) = (app.rt.clone(), app.effective_overrides(), ctx.clone());
     let room = app.prefs.room_limit;
     let (title, source) = (info.title.clone(), info.id.clone());
+    let prober = app.take_prober();
+    let pending = std::mem::take(&mut app.background);
+    let identity = app.identity.clone();
+    let host_name = livescreen_core::protocol::sanitize(&app.prefs.name, 32);
+    let donate = app.prefs.experimental.fake_donate;
+    let friends: std::collections::HashSet<iroh::EndpointId> =
+        app.friend_ids().into_iter().collect();
     app.background.push(std::thread::spawn(move || {
-        let res = ShareSession::start(&rt, info, preset, audio, mic, encoders, overrides, room);
+        if let Some(p) = prober {
+            p.stop();
+        }
+        for h in pending {
+            let _ = h.join();
+        }
+        let res = ShareSession::start(
+            &rt, info, preset, audio, mic, encoders, overrides, room, identity, host_name,
+            friends, donate,
+        );
         ctx2.request_repaint();
         if let Err(std::sync::mpsc::SendError(Ok(s))) = tx.send(res) {
             s.stop();
@@ -262,12 +282,13 @@ fn poll_starting(app: &mut App, ctx: &egui::Context) {
     match st.rx.try_recv() {
         Ok(Ok(s)) => {
             let st = app.starting.take().unwrap();
-            app.share = Some(s);
+            app.share = Some(Arc::new(s));
             app.share_title = st.title;
             app.share_started = std::time::Instant::now();
             app.share_preview = Some(Preview::new(ctx, st.source.clone()));
             app.share_source = Some(st.source);
             app.known_viewers.clear();
+            app.share_chat_seen = 0;
             app.picker = None;
             app.screen = Screen::Sharing;
         }
@@ -285,6 +306,9 @@ fn poll_starting(app: &mut App, ctx: &egui::Context) {
 
 pub(super) fn preset_hint(pr: Preset) -> &'static str {
     match pr {
+        Preset::P240p30 => "Mínima; PC ou internet muito fracos",
+        Preset::P360p30 => "Bem leve; PC ou internet fracos",
+        Preset::P480p15 => "Muito leve; telas paradas e slides",
         Preset::P480p30 => "Muito leve; internet fraca",
         Preset::P720p30 => "Leve; redes lentas",
         Preset::P720p60 => "Leve e fluida; jogos",
@@ -305,10 +329,10 @@ fn source_card(
     selected: bool,
     card_w: f32,
 ) -> (bool, bool) {
-    let pal = theme::palette(ui);
-    let thumb_w = (card_w - 16.0).max(1.0);
+    let pal = theme::P;
+    let thumb_w = (card_w - 32.0).max(1.0);
     let thumb_h = (thumb_w * 9.0 / 16.0).round();
-    let card_h = thumb_h + 65.0;
+    let card_h = 16.0 + thumb_h + 12.0 + 38.0 + 16.0;
     let (rect, resp) = ui.allocate_exact_size(vec2(card_w, card_h), Sense::click());
     let resp = resp.on_hover_text(format!("{}\n{}", s.title, s.subtitle));
     let hovered = resp.hovered();
@@ -324,10 +348,8 @@ fn source_card(
     };
     theme::paint_surface(ui, rect, stroke);
 
-    let thumb = egui::Rect::from_min_size(rect.min + vec2(8.0, 8.0), vec2(thumb_w, thumb_h));
-    ui.painter()
-        .rect_filled(thumb, 4, ui.visuals().extreme_bg_color);
-    let weak = ui.visuals().weak_text_color();
+    let thumb = egui::Rect::from_min_size(rect.min + vec2(16.0, 16.0), vec2(thumb_w, thumb_h));
+    ui.painter().rect_filled(thumb, theme::R_MD, pal.bg);
     match tex {
         Some(t) if !s.minimized => {
             let sz = t.size_vec2();
@@ -346,7 +368,7 @@ fn source_card(
                 Align2::CENTER_CENTER,
                 I_WINDOW,
                 egui::FontId::proportional(28.0),
-                weak,
+                pal.text_muted,
             );
             let msg = if s.minimized {
                 "Minimizada"
@@ -358,22 +380,25 @@ fn source_card(
                 Align2::CENTER_CENTER,
                 msg,
                 egui::FontId::proportional(12.0),
-                weak,
+                pal.text_muted,
             );
         }
     }
-    if selected {
+    let title_right = if selected {
         ui.painter().text(
-            thumb.right_top() + vec2(-6.0, 6.0),
-            Align2::RIGHT_TOP,
-            I_CHECK,
-            egui::FontId::proportional(18.0),
+            pos2(rect.max.x - 16.0, thumb.max.y + 12.0 + 9.0),
+            Align2::RIGHT_CENTER,
+            I_CIRCLE_CHECK,
+            egui::FontId::proportional(20.0),
             pal.accent,
         );
-    }
+        rect.max.x - 16.0 - 24.0
+    } else {
+        rect.max.x - 16.0
+    };
     let text_rect = egui::Rect::from_min_max(
-        pos2(rect.min.x + 8.0, thumb.max.y + 6.0),
-        pos2(rect.max.x - 8.0, rect.max.y - 4.0),
+        pos2(rect.min.x + 16.0, thumb.max.y + 12.0),
+        pos2(title_right, thumb.max.y + 12.0 + 38.0),
     );
     let mut child = ui.new_child(
         UiBuilder::new()
@@ -381,15 +406,25 @@ fn source_card(
             .layout(Layout::top_down(Align::Min)),
     );
     child.spacing_mut().item_spacing.y = 2.0;
-    child.add(egui::Label::new(RichText::new(&s.title).strong()).truncate());
-    child.add(egui::Label::new(RichText::new(&s.subtitle).small().color(weak)).truncate());
+    child.add(
+        egui::Label::new(
+            RichText::new(&s.title)
+                .family(egui::FontFamily::Name("semibold".into()))
+                .size(14.0)
+                .color(pal.text),
+        )
+        .truncate(),
+    );
+    child.add(
+        egui::Label::new(
+            RichText::new(&s.subtitle)
+                .small()
+                .color(pal.text_muted),
+        )
+        .truncate(),
+    );
 
     (resp.clicked(), resp.double_clicked())
-}
-
-/// Barras do seletor com respiro das bordas.
-fn bar_frame(ui: &egui::Ui) -> egui::Frame {
-    egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(24, 12))
 }
 
 pub fn picker(app: &mut App, ui: &mut egui::Ui) {
@@ -418,19 +453,19 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
     let mut remeasure = false;
 
     egui::Panel::top("picker_top")
-        .frame(bar_frame(ui))
+        .frame(egui::Frame::new().fill(theme::P.surface).inner_margin(egui::Margin::symmetric(24, 16)))
         .show(ui, |ui| {
             ui.add_enabled_ui(!busy, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
                     // Altura do bloco de título antes de tudo: botões dos dois lados centram nela.
                     ui.set_min_height(44.0);
-                    if ui.button(format!("{I_BACK}  Voltar")).clicked() {
+                    if theme::button(ui, theme::Kind::Ghost, format!("{I_BACK}  Voltar")).clicked() {
                         go_back = true;
                     }
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 2.0;
-                        ui.label(RichText::new("Passo 1 de 2").small().weak());
+                        ui.label(RichText::new("Passo 1 de 2").small().color(theme::P.text_muted));
                         theme::heading(ui, "Clique no que você quer compartilhar");
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -441,7 +476,8 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
                         let resp = ui.add(theme::field(
                             ui,
                             egui::TextEdit::singleline(&mut p.filter)
-                                .hint_text(format!("{I_SEARCH}  Filtrar janelas…"))
+                                .hint_text("Filtrar janelas…")
+                                .prefix(RichText::new(I_SEARCH).color(theme::P.text_muted))
                                 .desired_width(220.0),
                         ));
                         if !p.filter_focused {
@@ -484,17 +520,17 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
                 .show(ui, |ui| {
                     // respiro entre os cartões e das bordas
                     egui::Frame::new()
-                        .inner_margin(egui::Margin::symmetric(16, 8))
+                        .inner_margin(egui::Margin::symmetric(24, 16))
                         .show(ui, |ui| {
                             let spacing = 16.0;
                             ui.spacing_mut().item_spacing = vec2(spacing, spacing);
                             let avail_w = ui.available_width();
                             let cols =
-                                (((avail_w + spacing) / (256.0 + spacing)).floor() as usize).max(1);
+                                (((avail_w + spacing) / (300.0 + spacing)).floor() as usize).max(1);
                             let card_w =
                                 ((avail_w - spacing * (cols - 1) as f32) / cols as f32).floor();
 
-                            theme::heading(ui, format!("{I_MONITOR}  Telas"));
+                            theme::section_label(ui, format!("{I_MONITOR}  Telas"));
                             ui.horizontal_wrapped(|ui| {
                                 for &i in &p.monitors {
                                     let sel = p.selected.as_ref() == Some(&p.sources[i].id);
@@ -511,14 +547,17 @@ pub fn picker(app: &mut App, ui: &mut egui::Ui) {
                                 }
                             });
                             ui.add_space(8.0);
-                            theme::heading(ui, format!("{I_WINDOW}  Janelas ({})", p.windows.len()));
+                            theme::section_label(
+                                ui,
+                                format!("{I_WINDOW}  Janelas ({})", p.windows.len()),
+                            );
                             if p.windows.is_empty() {
                                 let m = if p.applied.is_empty() {
                                     "Nenhuma janela disponível"
                                 } else {
                                     "Nenhuma janela corresponde ao filtro"
                                 };
-                                ui.label(RichText::new(m).weak());
+                                ui.label(RichText::new(m).color(theme::P.text_muted));
                             }
                             ui.horizontal_wrapped(|ui| {
                                 for &i in &p.windows {
@@ -679,13 +718,13 @@ fn upload_line(
     room: usize,
     allow_remeasure: bool,
 ) -> bool {
-    let warn = ui.visuals().warn_fg_color;
+    let warn = theme::P.warn;
     let mut again = false;
     match (upload, people_now) {
         (Upload::Measuring, _) => {
             ui.horizontal(|ui| {
                 ui.add(egui::Spinner::new().size(12.0));
-                ui.label(RichText::new("Medindo sua internet…").small().weak());
+                ui.label(RichText::new("Medindo sua internet…").small().color(theme::P.text_muted));
             });
         }
         (Upload::Done(bps), Some(n)) => {
@@ -701,8 +740,8 @@ fn upload_line(
                     ),
                 };
                 let rt = RichText::new(text).small();
-                ui.label(if n == 0 { rt.color(warn) } else { rt.weak() });
-                if allow_remeasure && theme::small_button(ui, "Medir de novo").clicked() {
+                ui.label(if n == 0 { rt.color(warn) } else { rt.color(theme::P.text_muted) });
+                if allow_remeasure && theme::small_button(ui, theme::Kind::Ghost, "Medir de novo").clicked() {
                     again = true;
                 }
             });
@@ -721,9 +760,9 @@ fn upload_line(
                 ui.label(
                     RichText::new("Não foi possível medir sua internet.")
                         .small()
-                        .weak(),
+                        .color(theme::P.text_muted),
                 );
-                if allow_remeasure && theme::small_button(ui, "Tentar de novo").clicked() {
+                if allow_remeasure && theme::small_button(ui, theme::Kind::Ghost, "Tentar de novo").clicked() {
                     again = true;
                 }
             });
@@ -735,11 +774,11 @@ fn upload_line(
 
 /// Aviso de PC sem fôlego, com atalho para o popup de qualidade.
 fn overload_banner(ui: &mut egui::Ui, has_lighter: bool, quality_open: &mut bool) {
-    let p = theme::palette(ui);
+    let p = theme::P;
     egui::Frame::new()
-        .fill(p.warn.linear_multiply(0.15))
+        .fill(theme::soft(p.warn))
         .stroke(Stroke::new(1.0, p.warn))
-        .corner_radius(8)
+        .corner_radius(theme::R_MD)
         .inner_margin(egui::Margin::same(12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -749,10 +788,11 @@ fn overload_banner(ui: &mut egui::Ui, has_lighter: bool, quality_open: &mut bool
                 } else {
                     "O computador não está dando conta nem da qualidade mais leve. Feche programas pesados."
                 };
-                ui.label(RichText::new(format!("{I_WARN}  {msg}")).color(p.warn));
+                ui.label(RichText::new(I_WARN).color(p.warn));
+                ui.label(RichText::new(msg).color(p.text));
                 if has_lighter {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button("Reduzir qualidade").clicked() {
+                        if theme::small_button(ui, theme::Kind::Secondary, "Reduzir qualidade").clicked() {
                             *quality_open = true;
                         }
                     });
@@ -771,26 +811,25 @@ fn quality_options(
 ) -> (Option<Preset>, bool) {
     let (mut picked, mut focus) = (None, false);
     egui::ScrollArea::vertical()
-        .max_height(300.0)
+        .max_height((ui.ctx().content_rect().height() - 480.0).clamp(120.0, 300.0))
         .auto_shrink([false, true])
         .show(ui, |ui| {
-            let w = ui.available_width();
-            for &(pr, _) in &choices.list {
-                let mut label = choices.label(pr);
-                match choices.people(pr) {
-                    Some(0) => label.push_str("  · ninguém"),
-                    Some(1) => label.push_str("  · até 1 pessoa"),
-                    Some(n) => label.push_str(&format!("  · até {n} pessoas")),
-                    None => {}
-                }
-                if Some(pr) == recommended {
-                    label.push_str("  · recomendado");
-                }
-                let b =
-                    egui::Button::selectable(Some(pr) == current, RichText::new(label).strong())
-                        .right_text(RichText::new(preset_hint(pr)).small().weak())
-                        .min_size(vec2(w, 34.0));
-                let r = ui.add(b);
+            ui.spacing_mut().item_spacing.y = 6.0;
+            for &(pr, _) in choices.list.iter().rev() {
+                let detail = match choices.people(pr) {
+                    Some(0) => "ninguém".to_string(),
+                    Some(1) => "até 1 pessoa".to_string(),
+                    Some(n) => format!("até {n} pessoas"),
+                    None => String::new(),
+                };
+                let r = theme::option_row(
+                    ui,
+                    Some(pr) == current,
+                    &choices.label(pr),
+                    &detail,
+                    Some(pr) == recommended,
+                )
+                .on_hover_text(preset_hint(pr));
                 focus |= r.has_focus();
                 if r.clicked() {
                     picked = Some(pr);
@@ -829,44 +868,70 @@ fn confirm_modal(
     let rec = ready.then(|| choices.recommended(software, room));
     let modal = theme::modal(ctx, "confirm_share").show(ctx, |ui| {
         ui.set_width(640.0);
-        ui.label(RichText::new("Passo 2 de 2").small().weak());
+        ui.label(RichText::new("Passo 2 de 2").small().color(theme::P.text_muted));
         theme::heading(ui, "Confirmar transmissão");
         ui.add_space(8.0);
         ui.add_enabled_ui(!busy, |ui| {
-            ui.horizontal(|ui| {
-                let (icon, kind) = if is_window {
-                    (I_WINDOW, "Janela")
-                } else {
-                    (I_MONITOR, "Tela")
-                };
-                match p.textures.get(&info.id).filter(|_| !info.minimized) {
-                    Some(t) => {
-                        let sz = t.size_vec2();
-                        let h = 72.0;
-                        ui.add(
-                            egui::Image::new((t.id(), vec2(h * sz.x / sz.y.max(1.0), h)))
-                                .corner_radius(4),
-                        );
-                    }
-                    None => {
-                        ui.label(RichText::new(icon).size(40.0).weak());
-                    }
-                }
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(format!("{icon}  {kind}")).small().weak());
-                    ui.add(egui::Label::new(RichText::new(&info.title).strong()).truncate());
-                    ui.add(egui::Label::new(RichText::new(&info.subtitle).weak()).truncate());
+            egui::Frame::new()
+                .fill(theme::P.surface)
+                .stroke(Stroke::new(1.0, theme::P.border))
+                .corner_radius(theme::R_MD)
+                .inner_margin(egui::Margin::same(10))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let (icon, kind) = if is_window {
+                            (I_WINDOW, "Janela")
+                        } else {
+                            (I_MONITOR, "Tela")
+                        };
+                        match p.textures.get(&info.id).filter(|_| !info.minimized) {
+                            Some(t) => {
+                                let sz = t.size_vec2();
+                                let h = 72.0;
+                                ui.add(
+                             egui::Image::new((t.id(), vec2(h * sz.x / sz.y.max(1.0), h)))
+                                        .corner_radius(theme::R_SM),
+                                );
+                            }
+                            None => {
+                                ui.label(RichText::new(icon).size(40.0).color(theme::P.text_muted));
+                            }
+                        }
+                        ui.vertical(|ui| {
+                            ui.label(
+                                RichText::new(format!("{icon}  {kind}"))
+                                    .small()
+                                    .color(theme::P.text_muted),
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&info.title)
+                                        .family(egui::FontFamily::Name("semibold".into()))
+                                        .size(14.0)
+                                        .color(theme::P.text),
+                                )
+                                .truncate(),
+                            );
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&info.subtitle)
+                                        .small()
+                                        .color(theme::P.text_muted),
+                                )
+                                .truncate(),
+                            );
+                        });
+                    });
                 });
-            });
             ui.add_space(12.0);
-            ui.label(RichText::new("Qualidade").strong());
+            theme::section_label(ui, "Qualidade");
             if software {
                 ui.label(
                     RichText::new(format!(
                         "{I_WARN}  Sem encoder de vídeo na placa: o processador faz o trabalho, prefira a qualidade leve."
                     ))
                     .small()
-                    .color(ui.visuals().warn_fg_color),
+                    .color(theme::P.warn),
                 );
             }
             let (picked, f) = quality_options(ui, Some(p.preset), rec, &choices);
@@ -898,6 +963,7 @@ fn confirm_modal(
                     egui::ComboBox::from_id_salt("mic_device")
                         .selected_text(name)
                         .width(320.0)
+                        .icon(theme::chevron_icon)
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut p.mic_device, None, "Padrão do Windows");
                             for (id, n) in &p.mics {
@@ -910,7 +976,7 @@ fn confirm_modal(
         });
         ui.add_space(12.0);
         if let Some(e) = error {
-            ui.label(RichText::new(e).color(ui.visuals().error_fg_color));
+            ui.label(RichText::new(e).color(theme::P.danger));
             ui.add_space(4.0);
         }
         ui.horizontal(|ui| {
@@ -919,24 +985,26 @@ fn confirm_modal(
                 ui.label("Iniciando…");
                 return;
             }
-            let back = ui.button(format!("{I_BACK}  Trocar"));
-            focus_in |= back.has_focus();
-            if back.clicked() {
-                close = true;
-            }
-            let r = ui
-                .add_enabled_ui(ready, |ui| {
-                    theme::primary_button(ui, &format!("{I_PLAY}  Iniciar transmissão"))
-                })
-                .inner;
-            focus_in |= r.has_focus();
-            if r.clicked() {
-                start = true;
-            }
-            if !ready {
-                ui.add(egui::Spinner::new().size(14.0));
-                ui.label(RichText::new("Detectando encoder…").weak());
-            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let r = ui
+                    .add_enabled_ui(ready, |ui| {
+                        theme::button(ui, theme::Kind::Primary, &format!("{I_PLAY}  Iniciar transmissão"))
+                    })
+                    .inner;
+                focus_in |= r.has_focus();
+                if r.clicked() {
+                    start = true;
+                }
+                let back = theme::button(ui, theme::Kind::Secondary, format!("{I_BACK}  Trocar"));
+                focus_in |= back.has_focus();
+                if back.clicked() {
+                    close = true;
+                }
+                if !ready {
+                    ui.add(egui::Spinner::new().size(14.0));
+                    ui.label(RichText::new("Detectando encoder…").small().color(theme::P.text_muted));
+                }
+            });
         });
     });
     // Enter é atalho de "Iniciar" só sem foco em um controle do popup; com foco, o Enter
@@ -958,6 +1026,7 @@ fn invite_card(
     st: &ShareStatus,
     copied_at: &mut Option<Instant>,
     new_invite: &mut bool,
+    copy_web: &mut bool,
 ) {
     theme::card(ui, |ui| {
         ui.set_width(ui.available_width());
@@ -966,7 +1035,8 @@ fn invite_card(
             RichText::new(
                 "Cole (Ctrl+V) para quem vai assistir. O código só funciona enquanto esta transmissão estiver ativa.",
             )
-            .weak(),
+            .small()
+            .color(theme::P.text_muted),
         );
         match &st.ticket {
             None => {
@@ -976,7 +1046,10 @@ fn invite_card(
                 });
             }
             Some(t) => {
-                ui.label(RichText::new("Código pronto e já copiado").strong());
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(I_CIRCLE_CHECK).small().color(theme::P.success));
+                    ui.label(RichText::new("Código pronto e já copiado").small().color(theme::P.text));
+                });
                 let copied = copied_at
                     .as_ref()
                     .map_or(false, |t| t.elapsed() < Duration::from_secs(2));
@@ -985,17 +1058,29 @@ fn invite_card(
                 } else {
                     format!("{I_COPY}  Copiar código")
                 };
-                if theme::primary_button_full(ui, &btn_text).clicked() {
-                    ctx.copy_text(t.clone());
-                    *copied_at = Some(Instant::now());
-                }
-                if ui
-                    .add_sized([ui.available_width(), 0.0], egui::Button::new("Novo convite"))
-                    .on_hover_text("O código anterior deixa de funcionar; quem já está assistindo continua")
+                ui.scope(|ui| {
+                    ui.spacing_mut().interact_size.y = 36.0;
+                    if theme::button_full(ui, theme::Kind::Primary, &btn_text).clicked() {
+                        ctx.copy_text(t.clone());
+                        *copied_at = Some(Instant::now());
+                    }
+                    if theme::button_full(ui, theme::Kind::Secondary, "Novo convite")
+                        .on_hover_text("O código anterior deixa de funcionar; quem já está assistindo continua")
+                        .clicked()
+                    {
+                        *new_invite = true;
+                    }
+                    if theme::button_full(
+                        ui,
+                        theme::Kind::Secondary,
+                        format!("{I_COPY}  Copiar link do navegador"),
+                    )
+                    .on_hover_text("Quem não tem o LiveScreen assiste pelo navegador, sem instalar nada")
                     .clicked()
-                {
-                    *new_invite = true;
-                }
+                    {
+                        *copy_web = true;
+                    }
+                });
                 if let Some(inst) = copied_at {
                     if inst.elapsed() < Duration::from_secs(2) {
                         ctx.request_repaint_after(Duration::from_millis(100));
@@ -1005,12 +1090,52 @@ fn invite_card(
                 }
             }
         }
+        match &st.web {
+            WebState::Off => {
+                ui.label(
+                    RichText::new("Funciona no Chrome, Edge, Firefox e Safari, no computador ou no celular.")
+                        .small()
+                        .color(theme::P.text_muted),
+                );
+            }
+            WebState::Connecting => {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new());
+                    ui.label(RichText::new("Ligando o link do navegador…").small());
+                });
+            }
+            WebState::Online => {
+                ui.label(
+                    RichText::new(format!("{I_CIRCLE_CHECK}  Link do navegador ativo"))
+                        .small()
+                        .color(theme::P.success),
+                );
+            }
+            WebState::Retrying(e) => {
+                ui.label(
+                    RichText::new(format!(
+                        "{I_WARN}  Servidor do link indisponível, tentando de novo: {e}"
+                    ))
+                    .small()
+                    .color(theme::P.warn),
+                );
+            }
+        }
+        if let (false, Some(vpn)) = (matches!(st.web, WebState::Off), &st.web_vpn) {
+            ui.label(
+                RichText::new(format!(
+                    "{I_WARN}  A VPN \"{vpn}\" é a rota padrão. O link do navegador também tenta pela sua conexão local; se a VPN bloquear o tráfego fora dela, quem assiste pelo navegador pode não conectar. Nesse caso, desligue a VPN."
+                ))
+                .small()
+                .color(theme::P.warn),
+            );
+        }
         if st.online_warning {
             ui.label(
                 RichText::new(format!(
                     "{I_WARN}  Sem servidor de retransmissão: só conexões diretas devem funcionar."
                 ))
-                .color(ui.visuals().warn_fg_color),
+                .color(theme::P.warn),
             );
         }
     });
@@ -1024,6 +1149,8 @@ fn viewers_card(
     room: &mut usize,
     upload: Upload,
     people_now: Option<usize>,
+    add_friend: &mut Option<(String, iroh::EndpointId)>,
+    can_add_friend: bool,
 ) {
     if let Some((_, t)) = kick_pending {
         if t.elapsed() >= Duration::from_secs(3) {
@@ -1041,21 +1168,10 @@ fn viewers_card(
             room
         ));
         ui.horizontal(|ui| {
-            ui.label("Limite da sala");
-            if ui
-                .add_enabled(*room > 1, egui::Button::new("−").min_size(vec2(36.0, 36.0)))
-                .on_hover_text("Quem já está assistindo continua")
-                .clicked()
-            {
-                *room -= 1;
-            }
-            ui.label(RichText::new(room.to_string()).strong());
-            if ui
-                .add_enabled(*room < MAX_ROOM, egui::Button::new("+").min_size(vec2(36.0, 36.0)))
-                .clicked()
-            {
-                *room += 1;
-            }
+            ui.label(RichText::new("Limite da sala").small().color(theme::P.text_muted));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                theme::stepper(ui, room, 1, MAX_ROOM, "Quem já está assistindo continua");
+            });
         });
         upload_line(ui, upload, people_now, *room, false);
         if st.viewers.is_empty() {
@@ -1068,36 +1184,98 @@ fn viewers_card(
                 RichText::new(format!(
                     "Ninguém assistindo ainda. Envie o código de convite para {who}."
                 ))
-                .weak(),
+                .small()
+                .color(theme::P.text_muted),
             );
         }
-        let p = theme::palette(ui);
+        let p = theme::P;
         for v in &st.viewers {
-            ui.horizontal(|ui| {
-                ui.label(format!("{I_PERSON}  {}", v.label()));
-                ui.label(RichText::new(format!("#{}", v.id_short)).small().weak());
+            // uma linha só quando cabe; com ids longos, os itens quebram para a linha de baixo
+            ui.horizontal_wrapped(|ui| {
+                // botão sem espaço no resto da linha vai inteiro para a próxima (senão o texto quebra letra a letra)
+                let fit = |ui: &mut egui::Ui, w: f32| {
+                    // available_width() em layout quebrável não desconta o que a linha já usou
+                    if ui.max_rect().right() - ui.next_widget_position().x < w {
+                        ui.end_row();
+                    }
+                };
+                ui.label(
+                    RichText::new(format!("{I_PERSON}  {}", v.label()))
+                        .family(egui::FontFamily::Name("semibold".into()))
+                        .size(14.0)
+                        .color(p.text),
+                );
+                ui.label(
+                    RichText::new(format!("#{}", v.id_short))
+                        .family(egui::FontFamily::Monospace)
+                        .size(12.0)
+                        .color(p.text_muted),
+                );
+                if v.friend {
+                    theme::badge(ui, "Amigo", p.accent);
+                } else if let Some(pid) = v.id {
+                    if can_add_friend {
+                        fit(ui, 100.0);
+                    }
+                    if can_add_friend
+                        && theme::small_button(ui, theme::Kind::Secondary, format!("{I_ADD_FRIEND}  Amigo"))
+                            .on_hover_text("Adicionar aos amigos")
+                            .clicked()
+                    {
+                        *add_friend = Some((v.name.clone(), pid));
+                    }
+                }
                 let (text, color) = match v.path.as_str() {
                     "Direto" => ("Direto", p.success),
                     "Relay" => ("Via servidor", p.warn),
-                    _ => ("Verificando", ui.visuals().weak_text_color()),
+                    "Navegador" => ("Navegador", p.accent),
+                    _ => ("Verificando", p.text_muted),
                 };
-                theme::badge(ui, text, color).on_hover_text(format!("{} ms", v.rtt_ms));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let is_pending = kick_pending.as_ref().map_or(false, |(id, t)| {
-                        id == &v.id_short && t.elapsed() < Duration::from_secs(3)
-                    });
-                    if is_pending {
-                        if theme::danger_button(ui, "Confirmar?").clicked() {
-                            *kick = Some(v.id_short.clone());
-                            *kick_pending = None;
-                        }
-                    } else if theme::small_button(ui, format!("{I_REMOVE}  Remover")).clicked() {
+                let tip = if v.path == "Relay" {
+                    format!("{} ms\nServidor público compartilhado, com limite de banda: se travar, baixe a qualidade.", v.rtt_ms)
+                } else if v.path == "Navegador" {
+                    format!("{} ms\nAssistindo pelo navegador", v.rtt_ms)
+                } else {
+                    format!("{} ms", v.rtt_ms)
+                };
+                theme::badge(ui, text, color).on_hover_text(tip);
+                let is_pending = kick_pending.as_ref().map_or(false, |(id, t)| {
+                    id == &v.id_short && t.elapsed() < Duration::from_secs(3)
+                });
+                fit(ui, 92.0);
+                if is_pending {
+                    if theme::small_button(ui, theme::Kind::Danger, "Confirmar?").clicked() {
+                        *kick = Some(v.id_short.clone());
+                        *kick_pending = None;
+                    }
+                } else {
+                    if theme::small_button(
+                        ui,
+                        theme::Kind::Ghost,
+                        RichText::new(format!("{I_REMOVE}  Remover"))
+                            .small()
+                            .color(p.text_muted),
+                    )
+                    .clicked()
+                    {
                         *kick_pending = Some((v.id_short.clone(), Instant::now()));
                     }
-                });
+                }
             });
         }
     });
+}
+
+fn chat_card(ui: &mut egui::Ui, log: &ChatLog, draft: &mut String, height: f32) -> Option<String> {
+    theme::card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        theme::heading(ui, "Chat");
+        ui.add_space(8.0);
+        // `height` é o card inteiro; descontados título e margens
+        super::chat::panel(ui, log, (ChatRole::Host, HOST_SENDER), draft, height - 40.0 - 8.0 - 40.0, false)
+            .map(|(t, _)| t)
+    })
+    .inner
 }
 
 fn preview_card(
@@ -1105,10 +1283,12 @@ fn preview_card(
     st: &ShareStatus,
     source: &Option<SourceId>,
     preview: &Option<Preview>,
+    max_img_h: f32,
 ) {
     theme::card(ui, |ui| {
         ui.set_width(ui.available_width());
-        theme::heading(ui, "O que está sendo transmitido");
+        ui.label(RichText::new("O que está sendo transmitido").small().color(theme::P.text_muted));
+        ui.add_space(4.0);
         let is_window = matches!(source, Some(SourceId::Window { .. }));
         match preview
             .as_ref()
@@ -1116,10 +1296,13 @@ fn preview_card(
         {
             Some(t) => {
                 let sz = t.size_vec2();
-                let w = ui.available_width();
-                ui.add(
-                    egui::Image::new((t.id(), vec2(w, w * sz.y / sz.x.max(1.0)))).corner_radius(6),
-                );
+                // largura limitada pela altura máxima: em tela grande a prévia não empurra o resto para fora
+                let w = ui.available_width().min(max_img_h * sz.x / sz.y.max(1.0));
+                ui.vertical_centered(|ui| {
+                    ui.add(
+                        egui::Image::new((t.id(), vec2(w, w * sz.y / sz.x.max(1.0)))).corner_radius(theme::R_SM),
+                    );
+                });
             }
             None => {
                 let msg = if is_window {
@@ -1127,40 +1310,61 @@ fn preview_card(
                 } else {
                     "Prévia indisponível"
                 };
-                ui.label(RichText::new(msg).weak());
+                ui.label(RichText::new(msg).small().color(theme::P.text_muted));
             }
         }
         match &st.audio {
             AudioState::On => {
                 let who = if is_window { "do app" } else { "do sistema" };
-                ui.label(format!("{I_VOLUME}  Áudio: {who}"));
+                ui.label(RichText::new(format!("{I_VOLUME}  Áudio: {who}")).small().color(theme::P.text));
             }
             AudioState::Off => {
-                ui.label("Áudio: desligado");
+                ui.label(RichText::new("Áudio: desligado").small().color(theme::P.text_muted));
             }
             AudioState::Unavailable(m) => {
                 ui.label(
                     RichText::new(format!("{I_WARN}  Áudio indisponível: {m}"))
-                        .color(ui.visuals().warn_fg_color),
+                        .small()
+                        .color(theme::P.warn),
                 );
             }
         }
         match &st.mic {
             AudioState::On if st.mic_muted => {
-                ui.label(RichText::new(format!("{I_MIC_OFF}  Microfone: mudo")).weak());
+                ui.label(RichText::new(format!("{I_MIC_OFF}  Microfone: mudo")).small().color(theme::P.text_muted));
             }
             AudioState::On => {
-                ui.label(format!("{I_MIC}  Microfone: ligado"));
+                ui.label(RichText::new(format!("{I_MIC}  Microfone: ligado")).small().color(theme::P.text));
             }
             AudioState::Unavailable(m) => {
                 ui.label(
                     RichText::new(format!("{I_WARN}  Microfone indisponível: {m}"))
-                        .color(ui.visuals().warn_fg_color),
+                        .small()
+                        .color(theme::P.warn),
                 );
             }
             AudioState::Off => {}
         }
     });
+}
+
+/// O aviso de sobrecarga só some com 5 s limpos: sem esta espera, uma só sobrecarga baixaria várias faixas seguidas.
+const AUTO_QUALITY_COOLDOWN: Duration = Duration::from_secs(10);
+
+/// Troca de encoder fora da UI: subir o encoder novo pode levar até 15 s.
+fn spawn_share_job(
+    app: &mut App,
+    ctx: &egui::Context,
+    share: Arc<ShareSession>,
+    job: impl FnOnce(&ShareSession) -> Option<(String, ToastKind)> + Send + 'static,
+) {
+    let (tx, rx) = channel();
+    let ctx = ctx.clone();
+    app.background.push(std::thread::spawn(move || {
+        let _ = tx.send(job(&share));
+        ctx.request_repaint();
+    }));
+    app.share_job = Some(rx);
 }
 
 pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
@@ -1169,6 +1373,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
     let st = share.status.lock().unwrap().clone();
+    let chat = share.host.chat.clone();
     if let Some(msg) = st.ended.clone() {
         app.end(msg, false);
         return;
@@ -1208,6 +1413,13 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         }
         app.known_viewers = current;
     }
+    {
+        let log = chat.lock().unwrap();
+        for (_, l) in log.since(app.share_chat_seen).filter(|(_, l)| l.donate > 0) {
+            app.toasts.push(format!("{} doou {} moedas", l.label(), l.donate), ToastKind::Success);
+        }
+        app.share_chat_seen = log.last_seq();
+    }
 
     // código copiado sozinho assim que fica pronto: falta só colar para quem vai assistir
     if let Some(t) = &st.ticket
@@ -1244,103 +1456,179 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     let mut picked: Option<Preset> = None;
     let mut stop = false;
     let mut kick: Option<String> = None;
+    let mut chat_out: Option<String> = None;
     let mut toggle_mic = false;
     let mut new_invite = false;
-    egui::Panel::top("share_top").show(ui, |ui| {
-        ui.horizontal(|ui| {
-            theme::live_pill(ui);
-            theme::heading(ui, &app.share_title);
-            ui.label(
-                RichText::new(format!(
-                    "· {}",
-                    format_elapsed(app.share_started.elapsed().as_secs())
-                ))
-                .weak(),
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if theme::danger_button(ui, &format!("{I_STOP}  Parar")).clicked() {
-                    // sem ninguém assistindo não há o que perder: para direto
-                    if st.viewers.is_empty() {
-                        stop = true;
-                    } else {
-                        app.confirm_stop = true;
-                    }
-                }
-                if matches!(st.mic, AudioState::On) {
-                    let label = if st.mic_muted {
-                        format!("{I_MIC_OFF}  Ativar microfone")
-                    } else {
-                        format!("{I_MIC}  Silenciar microfone")
-                    };
-                    if ui.button(label).clicked() {
-                        toggle_mic = true;
-                    }
-                }
-                if ui
-                    .button(format!("{I_MONITOR}  Qualidade: {cur_label}"))
-                    .on_hover_text("Trocar a qualidade sem parar a transmissão")
-                    .clicked()
-                {
-                    app.quality_open = true;
-                }
-                super::settings::button(app, ui);
+    let mut copy_web = false;
+    let mut add_friend: Option<(String, iroh::EndpointId)> = None;
+    let busy = app.share_job.is_some();
+    let status = format!(
+        "{} · {} · {}×{} @ {} fps · {} fps · {} kbps",
+        st.backend,
+        st.encoder,
+        st.width,
+        st.height,
+        st.target_fps,
+        st.fps,
+        st.kbps
+    );
+    egui::Panel::top("share_top")
+        .show_separator_line(false)
+        .frame(
+            egui::Frame::new()
+                .fill(theme::P.bg)
+                .inner_margin(egui::Margin::symmetric(32, 20)),
+        )
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                theme::live_pill(ui);
+                theme::heading(ui, &app.share_title).on_hover_text(&status);
+                ui.label(
+                    RichText::new(format!(
+                        "· {}",
+                        format_elapsed(app.share_started.elapsed().as_secs())
+                    ))
+                    .color(theme::P.text_muted),
+                )
+                .on_hover_text(&status);
             });
         });
-    });
-    egui::Panel::bottom("share_status").show(ui, |ui| {
-        ui.horizontal(|ui| {
-            let status = format!(
-                "{} · {} · {}×{} @ {} fps · {} fps · {} kbps",
-                st.backend.label(),
-                st.encoder,
-                st.width,
-                st.height,
-                st.target_fps,
-                st.fps,
-                st.kbps
-            );
-            ui.label(RichText::new(status).weak());
-        });
-    });
     egui::CentralPanel::default().show(ui, |ui| {
+        let view_h = ui.available_height();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                if st.overloaded {
-                    overload_banner(
-                        ui,
-                        choices.lighter_than(&applied).is_some(),
-                        &mut app.quality_open,
-                    );
-                }
-                if ui.available_width() >= 900.0 {
-                    ui.columns(2, |cols| {
-                        preview_card(&mut cols[0], &st, &app.share_source, &app.share_preview);
-                        invite_card(&mut cols[1], &ctx, &st, &mut app.copied_at, &mut new_invite);
-                        viewers_card(
-                            &mut cols[1],
-                            &st,
-                            &mut kick,
-                            &mut app.kick_pending,
-                            &mut room,
-                            upload,
-                            people_now,
-                        );
+                egui::Frame::new()
+                    .inner_margin(egui::Margin { left: 32, right: 32, top: 4, bottom: 0 })
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 10.0;
+                        if st.overloaded {
+                            overload_banner(
+                                ui,
+                                choices.lighter_than(&applied).is_some(),
+                                &mut app.quality_open,
+                            );
+                        }
+                        if ui.available_width() >= 900.0 {
+                            let total_w = ui.available_width();
+                            let right_w = 380.0;
+                            let gap = 32.0;
+                            let left_w = (total_w - right_w - gap).max(100.0);
+                            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                                let sp = ui.spacing().item_spacing;
+                                ui.spacing_mut().item_spacing.x = 0.0;
+                                ui.allocate_ui_with_layout(
+                                    vec2(left_w, 0.0),
+                                    Layout::top_down(Align::Min),
+                                    |ui| {
+                                        ui.spacing_mut().item_spacing = sp;
+                                        ui.set_width(left_w);
+                                        let top0 = ui.cursor().top();
+                                        preview_card(ui, &st, &app.share_source, &app.share_preview, (view_h * 0.38).max(240.0));
+                                        ui.add_space(24.0);
+                                        // chat ocupa o espaço que sobra na tela, com um mínimo confortável
+                                        let h = (view_h - (ui.cursor().top() - top0) - theme::CALL_BAR_CLEARANCE).max(340.0);
+                                        if let Some(t) = chat_card(ui, &chat.lock().unwrap(), &mut app.share_chat_draft, h) {
+                                            chat_out = Some(t);
+                                        }
+                                    },
+                                );
+                                ui.add_space(gap);
+                                ui.allocate_ui_with_layout(
+                                    vec2(right_w, 0.0),
+                                    Layout::top_down(Align::Min),
+                                    |ui| {
+                                        ui.spacing_mut().item_spacing = sp;
+                                        ui.set_width(right_w);
+                                        invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web);
+                                        ui.add_space(24.0);
+                                        viewers_card(
+                                            ui,
+                                            &st,
+                                            &mut kick,
+                                            &mut app.kick_pending,
+                                            &mut room,
+                                            upload,
+                                            people_now,
+                                            &mut add_friend,
+                                            !app.identity_temporary,
+                                        );
+                                    },
+                                );
+                            });
+                            ui.add_space(theme::CALL_BAR_CLEARANCE);
+                        } else {
+                            preview_card(ui, &st, &app.share_source, &app.share_preview, f32::INFINITY);
+                            ui.add_space(24.0);
+                            invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite, &mut copy_web);
+                            ui.add_space(24.0);
+                            viewers_card(
+                                ui,
+                                &st,
+                                &mut kick,
+                                &mut app.kick_pending,
+                                &mut room,
+                                upload,
+                                people_now,
+                                &mut add_friend,
+                                !app.identity_temporary,
+                            );
+                            ui.add_space(24.0);
+                            if let Some(t) = chat_card(ui, &chat.lock().unwrap(), &mut app.share_chat_draft, 380.0) {
+                                chat_out = Some(t);
+                            }
+                            ui.add_space(theme::CALL_BAR_CLEARANCE);
+                        }
                     });
-                } else {
-                    preview_card(ui, &st, &app.share_source, &app.share_preview);
-                    invite_card(ui, &ctx, &st, &mut app.copied_at, &mut new_invite);
-                    viewers_card(
-                        ui,
-                        &st,
-                        &mut kick,
-                        &mut app.kick_pending,
-                        &mut room,
-                        upload,
-                        people_now,
-                    );
-                }
             });
+    });
+    theme::call_bar(&ctx, "share_bar", |ui| {
+        if matches!(st.mic, AudioState::On) {
+            let (icon, tip, tone) = if st.mic_muted {
+                (I_MIC_OFF, "Ativar microfone", theme::CallTone::Alert)
+            } else {
+                (I_MIC, "Silenciar microfone", theme::CallTone::Neutral)
+            };
+            if theme::call_button(ui, icon, tip, tone).clicked() {
+                toggle_mic = true;
+            }
+        }
+        ui.add_enabled_ui(!busy, |ui| {
+            let q_tip = if busy {
+                "Trocando qualidade…".to_string()
+            } else {
+                format!("Qualidade: {cur_label} (trocar sem parar a transmissão)")
+            };
+            let q_tone = if app.quality_open {
+                theme::CallTone::Active
+            } else {
+                theme::CallTone::Neutral
+            };
+            if theme::call_button(ui, I_QUALITY, &q_tip, q_tone).clicked() {
+                app.quality_open = true;
+            }
+        });
+        if theme::call_button(
+            ui,
+            theme::I_SETTINGS,
+            super::settings::SETTINGS_LABEL,
+            if app.settings_open {
+                theme::CallTone::Active
+            } else {
+                theme::CallTone::Neutral
+            },
+        )
+        .clicked()
+        {
+            app.settings_open = true;
+        }
+        if theme::hangup_button(ui, I_HANGUP, "Parar a transmissão").clicked() {
+            if st.viewers.is_empty() {
+                stop = true;
+            } else {
+                app.confirm_stop = true;
+            }
+        }
     });
 
     if toggle_mic && let Some(s) = &app.share {
@@ -1353,7 +1641,9 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
             ui.set_width(640.0);
             theme::heading(ui, "Qualidade da transmissão");
             ui.label(
-                RichText::new("Vale na hora; quem está assistindo vê uma pausa curta.").weak(),
+                RichText::new("Vale na hora; quem está assistindo vê uma pausa curta.")
+                    .small()
+                    .color(theme::P.text_muted),
             );
             ui.add_space(8.0);
             let rec = if st.overloaded {
@@ -1365,10 +1655,12 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
                 picked = Some(pr);
                 close = true;
             }
-            ui.add_space(8.0);
-            if ui.button("Cancelar").clicked() {
-                close = true;
-            }
+            ui.add_space(16.0);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if theme::button(ui, theme::Kind::Secondary, "Cancelar").clicked() {
+                    close = true;
+                }
+            });
         });
         if close || modal.should_close() {
             app.quality_open = false;
@@ -1377,7 +1669,7 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
     if room != app.prefs.room_limit {
         app.prefs.room_limit = room;
         if let Some(s) = app.share.as_ref() {
-            s.set_max_viewers(room);
+            s.host.set_max_viewers(room);
         }
         app.save_prefs();
     }
@@ -1385,22 +1677,40 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         let (mut cancel, mut confirm) = (false, false);
         let n = st.viewers.len();
         let modal = theme::modal(&ctx, "confirm_stop").show(&ctx, |ui| {
-            ui.set_width(360.0);
-            theme::heading(ui, "Encerrar a transmissão?");
-            let who = if n == 1 {
-                "A pessoa que está assistindo será desconectada.".to_string()
-            } else {
-                format!("As {n} pessoas que estão assistindo serão desconectadas.")
-            };
-            ui.label(who);
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("Continuar transmitindo").clicked() {
-                    cancel = true;
-                }
-                if theme::danger_button(ui, &format!("{I_STOP}  Encerrar")).clicked() {
-                    confirm = true;
-                }
+            ui.set_width(440.0);
+            ui.vertical_centered(|ui| {
+                theme::icon_ring(ui, I_HANGUP, theme::P.danger);
+                ui.add_space(12.0);
+                theme::heading(ui, "Encerrar a transmissão?");
+                ui.add_space(4.0);
+                let who = if n == 1 {
+                    "A pessoa que está assistindo será desconectada.".to_string()
+                } else {
+                    format!("As {n} pessoas que estão assistindo serão desconectadas.")
+                };
+                ui.label(
+                    RichText::new(who)
+                        .text_style(egui::TextStyle::Body)
+                        .color(theme::P.text_muted),
+                );
+                ui.add_space(16.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    let w = ui.available_width();
+                    let btn_w = (w - 12.0) / 2.0;
+                    ui.scope(|ui| {
+                        ui.set_width(btn_w);
+                        if theme::button_full(ui, theme::Kind::Secondary, "Continuar transmitindo").clicked() {
+                            cancel = true;
+                        }
+                    });
+                    ui.scope(|ui| {
+                        ui.set_width(btn_w);
+                        if theme::button_full(ui, theme::Kind::Danger, format!("{I_HANGUP}  Encerrar")).clicked() {
+                            confirm = true;
+                        }
+                    });
+                });
             });
         });
         if confirm {
@@ -1410,75 +1720,132 @@ pub fn sharing(app: &mut App, ui: &mut egui::Ui) {
         }
     }
 
-    if let Some(new_preset) = picked
-        && picked != cur_choice
+    if let Some(rx) = &app.share_job {
+        match rx.try_recv() {
+            Ok(msg) => {
+                app.share_job = None;
+                if let Some((text, kind)) = msg {
+                    app.toasts.push(text, kind);
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => {
+                app.share_job = None;
+                app.toasts.push("Não foi possível trocar a qualidade", ToastKind::Warn);
+            }
+        }
+    }
+
+    if picked.is_some() && picked != cur_choice {
+        if app.share_job.is_some() {
+            app.toasts.push(
+                "Aguarde: a troca de qualidade anterior ainda está em andamento",
+                ToastKind::Info,
+            );
+        } else if let Some(share) = app.share.clone()
+            && let Some(p) = picked
+        {
+            let label = choices.label(p);
+            spawn_share_job(app, &ctx, share, move |s| match s.set_preset(p) {
+                Ok(()) => Some((format!("Qualidade alterada para {label}"), ToastKind::Info)),
+                Err(e) => Some((format!("Não foi possível trocar a qualidade: {e}"), ToastKind::Warn)),
+            });
+        }
+    }
+
+    if app.share_job.is_none()
+        && let Some(share) = app.share.clone()
+    {
+        if share.host.codec_pending() {
+            spawn_share_job(app, &ctx, share, |s| match s.apply_codec() {
+                Some(Ok(c)) => Some((format!("Codec da sala: {}", c.label()), ToastKind::Info)),
+                Some(Err(e)) => Some((format!("Não foi possível trocar o codec: {e}"), ToastKind::Warn)),
+                None => None,
+            });
+        } else {
+            let mut check_auto = true;
+            if let Some((preset, who)) = share.host.take_quality_request() {
+                let name = preset.name();
+                let who = if who.is_empty() { "Alguém".to_string() } else { who };
+                if !app.prefs.accept_quality_requests {
+                    app.toasts.push(
+                        format!("{who} pediu {name}; pedidos de quem assiste estão desligados nas Configurações"),
+                        ToastKind::Info,
+                    );
+                } else {
+                    check_auto = false;
+                    spawn_share_job(app, &ctx, share.clone(), move |s| match s.apply_quality_request(preset) {
+                        Ok(()) => Some((format!("{who} pediu {name}: qualidade alterada para todos"), ToastKind::Info)),
+                        Err(e) => Some((format!("{who} pediu {name}, mas não foi possível trocar: {e}"), ToastKind::Warn)),
+                    });
+                }
+            }
+            if check_auto
+                && app.prefs.auto_quality
+                && st.overloaded
+                && app.auto_quality_at.is_none_or(|t| t.elapsed() >= AUTO_QUALITY_COOLDOWN)
+                && let Some(lighter) = choices.lighter_than(&applied)
+            {
+                app.auto_quality_at = Some(Instant::now());
+                let label = choices.label(lighter);
+                spawn_share_job(app, &ctx, share, move |s| match s.set_preset(lighter) {
+                    Ok(()) => Some((format!("PC sobrecarregado: qualidade reduzida para {label}"), ToastKind::Warn)),
+                    Err(e) => Some((format!("PC sobrecarregado, mas não foi possível reduzir a qualidade: {e}"), ToastKind::Warn)),
+                });
+            }
+        }
+    }
+    if let Some(t) = chat_out
         && let Some(share) = app.share.as_ref()
     {
-        let new_label = choices.label(new_preset);
-        match share.set_preset(new_preset) {
-            Ok(()) => app.toasts.push(
-                format!("Qualidade alterada para {new_label}"),
-                ToastKind::Info,
-            ),
-            Err(e) => app.toasts.push(
-                format!("Não foi possível trocar a qualidade: {e}"),
-                ToastKind::Warn,
-            ),
-        }
-    }
-    if let Some(share) = app.share.as_ref()
-        && let Some((who, preset, res)) = share.apply_quality_request()
-    {
-        let who = if who.is_empty() { "Alguém".to_string() } else { who };
-        let name = preset.name();
-        match res {
-            Ok(()) => app.toasts.push(
-                format!("{who} pediu {name}: qualidade alterada para todos"),
-                ToastKind::Info,
-            ),
-            Err(e) => app.toasts.push(
-                format!("{who} pediu {name}, mas não foi possível trocar: {e}"),
-                ToastKind::Warn,
-            ),
-        }
-    }
-    if let Some(share) = app.share.as_ref()
-        && let Some(res) = share.apply_codec()
-    {
-        match res {
-            Ok(c) => app.toasts.push(
-                format!("Codec da sala: {}", c.label()),
-                ToastKind::Info,
-            ),
-            Err(e) => app.toasts.push(
-                format!("Não foi possível trocar o codec: {e}"),
-                ToastKind::Warn,
-            ),
-        }
+        share.host.send_chat(&t);
     }
     if let Some(id) = kick {
         if let Some(share) = app.share.as_ref() {
-            share.kick(&id);
+            share.host.kick(&id);
         }
         let label = app.known_viewers.remove(&id).unwrap_or_else(|| id.clone());
         app.toasts.push(
-            format!("{label} foi removido. Para impedir a volta, gere um novo convite."),
+            format!("{label} foi removido e não volta nesta transmissão. Código e link do navegador foram renovados: quem ainda não entrou precisa dos novos."),
             ToastKind::Warn,
         );
     }
+    if let Some((name, id)) = add_friend {
+        app.add_friend = Some(super::friends::Draft {
+            name,
+            code: livescreen_core::friends::friend_code(&id),
+            error: None,
+        });
+    }
     if new_invite {
         if let Some(share) = app.share.as_ref() {
-            share.new_invite();
-            let ticket = share.status.lock().unwrap().ticket.clone();
+            share.host.new_invite();
+            let (ticket, web_on) = {
+                let s = share.status.lock().unwrap();
+                (s.ticket.clone(), s.web != WebState::Off)
+            };
             if let Some(t) = ticket {
                 ctx.copy_text(t);
                 let now = Instant::now();
                 app.copied_at = Some(now);
                 app.toasts.push(
-                    "Novo código copiado; o anterior não funciona mais",
+                    if web_on {
+                        "Novo código e novo link do navegador copiados; os anteriores não funcionam mais"
+                    } else {
+                        "Novo código copiado; o anterior não funciona mais"
+                    },
                     ToastKind::Info,
                 );
             }
+        }
+    }
+    if copy_web {
+        if let Some(share) = app.share.as_ref() {
+            ctx.copy_text(share.host.web_link());
+            app.toasts.push(
+                "Link do navegador copiado: quem abrir assiste sem instalar nada",
+                ToastKind::Info,
+            );
         }
     }
     if stop {
