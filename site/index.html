@@ -203,8 +203,8 @@
         <h2>Novidades da 0.6.2</h2>
         <div class="grid-3" style="margin-bottom: var(--s6);">
           <div class="card">
-            <h3>Link do navegador cifrado</h3>
-            <p class="small">Links novos terminam em .v2 e trocam a sinalização cifrada com a chave do link (AES-256-GCM): o servidor do link não vê seu nome nem seus endereços e não consegue se passar por quem transmite. Uma oferta capturada não serve para entrar de novo.</p>
+            <h3>Segurança do link do navegador</h3>
+            <p class="small">O link termina em <code>.v3</code> e leva no <code>#</code> uma chave de 256 bits e a impressão digital da chave pública de quem transmite. Para cada espectador, o navegador e o host combinam chaves descartáveis X25519 e ML-KEM-768 (pós-quântica) para cifrar a sinalização: quem gravou os dados e depois vê o link não abre nada, quem tem o link não se passa pelo host para outro espectador e o servidor não consegue trocar a chave do host sem a página recusar. &quot;Novo convite&quot; e remover alguém trocam todas as chaves. O app copia o convite e o link marcados como sensíveis (fora do histórico <code>Win+V</code> e da nuvem no Windows; prévia oculta no Android 13+). Antes de gerar o link, o host confere a página do espectador contra um manifesto assinado offline pelo mantenedor. A página não carrega script de terceiros. Limites reais: o link é a senha da sala (quem o tiver entra), a conexão direta (P2P) revela os IPs entre as pontas, e nada disso protege contra malware ou extensão no aparelho de quem assiste.</p>
           </div>
           <div class="card">
             <h3>Remover vale de verdade</h3>
@@ -266,7 +266,7 @@
           </div>
           <div class="card">
             <h3>Navegador mais seguro</h3>
-            <p class="small">A chave da sala fica só no fragmento do link e nunca chega ao servidor; quem confere a entrada é o host.</p>
+            <p class="small">O link termina em <code>.v3</code> com chave de 256 bits e impressão do host no fragmento (<code>#</code>), que nunca chega ao servidor; a sinalização usa chaves descartáveis X25519 e pós-quântica ML-KEM-768.</p>
           </div>
           <div class="card">
             <h3>Qualidade que se ajusta</h3>
@@ -341,7 +341,7 @@
               <svg aria-hidden="true" focusable="false" class="lucide lucide-globe" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <circle cx="12" cy="12" r="10" /> <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /> <path d="M2 12h20" /> </svg>
             </div>
             <h3>Navegador</h3>
-            <p class="small">&quot;Copiar link do navegador&quot; gera um link para assistir sem instalar nada, no Chrome, Edge, Firefox ou Safari, com estatísticas, chat, mudo, menu Qualidade, Picture-in-Picture e tela cheia. A sinalização do link é cifrada com a chave da sala.</p>
+            <p class="small">&quot;Copiar link do navegador&quot; gera um link para assistir sem instalar nada, no Chrome, Edge, Firefox ou Safari, com estatísticas, chat, mudo, menu Qualidade, Picture-in-Picture e tela cheia. O link termina em <code>.v3</code> e a sinalização é cifrada com chaves descartáveis e proteção pós-quântica (ML-KEM-768).</p>
           </div>
         </div>
       </div>
@@ -406,7 +406,7 @@
               <tr>
                 <td><code>livescreen.pendiego.com</code> (Cloudflare Worker) e <code>stun.cloudflare.com</code></td>
                 <td>ao clicar em &quot;Copiar link do navegador&quot; durante uma transmissão</td>
-                <td>Sinalização do espectador no navegador (só o offer/answer WebRTC, sem vídeo) e descoberta do endereço público por STUN (o host consulta <code>stun.cloudflare.com</code>, <code>stun.l.google.com</code>, <code>global.stun.twilio.com</code>, <code>stun.nextcloud.com</code> e <code>stun.sipgate.net</code> a cada espectador do navegador para achar o endereço público e prever portas). O vídeo vai direto do PC para o navegador (WebRTC), sem TURN.</td>
+                <td>Sinalização do espectador no navegador (o offer/answer WebRTC cifrados e a chave pública do host, sem vídeo) e descoberta do endereço público por STUN (o host consulta <code>stun.cloudflare.com</code>, <code>stun.l.google.com</code>, <code>global.stun.twilio.com</code>, <code>stun.nextcloud.com</code> e <code>stun.sipgate.net</code> a cada espectador do navegador para achar o endereço público e prever portas). O vídeo vai direto do PC para o navegador (WebRTC), sem TURN. Antes de conectar a sinalização (e de novo nas reconexões, no máximo a cada 10 min), o host baixa <code>/v/manifest.json</code>, <code>/v/manifest.json.sig</code> e os arquivos da página do espectador para conferir a assinatura.</td>
               </tr>
             </tbody>
           </table>
