@@ -122,7 +122,7 @@ Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar p
 <img src="site/assets/img/settings.webp" width="820" alt="Janela de Configurações do LiveScreen">
 </div>
 
-**Qualidade pelo espectador:** quem assiste (no app ou no navegador, que tem o mesmo menu a partir desta versão do host) pode pedir ao host uma qualidade mais leve (menu "Qualidade"), inclusive as faixas 240p 30, 360p 30 e 480p 15 (hosts mais antigos, que não conhecem essas faixas, recebem 480p 30). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda. O host pode desligar os pedidos em Configurações ("Aceitar pedidos de qualidade mais leve de quem assiste"); desligado, eles só aparecem como aviso.
+**Qualidade pelo espectador:** quem assiste (no app ou no navegador, que tem o mesmo menu a partir desta versão do host) pode pedir ao host uma qualidade mais leve (menu "Qualidade"), inclusive as faixas 240p 30, 360p 30 e 480p 15 (hosts mais antigos, que não conhecem essas faixas, recebem 480p 30). No app desktop o menu só lista faixas mais leves que o stream atual (filtro conservador: como o viewer não conhece a fonte do host, pode esconder uma redução válida, mas nunca oferece uma ampliação). O host só aplica se o stream de fato ficar mais leve (largura, altura, fps e bitrate não sobem), no máximo um pedido a cada 5 s, e vale para a sala toda. O host pode desligar os pedidos em Configurações ("Aceitar pedidos de qualidade mais leve de quem assiste"); desligado, eles só aparecem como aviso.
 
 ## Requisitos
 
