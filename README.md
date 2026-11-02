@@ -129,7 +129,7 @@ Abra pela engrenagem em qualquer tela ou com `Ctrl+,`: decodificar e codificar p
 - **Host (quem transmite):** Windows 10 versão 2004 ou superior, 64 bits.
 - **Viewer (quem assiste):** Windows 10 2004+ x64 ou Android 8.0 (API 26) ou superior.
 - **Host Android (quem transmite):** Android 8.0 (API 26) ou superior; a transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior, a permissão de microfone/áudio e só captura apps que permitem; o microfone não é transmitido. O aparelho precisa de um codificador Opus; sem ele a transmissão segue sem áudio.
-- **Versões:** hosts 0.5 e 0.6 aceitam viewers 0.5 e 0.6 (protocolo 5). Viewers 0.5 e 0.6 conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com "versão incompatível". O chat exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona normalmente, só sem chat (o botão não aparece). O número do protocolo não mudou na 0.6. No navegador, a página é sempre a mais nova: abre os links `.v3` dos hosts novos e continua abrindo os links `.v2` e mais antigos dos hosts 0.6 e anteriores. Hosts novos só aceitam espectadores `.v3`.
+- **Versões:** hosts 0.5 a 0.7 aceitam viewers 0.5 a 0.7 (protocolo 5). Viewers 0.5 a 0.7 conectam também a hosts 0.4 (protocolo 4), mas versões com protocolos incompatíveis recusam a conexão com "versão incompatível". O chat exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona normalmente, só sem chat (o botão não aparece). O número do protocolo não mudou na 0.6 nem na 0.7. No navegador, a página é sempre a mais nova: abre os links `.v3` dos hosts 0.7 e continua abrindo os links `.v2` e mais antigos dos hosts 0.6 e anteriores. Hosts 0.7 só aceitam espectadores com link `.v3`.
 
 ## Download e atualização
 
@@ -150,7 +150,7 @@ Ao abrir, o app verifica se há versão nova. Se houver, aparece o botão **Atua
 
 ### Android (assistir e transmitir)
 
-O app Android **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases), cole o código de convite e toque em **Assistir**. Ele conecta a hosts 0.5 e 0.6 e também a hosts 0.4 (convite sem chave de sala).
+O app Android **assiste**: baixe o `livescreen-android.apk` em [Releases](https://github.com/pendiego/LiveScreen/releases), cole o código de convite e toque em **Assistir**. Ele conecta a hosts 0.5 a 0.7 e também a hosts 0.4 (convite sem chave de sala).
 
 Também **transmite** a tela: toque em **Transmitir tela** na Home, aceite o pedido de captura e a notificação (a transmissão roda num serviço em primeiro plano, com a ação **Parar**). A tela mostra o convite, o link do navegador, a qualidade (padrão 720p 30 fps), quem assiste (com **Remover**) e o chat. A sala começa com 4 pessoas, e amigos adicionados assistem sem convite. Girar o aparelho não muda o tamanho da transmissão. Se um espectador pedir qualidade menor, o app reduz sozinho. O link do navegador depende de o navegador alcançar o aparelho (NAT, emuladores).
 
