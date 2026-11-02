@@ -11,7 +11,6 @@ use tracing::{info, warn};
 const API: &str = "https://api.github.com/repos/pendiego/LiveScreen/releases/latest";
 const ASSET: &str = "livescreen.exe";
 const SIG_ASSET: &str = "livescreen.exe.sig";
-const UPDATE_KEY: &str = "c46025005551cda3e63968e0b6a71bccd47a6411276b85aff966f93d81290930";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Release {
@@ -138,7 +137,12 @@ pub async fn download(rel: &Release) -> Result<Vec<u8>> {
             rel.sha256
         );
     }
-    if !signature_ok(&hex::decode(UPDATE_KEY)?, &rel.version, &got, &sig) {
+    if !signature_ok(
+        &hex::decode(livescreen_core::page_check::RELEASE_PUBLIC_KEY)?,
+        &rel.version,
+        &got,
+        &sig,
+    ) {
         bail!("assinatura da atualização inválida: release ignorada");
     }
     Ok(bytes.to_vec())
@@ -292,7 +296,7 @@ mod tests {
     fn embedded_key_matches_offline_signer() {
         const FIXTURE_SIG: &str = "860b6ace56570dd406d6e000a39fc287f27b67aee08a2bef2024212b0292c7e533b5abd2393371da8f33f63e843ccfbccc5b4b6b518eaf57c0e36d90d640db01";
         assert!(signature_ok(
-            &hex::decode(UPDATE_KEY).unwrap(),
+            &hex::decode(livescreen_core::page_check::RELEASE_PUBLIC_KEY).unwrap(),
             "0.0.0",
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             FIXTURE_SIG

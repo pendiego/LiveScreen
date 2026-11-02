@@ -1,0 +1,18 @@
+{
+    "files":  {
+                  "avatars.json":  "eb8a176f5cc0433170ce7e88d1a9890b510eaf342cc9fbe9e9d213815a694b06",
+                  "fonts/inter-400.woff2":  "56f518ccd0793135ff2bb61d927f851eaab8549930fe9f7ee4c3d4b680355fde",
+                  "fonts/inter-500.woff2":  "7d61ca060fdea19fa85358b42bdb0eeaaec1bc0aea6413622161db7969ecf6b6",
+                  "fonts/inter-600.woff2":  "f9b42f95427329c3bf6d2fece39914017c133740c5989803072b5bfbd0174276",
+                  "fonts/LICENSE-Lucide.txt":  "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+                  "fonts/OFL-Inter.txt":  "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a",
+                  "fonts/OFL-SpaceGrotesk.txt":  "c6dec685825f73b18c20926fddc65e8315642e12986f15db0699170940a09efc",
+                  "fonts/space-grotesk-700.woff2":  "be6c8a2e2ee0c85c686412bd44e36add543ac0c7464692668286d371512480ad",
+                  "index.html":  "9f1fa4917c07ab8d7459fd8a286197a0cbb15e45daf25fca51843ee11f7f6902",
+                  "logo.svg":  "113f50b80e6901d991943b8c63ee28537a76e5792b4fbb8870891eb5d5fc0cf1",
+                  "pq.js":  "9207e752d706860c012d44d5f1d9292e8a0948913e722e290a6a0d08ef02c4b3",
+                  "signal3.js":  "370fea9cc25f13db2386843635bbed1ddf4d68e313763f59a1d968a5c3e01ef8",
+                  "viewer.css":  "430b9729e5471ab0f5b5d7c4afa863a159ab42fb4c72f7a45cac35323ad982d5",
+                  "viewer.js":  "e85d55e78b47f0443f635b4196b129e737a72ed977266a07f063cefcb9f08cdc"
+              }
+}

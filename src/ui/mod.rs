@@ -107,6 +107,8 @@ pub struct App {
     pub updating: Option<std::sync::mpsc::Receiver<Result<()>>>,
     /// Troca de qualidade/codec rodando numa thread; o resultado vira toast.
     pub share_job: Option<std::sync::mpsc::Receiver<Option<(String, toast::ToastKind)>>>,
+    /// Tarefa de verificação/cópia do link do navegador rodando em segundo plano.
+    pub web_copy_job: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     /// Última redução automática; a próxima espera AUTO_QUALITY_COOLDOWN.
     pub auto_quality_at: Option<Instant>,
     /// Popups da tela de transmissão.
@@ -175,6 +177,7 @@ impl App {
             update,
             updating: None,
             share_job: None,
+            web_copy_job: None,
             auto_quality_at: None,
             quality_open: false,
             confirm_stop: false,
@@ -563,7 +566,7 @@ fn on_screen(x: f32, y: f32) -> bool {
 }
 
 /// HWND visível, sem dono, da janela do eframe; só vale no thread da UI.
-fn own_hwnd() -> Option<isize> {
+pub(crate) fn own_hwnd() -> Option<isize> {
     unsafe extern "system" fn cb(h: HWND, l: LPARAM) -> BOOL {
         unsafe {
             if IsWindowVisible(h).as_bool() && GetWindow(h, GW_OWNER).is_err() {

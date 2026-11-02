@@ -4,7 +4,7 @@ default-members = [".", "crates/livescreen-core"]
 
 [package]
 name = "livescreen"
-version = "0.6.2"
+version = "0.7.0"
 edition = "2024"
 description = "Compartilhamento de tela P2P para Windows"
 readme = "README.md"
@@ -47,6 +47,7 @@ windows = { version = "=0.62.2", features = [
   "Win32_System_Variant", "Win32_UI_HiDpi", "Security_Authorization_AppCapabilityAccess",
   "Win32_Graphics_Direct3D12", "Win32_Security",
   "Win32_Graphics_Direct3D_Fxc", "Win32_Devices_Display",
+  "Win32_System_DataExchange", "Win32_System_Memory",
 ] }
 mimalloc = "0.1.52"
 noq-proto = "1.4.0"

@@ -16,7 +16,7 @@ use crate::chat::{ChatLimiter, ChatLine};
 use crate::protocol::ViewerMsg;
 use str0m::channel::ChannelId;
 use crate::web::{
-    ROOM_KEY_LEN, SignalIn, SignalOut, host_ws_url, open_offer, room_id, seal_answer, valid_peer_id,
+    AnswerSealer, SignalIn, SignalOut, host_ws_url, room_id, valid_peer_id,
 };
 use ring::rand::SecureRandom;
 use str0m::change::SdpOffer;
@@ -49,7 +49,7 @@ const MAX_WEB_OFFERS: usize = 1024;
 /// Tamanho máximo, em bytes, de uma mensagem do canal de chat.
 const MAX_WEB_CHAT: usize = 4096;
 
-fn base_url() -> String {
+pub(crate) fn base_url() -> String {
     std::env::var("LIVESCREEN_WEB_URL")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -77,16 +77,58 @@ pub(crate) struct WebPeer {
 }
 
 impl super::Host {
-    pub fn web_link(&self) -> String {
+    pub fn start_web(&self) {
         init_crypto();
         if !self.shared.web_started.swap(true, Ordering::SeqCst) {
             self.rt.spawn(run(self.shared.clone()));
         }
-        crate::web::viewer_url(
-            &base_url(),
-            &self.shared.web_secret,
-            &*self.shared.room_key.lock().unwrap(),
-        )
+    }
+
+    pub fn web_link(&self) -> Option<String> {
+        let base = base_url();
+        if !crate::page_check::is_verified(&base) {
+            return None;
+        }
+        let keys = self.shared.web_keys.lock().unwrap().clone();
+        Some(keys.viewer_url(
+            &base,
+            &crate::web::room_id(&self.shared.web_secret),
+        ))
+    }
+
+    pub async fn wait_for_web_link(&self, timeout: Duration) -> anyhow::Result<String> {
+        self.start_web();
+        let base = base_url();
+        if crate::page_check::is_verified(&base) {
+            if let Some(link) = self.web_link() {
+                return Ok(link);
+            }
+        }
+        let mut rx = self.shared.web_verify_rx.clone();
+        tokio::time::timeout(timeout, async {
+            loop {
+                match &*rx.borrow_and_update() {
+                    super::WebVerifyStatus::Verified => {
+                        if let Some(link) = self.web_link() {
+                            return Ok(link);
+                        }
+                    }
+                    super::WebVerifyStatus::Failed(e) => {
+                        anyhow::bail!("{e}");
+                    }
+                    super::WebVerifyStatus::Idle | super::WebVerifyStatus::Checking => {}
+                }
+                if rx.changed().await.is_err() {
+                    anyhow::bail!("transmissão encerrada");
+                }
+            }
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("tempo esgotado ao conferir a página do espectador"))?
+    }
+
+    pub fn wait_for_web_link_blocking(&self, timeout: Duration) -> anyhow::Result<String> {
+        self.rt.block_on(self.wait_for_web_link(timeout))
     }
 }
 
@@ -364,6 +406,20 @@ async fn run(sh: Arc<Shared>) {
     while !*shutdown.borrow() {
         sh.status.lock().unwrap().web_vpn = route_info(default_v4()).vpn;
         let base = base_url();
+        sh.status.lock().unwrap().web = WebState::Connecting;
+        sh.web_verify.send_replace(super::WebVerifyStatus::Checking);
+        if let Err(e) = crate::page_check::verify(&base).await {
+            let err_msg = format!("{e:#}");
+            sh.status.lock().unwrap().web = WebState::Retrying(err_msg.clone());
+            sh.web_verify.send_replace(super::WebVerifyStatus::Failed(err_msg));
+            let delay = Duration::from_secs(backoff_secs[retry_idx.min(backoff_secs.len() - 1)]);
+            retry_idx += 1;
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => continue,
+                _ = shutdown.changed() => break,
+            }
+        }
+        sh.web_verify.send_replace(super::WebVerifyStatus::Verified);
         let ws_url = host_ws_url(&base, &sh.web_secret);
         let uri = match ws_url.parse::<http::Uri>() {
             Ok(u) => u,
@@ -431,15 +487,31 @@ async fn run(sh: Arc<Shared>) {
         }
 
         sh.status.lock().unwrap().web = WebState::Online;
+        let mut keys_rx = sh.web_keys_tx.subscribe();
+        let _ = *keys_rx.borrow_and_update();
+        let pk_hex = sh.web_keys.lock().unwrap().host_pk_hex();
+        let pk_msg = SignalOut::Pk { pk: pk_hex };
+        if let Ok(pk_json) = serde_json::to_string(&pk_msg) {
+            let _ = ws.send(Message::text(pk_json)).await;
+        }
         let online_at = Instant::now();
         let mut last_pong = Instant::now();
         let mut ping_interval = tokio::time::interval(Duration::from_secs(30));
         ping_interval.tick().await;
-
         loop {
             peers.retain(|_, w| w.upgrade().is_some());
 
             tokio::select! {
+                Ok(()) = keys_rx.changed() => {
+                    let _ = *keys_rx.borrow_and_update();
+                    let pk_hex = sh.web_keys.lock().unwrap().host_pk_hex();
+                    let pk_msg = SignalOut::Pk { pk: pk_hex };
+                    if let Ok(pk_json) = serde_json::to_string(&pk_msg) {
+                        if ws.send(Message::text(pk_json)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
                 Some(out) = rx.recv() => {
                     if let Ok(json) = serde_json::to_string(&out) {
                         if ws.send(Message::text(json)).await.is_err() {
@@ -480,13 +552,10 @@ async fn run(sh: Arc<Shared>) {
                                 {
                                     continue;
                                 }
-                                let key = *sh.room_key.lock().unwrap();
-                                let Some((offer, nonce)) = open_offer(&key, &room_id(&sh.web_secret), &sealed) else {
-                                    let reason = if sealed.is_empty() {
-                                        "link antigo ou página desatualizada: peça o link de novo e recarregue a página"
-                                    } else {
-                                        "convite inválido ou substituído"
-                                    };
+                                let keys = sh.web_keys.lock().unwrap().clone();
+                                let room = room_id(&sh.web_secret);
+                                let Some(header) = keys.check_offer_header(&room, &sealed) else {
+                                    let reason = "convite inválido ou substituído";
                                     let _ = tx.try_send(SignalOut::Reject { id, reason: reason.to_string() });
                                     continue;
                                 };
@@ -494,7 +563,7 @@ async fn run(sh: Arc<Shared>) {
                                     let mut seen = sh.web_offers.lock().unwrap();
                                     let reason = if seen.len() >= MAX_WEB_OFFERS {
                                         Some("muitas entradas com este convite: peça um convite novo")
-                                    } else if !seen.insert(nonce) {
+                                    } else if !seen.insert(header.replay_id) {
                                         Some("oferta repetida: recarregue a página")
                                     } else {
                                         None
@@ -504,7 +573,12 @@ async fn run(sh: Arc<Shared>) {
                                         continue;
                                     }
                                 }
-                                if offer.sdp.len() > MAX_SDP {
+                                let Some(opened) = keys.open_validated_offer(&room, header) else {
+                                    let reason = "convite inválido ou substituído";
+                                    let _ = tx.try_send(SignalOut::Reject { id, reason: reason.to_string() });
+                                    continue;
+                                };
+                                if opened.offer.sdp.len() > MAX_SDP {
                                     continue;
                                 }
                                 let Ok(permit) = sh.pending.clone().try_acquire_owned() else {
@@ -524,22 +598,21 @@ async fn run(sh: Arc<Shared>) {
                                 }
                                 let peer_obj = Arc::new(WebPeer::default());
                                 peers.insert(id.clone(), Arc::downgrade(&peer_obj));
-                                let clean_name = sanitize(&offer.name, 32);
+                                let clean_name = sanitize(&opened.offer.name, 32);
                                 tokio::spawn(peer(
                                     sh.clone(),
                                     id,
-                                    offer.sdp,
-                                    key,
-                                    nonce,
+                                    opened.offer.sdp,
+                                    opened.answer,
                                     clean_name,
-                                    offer.avatar,
+                                    opened.offer.avatar,
                                     permit,
                                     tx.clone(),
                                     peer_obj,
                                 ));
                             }
                             Err(e) => {
-                                tracing::warn!("sinalização: json inválido ({e:#}): {text}");
+                                tracing::warn!("sinalização: json inválido ({e:#})");
                             }
                         }
                     }
@@ -659,8 +732,7 @@ async fn peer(
     sh: Arc<Shared>,
     id: String,
     sdp: String,
-    key: [u8; ROOM_KEY_LEN],
-    offer_nonce: [u8; 12],
+    answer_sealer: AnswerSealer,
     name: String,
     avatar: u8,
     permit: tokio::sync::OwnedSemaphorePermit,
@@ -811,9 +883,8 @@ async fn peer(
         route.vpn,
         alt_addr
     );
-    let sealed = seal_answer(&key, &room_id(&sh.web_secret), &offer_nonce, &answer.to_sdp_string());
+    let sealed = answer_sealer.seal(&answer.to_sdp_string());
     let _ = tx.try_send(SignalOut::Answer { id: id.clone(), sealed });
-
     let mut vrx = sh.video_tx.subscribe();
     let mut arx = sh.audio_tx.subscribe();
 
@@ -1453,5 +1524,54 @@ mod tests {
         // Delimitador truncado
         let truncated = [0x12];
         assert_eq!(strip_av1_temporal_delimiters(&truncated), &[0x12]);
+    }
+
+    #[tokio::test]
+    async fn test_key_rotation_during_send_not_lost() {
+        let (tx, mut rx) = tokio::sync::watch::channel(0u64);
+        let web_keys = Arc::new(std::sync::Mutex::new(Arc::new(crate::web::WebKeys::generate())));
+
+        // 1. Snapshot da chave A (geração 0) e envio inicial
+        let pk_a = web_keys.lock().unwrap().host_pk_hex();
+        let _ = *rx.borrow_and_update();
+
+        // 2. Rotação acontece ENQUANTO o envio da chave A está suspenso / sem await ativo no rx
+        let pk_b = {
+            let mut l = web_keys.lock().unwrap();
+            *l = Arc::new(crate::web::WebKeys::generate());
+            tx.send_modify(|v| *v += 1);
+            l.host_pk_hex()
+        };
+        assert_ne!(pk_a, pk_b);
+
+        // 3. O consumidor termina o envio de A e entra no select (rx.changed())
+        // Com Notify::notify_waiters(), a notificação era perdida aqui.
+        // Com watch::channel, changed() detecta imediatamente a nova geração.
+        rx.changed().await.expect("deve detectar a geração modificada");
+        let _ = *rx.borrow_and_update();
+        let pk_published = web_keys.lock().unwrap().host_pk_hex();
+        assert_eq!(pk_published, pk_b, "chave publicada deve ser a chave B atualizada");
+    }
+
+    #[tokio::test]
+    async fn test_web_verify_state_machine() {
+        let (tx, mut rx) = tokio::sync::watch::channel(super::super::WebVerifyStatus::Idle);
+
+        tx.send_replace(super::super::WebVerifyStatus::Checking);
+        assert_eq!(*rx.borrow_and_update(), super::super::WebVerifyStatus::Checking);
+
+        tx.send_replace(super::super::WebVerifyStatus::Failed("hash divergente".into()));
+        assert!(matches!(&*rx.borrow_and_update(), super::super::WebVerifyStatus::Failed(e) if e == "hash divergente"));
+
+        tx.send_replace(super::super::WebVerifyStatus::Verified);
+        assert_eq!(*rx.borrow_and_update(), super::super::WebVerifyStatus::Verified);
+    }
+
+    #[test]
+    fn test_is_verified_gating() {
+        crate::page_check::clear_cache();
+        assert!(!crate::page_check::is_verified("https://livescreen.pendiego.com"));
+        assert!(crate::page_check::is_verified("http://127.0.0.1:8787"));
+        assert!(crate::page_check::is_verified("http://localhost:8787"));
     }
 }

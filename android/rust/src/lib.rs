@@ -1060,10 +1060,23 @@ pub extern "system" fn Java_io_github_pendiego_livescreen_Native_hostWebLink(
     _class: JClass,
     handle: jlong,
 ) -> jstring {
-    match unsafe { get_host(handle) } {
-        Some(s) => new_jstring(&env, s.host.web_link()),
-        None => std::ptr::null_mut(),
+    let s = match unsafe { get_host(handle) } {
+        Some(s) => s,
+        None => return std::ptr::null_mut(),
+    };
+    let res = s.host.wait_for_web_link_blocking(std::time::Duration::from_secs(20));
+    let json = match res {
+        Ok(link) => serde_json::json!({
+            "link": link,
+            "error": null,
+        }),
+        Err(e) => serde_json::json!({
+            "link": null,
+            "error": format!("{e:#}"),
+        }),
     }
+    .to_string();
+    new_jstring(&env, json)
 }
 
 #[unsafe(no_mangle)]

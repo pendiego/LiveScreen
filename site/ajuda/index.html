@@ -86,7 +86,7 @@
 
           <section id="versoes">
             <h2>Versões</h2>
-            <p>Hosts 0.5 e 0.6 aceitam viewers 0.5 e 0.6 (protocolo 5). Viewers 0.5 e 0.6 conectam também a hosts 0.4 (protocolo 4). Com protocolos incompatíveis a conexão é recusada (veja <a href="#problemas">Solução de problemas</a>). O chat exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona normalmente, só sem chat (o botão não aparece). O número do protocolo continua 5. Na 0.6.2 o link do navegador passa a terminar em <code>.v2</code> e a sinalização é cifrada com a chave da sala; links de hosts 0.6.0 e 0.6.1 (sem <code>.v2</code>) continuam abrindo na página atual.</p>
+            <p>Hosts 0.5 a 0.7 aceitam viewers 0.5 a 0.7 (protocolo 5). Viewers 0.5 a 0.7 conectam também a hosts 0.4 (protocolo 4). Com protocolos incompatíveis a conexão é recusada (veja <a href="#problemas">Solução de problemas</a>). O chat exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona normalmente, só sem chat (o botão não aparece). O número do protocolo continua 5. No navegador, a página é sempre a mais nova: abre os links <code>.v3</code> dos hosts 0.7 (com sinalização híbrida pós-quântica) e continua abrindo os links <code>.v2</code> e mais antigos dos hosts 0.6 e anteriores. Hosts 0.7 só aceitam espectadores <code>.v3</code>.</p>
             <div class="table">
               <table>
                 <thead>
@@ -126,6 +126,11 @@
                     <td><code>0.5</code></td>
                     <td><code>0.6 (desktop ou Android)</code></td>
                     <td>Sim, sem chat</td>
+                  </tr>
+                  <tr>
+                    <td><code>0.7</code></td>
+                    <td><code>navegador</code></td>
+                    <td>Sim, com link <code>.v3</code> e sinalização híbrida pós-quântica (hosts 0.7 só aceitam <code>.v3</code>; a página continua abrindo links <code>.v2</code> e anteriores de hosts 0.6 e anteriores)</td>
                   </tr>
                   <tr>
                     <td><code>0.6.2</code></td>
@@ -345,8 +350,11 @@
             <h3>Mensagens ao entrar pelo navegador ou com convite</h3>
             <ul>
               <li><strong>Convite inválido ou substituído:</strong> quem transmite removeu alguém ou gerou um novo convite, e o código e o link anteriores deixaram de valer. Peça os novos. Aparece no app e no navegador.</li>
-              <li><strong>Link antigo ou página desatualizada:</strong> o link não termina em .v2, mas o host é 0.6.2 ou mais novo. Peça o link de novo e recarregue a página.</li>
-              <li><strong>A chave da sala não confere:</strong> a resposta não veio de quem transmite (link alterado ou sinalização adulterada), e a página recusa a conexão por segurança. Peça o link de novo.</li>
+              <li><strong>&ldquo;O convite foi trocado ou não é de quem transmite&rdquo;:</strong> a chave pública ou a impressão do link não conferem com quem transmite (o link foi alterado, o host gerou novo convite ou a transmissão foi reiniciada). Peça o link novo. Em transmissões de hosts 0.6, mensagens de link antigo ou chave incorreta também indicam pedir o link novo.</li>
+              <li><strong>&ldquo;Quem transmite não respondeu&rdquo;:</strong> o host não enviou a chave de sinalização em 10 segundos. Confira se a transmissão ainda está no ar e se quem transmite continua conectado.</li>
+              <li><strong>&ldquo;Este navegador não consegue abrir a transmissão com segurança&rdquo;:</strong> o navegador não carregou a criptografia da página (WebCrypto ou os scripts de <code>/v/</code>). Abra o link no Chrome, Edge, Firefox ou Safari atualizados.</li>
+              <li><strong>&ldquo;Falha ao conferir a página do espectador&rdquo; (no host):</strong> ao clicar em &ldquo;Copiar link do navegador&rdquo;, o app confere a assinatura da página web contra o manifesto oficial assinado. Se a verificação falhar (falha de rede ou arquivo divergente), tente de novo em instantes; se persistir, atualize o LiveScreen.</li>
+              <li><strong>&ldquo;Não deu para copiar com proteção&rdquo; (no host):</strong> a cópia segura para a área de transferência (que evita gravar o link no histórico do <code>Win+V</code> ou na nuvem) falhou no Windows. Tente clicar em copiar novamente.</li>
               <li><strong>Oferta repetida:</strong> recarregue a página.</li>
               <li><strong>Muitas entradas com este convite:</strong> peça a quem transmite um convite novo (botão Novo convite).</li>
             </ul>

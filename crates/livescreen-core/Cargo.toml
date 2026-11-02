@@ -1,6 +1,6 @@
 [package]
 name = "livescreen-core"
-version = "0.6.2"
+version = "0.7.0"
 edition = "2024"
 publish = false
 license = "MIT OR Apache-2.0"
@@ -22,6 +22,11 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 http = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio-websockets = { version = "0.13", default-features = false, features = ["client", "ring", "rustls-webpki-roots", "getrandom", "sha1_smol"] }
+# já vem pelo iroh (provider ring do rustls)
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+libcrux-ml-kem = { version = "0.0.11", default-features = false, features = ["mlkem768"] }
+curve25519-dalek = { version = "5.0.0", default-features = false }
+zeroize = { version = "1.9", features = ["zeroize_derive"] }
 
 [target.'cfg(windows)'.dependencies]
 str0m = { version = "0.24.1", default-features = false, features = ["wincrypto"] }

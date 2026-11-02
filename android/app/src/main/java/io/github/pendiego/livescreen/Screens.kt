@@ -3,8 +3,10 @@ package io.github.pendiego.livescreen
 import android.Manifest
 import android.app.Activity
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.PersistableBundle
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.content.pm.ActivityInfo
@@ -106,6 +108,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 private const val LEGACY_MSG = "Código sem chave de sala: só conecta em quem transmite com o LiveScreen 0.4. Se veio de uma versão mais nova, falta o final do código (a parte depois do ponto)."
 
@@ -1158,10 +1161,17 @@ fun HostScreen(vm: ViewerModel) {
     val st = Hosting.status
     var qualitySheet by remember { mutableStateOf(false) }
     var webHidden by remember { mutableStateOf(false) }
+    var webChecking by remember { mutableStateOf(false) }
+    var webError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val copy: (String) -> Unit = { t ->
+        val clip = ClipData.newPlainText("LiveScreen", t).apply {
+            description.extras = (description.extras ?: PersistableBundle()).apply {
+                putBoolean("android.content.extra.IS_SENSITIVE", true)
+            }
+        }
         (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-            .setPrimaryClip(ClipData.newPlainText("LiveScreen", t))
+            .setPrimaryClip(clip)
         Toast.makeText(ctx, "Copiado", Toast.LENGTH_SHORT).show()
     }
     val io: ((Long) -> Unit) -> Unit = { block ->
@@ -1235,19 +1245,39 @@ fun HostScreen(vm: ViewerModel) {
                 )
                 if (!webHidden) {
                     SinalButton(
-                        "Copiar link do navegador",
+                        if (webChecking) "Conferindo a página…" else "Copiar link do navegador",
                         onClick = {
                             val h = Hosting.handle
-                            if (h != 0L) scope.launch {
-                                val link = withContext(Dispatchers.IO) { Hosting.withHandle(h) { Native.hostWebLink(it) } }
-                                if (link == null) webHidden = true else copy(link)
+                            if (h != 0L && !webChecking) scope.launch {
+                                webChecking = true
+                                webError = null
+                                try {
+                                    val res = withContext(Dispatchers.IO) { Hosting.withHandle(h) { Native.hostWebLink(it) } }
+                                    if (res == null) {
+                                        webHidden = true
+                                    } else {
+                                        val obj = JSONObject(res)
+                                        val link = obj.optString("link").takeIf { it.isNotEmpty() }
+                                        val err = obj.optString("error").takeIf { it.isNotEmpty() }
+                                        if (link != null) {
+                                            copy(link)
+                                        } else if (err != null) {
+                                            webError = "Falha ao conferir a página: $err"
+                                        }
+                                    }
+                                } finally {
+                                    webChecking = false
+                                }
                             }
                         },
                         icon = R.drawable.ic_copy,
                         kind = BtnKind.Secondary,
-                        enabled = st != null,
+                        enabled = st != null && !webChecking,
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+                webError?.let {
+                    Text(it, style = MaterialTheme.typography.bodyLarge, color = Sinal.warn)
                 }
                 SinalButton(
                     "Novo convite",
