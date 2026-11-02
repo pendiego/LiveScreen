@@ -216,9 +216,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793580782.4300542,
-    "seen": 1793580807.3444965,
-    "ast_hash": "c126635c703d4d6b647fd9f38d6fc5c1",
+    "mtime": 1793582241.5098834,
+    "seen": 1793582250.415093,
+    "ast_hash": "670fd23460e91ff5d798fec4503e68fc",
     "semantic_hash": ""
   },
   ".github/scripts/test-changelog.sh": {
@@ -480,9 +480,9 @@
     "semantic_hash": ""
   },
   "web/public/v/viewer.js": {
-    "mtime": 1793580754.0534725,
-    "seen": 1793580807.344493,
-    "ast_hash": "ef5a07d79edaa70963aaab3fbfa87e6f",
+    "mtime": 1793582125.8238263,
+    "seen": 1793582250.4150894,
+    "ast_hash": "5fd4f05c04edd6706d09bba87bb71d87",
     "semantic_hash": ""
   },
   "web/src/worker.js": {
@@ -492,9 +492,9 @@
     "semantic_hash": ""
   },
   "web/public/v/index.html": {
-    "mtime": 1793578763.6165595,
-    "seen": 1793580807.344513,
-    "ast_hash": "f1928d1b0756ea12b84b63a68fa2be8c",
+    "mtime": 1793581517.8191316,
+    "seen": 1793581757.5283134,
+    "ast_hash": "093f20f1c23cc13eaa616cba08841114",
     "semantic_hash": ""
   },
   ".github/workflows/deploy-web.yml": {
@@ -570,8 +570,8 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/host/web.rs": {
-    "mtime": 1793580251.211073,
-    "seen": 1793580807.3444443,
+    "mtime": 1793582118.6683052,
+    "seen": 1793582250.415039,
     "ast_hash": "f15afe729d508b7a26eb32c7b6d73197",
     "semantic_hash": ""
   },
