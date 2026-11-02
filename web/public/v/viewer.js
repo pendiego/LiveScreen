@@ -643,6 +643,8 @@
 
   // Tela cheia
   function toggleFullscreen() {
+    // a janela do Document PiP não pode ir para tela cheia e o player está nela, não em #watch
+    if (pipWindow) return;
     if (document.fullscreenElement) {
       document.exitFullscreen();
     } else if (watch.requestFullscreen) {
@@ -693,10 +695,12 @@
         stage.className = "watch pip-stage";
         stage.append(playerBox, chatPanel);
         win.document.body.append(stage);
+        fsBtn.hidden = true;
 
         win.document.addEventListener("keydown", onKeyDown);
         win.addEventListener("pagehide", () => {
           pipWindow = null;
+          fsBtn.hidden = false;
           watch.append(playerBox, chatPanel);
           sendVisibility();
         });
