@@ -72,6 +72,48 @@ fn within(tag: &str, f: impl FnOnce()) {
     println!("{tag}: {:?}", t.elapsed());
 }
 
+/// [capturado codificado, pacotes recebidos, decodificado, saída]; todos contam só com sinal útil
+/// (RMS ≥ 0,01), exceto os pacotes recebidos.
+fn counters() -> [u64; 4] {
+    use std::sync::atomic::Ordering::Relaxed;
+    [
+        crate::audio::capture::ENCODED_SIGNAL_FRAMES.load(Relaxed),
+        crate::audio::playback::RECEIVED_AUDIO_PACKETS.load(Relaxed),
+        crate::audio::playback::DECODED_SIGNAL_FRAMES.load(Relaxed),
+        crate::audio::playback::OUTPUT_SIGNAL_CALLBACKS.load(Relaxed),
+    ]
+}
+
+const STAGES: [&str; 4] = ["captura codificada", "pacotes recebidos", "decode com sinal", "callback de saída"];
+
+fn first_missing(c: [u64; 4], base: [u64; 4]) -> Option<&'static str> {
+    (0..4).find(|&i| c[i] <= base[i]).map(|i| STAGES[i])
+}
+
+fn wait_audio_positive(max: Duration) {
+    let t = std::time::Instant::now();
+    while t.elapsed() < max && first_missing(counters(), [0; 4]).is_some() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let c = counters();
+    if let Some(stage) = first_missing(c, [0; 4]) {
+        panic!("sem áudio: primeira fronteira ausente = {stage}; contadores {c:?}");
+    }
+}
+
+/// Exige crescimento dos quatro contadores a partir de um snapshot novo.
+fn wait_audio(tag: &str, max: Duration) {
+    let base = counters();
+    let t = std::time::Instant::now();
+    while t.elapsed() < max && first_missing(counters(), base).is_some() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let c = counters();
+    if let Some(stage) = first_missing(c, base) {
+        panic!("{tag}: sem áudio, primeira fronteira ausente = {stage}; {base:?} -> {c:?}");
+    }
+}
+
 #[test]
 #[ignore]
 fn e2e_window() {
@@ -86,6 +128,9 @@ fn e2e_window() {
             .spawn()
             .unwrap(),
     );
+    for a in [&crate::audio::playback::RECEIVED_AUDIO_PACKETS, &crate::audio::playback::DECODED_SIGNAL_FRAMES, &crate::audio::playback::OUTPUT_SIGNAL_CALLBACKS, &crate::audio::capture::ENCODED_SIGNAL_FRAMES] {
+        a.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
     std::thread::sleep(Duration::from_secs(3));
     let (hwnd, _pid) = find().expect("janela LSTest");
     let info = enumerate()
@@ -97,7 +142,7 @@ fn e2e_window() {
         &h,
         info,
         Preset::P720p30,
-        false,
+        true,
         None,
         kinds.clone(),
         Default::default(),
@@ -130,6 +175,22 @@ fn e2e_window() {
     )
     .unwrap();
     std::thread::sleep(Duration::from_secs(4));
+    wait_audio_positive(Duration::from_secs(10));
+    // mudo: transporte e decoder seguem, a saída zera
+    w.set_gain(0.0);
+    std::thread::sleep(Duration::from_millis(300));
+    let m0 = counters();
+    std::thread::sleep(Duration::from_secs(1));
+    let m1 = counters();
+    assert!(m1[0] > m0[0] && m1[1] > m0[1] && m1[2] > m0[2], "mudo parou captura/recepção/decode: {m0:?} -> {m1:?}");
+    assert_eq!(m1[3], m0[3], "saída seguiu com sinal em mudo: {m0:?} -> {m1:?}");
+    w.set_gain(1.0);
+    let o = counters()[3];
+    let t = std::time::Instant::now();
+    while counters()[3] == o && t.elapsed() < Duration::from_secs(3) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(counters()[3] > o, "saída não voltou ao desmutar: {:?}", counters());
     let snap = |tag: &str| {
         let s = w.status.lock().unwrap().clone();
         let f = w
@@ -253,6 +314,7 @@ fn e2e_window() {
     }
     std::thread::sleep(Duration::from_secs(2));
     snap("restored");
+    wait_audio("após restaurar", Duration::from_secs(3));
     // troca → parar sem nenhum quadro capturado no meio
     unsafe {
         let _ = ShowWindow(hw, SW_MINIMIZE);

@@ -60,6 +60,19 @@ pub fn start(
 }
 
 
+#[cfg(test)]
+pub(crate) static RECEIVED_AUDIO_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(test)]
+pub(crate) static DECODED_SIGNAL_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(test)]
+pub(crate) static OUTPUT_SIGNAL_CALLBACKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// RMS ≥ 0,01.
+#[cfg(test)]
+pub(crate) fn has_signal(s: &[f32]) -> bool {
+    !s.is_empty() && s.iter().map(|x| x * x).sum::<f32>() / s.len() as f32 >= 0.0001
+}
+
 async fn decode_loop(
     conn: iroh::endpoint::Connection,
     samples: Arc<Mutex<VecDeque<f32>>>,
@@ -89,7 +102,15 @@ async fn decode_loop(
         };
         conceal(&mut decoder, &mut pcm, frame, lost, |s| push(&samples, s));
 
+        #[cfg(test)]
+        RECEIVED_AUDIO_PACKETS.fetch_add(1, Ordering::Relaxed);
         match decoder.decode_float(payload, &mut pcm, false) {
+            #[cfg(test)]
+            Ok(n) if n > 0 && has_signal(&pcm[..n * 2]) => {
+                DECODED_SIGNAL_FRAMES.fetch_add(1, Ordering::Relaxed);
+                frame = n;
+                push(&samples, &pcm[..n * 2]);
+            }
             Ok(n) => {
                 if n > 0 {
                     frame = n;
@@ -160,6 +181,10 @@ fn open_output(
                     // Subrun: preenche com silêncio e volta a pré-bufferizar.
                     data[take..].fill(0.0);
                     playing = false;
+                }
+                #[cfg(test)]
+                if has_signal(data) {
+                    OUTPUT_SIGNAL_CALLBACKS.fetch_add(1, Ordering::Relaxed);
                 }
             },
             move |e: cpal::Error| match e.kind() {
@@ -266,7 +291,7 @@ mod tests {
         let (seq, payload) = livescreen_core::protocol::parse_audio_datagram(&framed).unwrap();
         assert_eq!(seq, 7);
 
-        let mut pcm = [0f32; DECODE_FLOATS];
+    let mut pcm = [0f32; DECODE_FLOATS];
         let n = decoder.decode_float(payload, &mut pcm, false).unwrap();
         assert_eq!(n, 960);
         let rms = (pcm[..n * 2].iter().map(|s| s * s).sum::<f32>() / (n * 2) as f32).sqrt();
@@ -288,7 +313,7 @@ mod tests {
 
         let mut packet = [0u8; 1500];
         let len = encoder.encode_float(&sine, &mut packet).unwrap();
-        let mut pcm = [0f32; DECODE_FLOATS];
+    let mut pcm = [0f32; DECODE_FLOATS];
         let n = decoder.decode_float(&packet[..len], &mut pcm, false).unwrap();
         assert_eq!(n, 960);
 
