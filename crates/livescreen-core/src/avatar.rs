@@ -169,7 +169,7 @@ fn num(v: f32) -> serde_json::Value {
     serde_json::from_str(&v.to_string()).expect("f32 finito")
 }
 
-/// Os desenhos em JSON para a página do navegador (`web/public/v/avatars.json`) e o Android.
+/// Os desenhos em JSON para a página do navegador (`web/public/v/avatars.json`).
 pub fn json() -> String {
     use serde_json::{Value, json};
     let row = |kind: &str, ink: Ink, head: &[f32], pts: &[f32]| {
@@ -209,7 +209,7 @@ pub fn json() -> String {
 mod tests {
     use super::*;
 
-    /// Vetores de teste de auto(key) para conferência entre plataformas (Desktop, Android, Web):
+    /// Vetores de teste de auto(key) para conferência entre plataformas (desktop e navegador):
     /// 1. "Diego" -> 3 (Urso)
     /// 2. "Alice" -> 6 (Polvo)
     /// 3. "#0"    -> 7 (Peixe)

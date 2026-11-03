@@ -233,15 +233,6 @@ impl Prober {
         self.states.lock().unwrap().clone()
     }
 
-    pub fn states_json(&self) -> String {
-        let map: HashMap<String, PresenceState> = self
-            .snapshot()
-            .into_iter()
-            .map(|(id, st)| (friend_code(&id), st))
-            .collect();
-        serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
-    }
-
     pub fn stop(&self) {
         if self.stopped.swap(true, Ordering::SeqCst) {
             return;

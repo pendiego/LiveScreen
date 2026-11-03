@@ -126,10 +126,6 @@ impl super::Host {
         .await
         .map_err(|_| anyhow::anyhow!("tempo esgotado ao conferir a página do espectador"))?
     }
-
-    pub fn wait_for_web_link_blocking(&self, timeout: Duration) -> anyhow::Result<String> {
-        self.rt.block_on(self.wait_for_web_link(timeout))
-    }
 }
 
 /// IPv6 global do host (rota até a Cloudflare); `None` sem IPv6, link-local ou ULA.
