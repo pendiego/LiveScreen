@@ -34,11 +34,13 @@ impl Drop for PlaybackHandle {
     }
 }
 
+/// `device`: id de `outputs()`; `None` ou ausente = padrão do Windows.
 /// `gain`: ganho linear (bits de f32), ajustável durante a reprodução.
 pub fn start(
     rt: &tokio::runtime::Handle,
     conn: iroh::endpoint::Connection,
     gain: Arc<AtomicU32>,
+    device: Option<String>,
 ) -> anyhow::Result<PlaybackHandle> {
     let stop = Arc::new(AtomicBool::new(false));
     let samples: Arc<Mutex<VecDeque<f32>>> = Arc::new(Mutex::new(VecDeque::new()));
@@ -48,7 +50,7 @@ pub fn start(
     let thread_stop = stop.clone();
     let thread = std::thread::Builder::new()
         .name("audio-out".into())
-        .spawn(move || output_loop(samples, thread_stop, gain))?;
+        .spawn(move || output_loop(samples, thread_stop, gain, device))?;
 
     Ok(PlaybackHandle {
         stop,
@@ -176,12 +178,38 @@ fn open_output(
     Ok(stream)
 }
 
-fn output_loop(samples: Arc<Mutex<VecDeque<f32>>>, stop: Arc<AtomicBool>, gain: Arc<AtomicU32>) {
+/// Saídas de áudio como `(id, nome)`.
+pub fn outputs() -> Vec<(String, String)> {
+    let Ok(devices) = cpal::default_host().output_devices() else {
+        return vec![];
+    };
+    devices
+        .filter_map(|d| Some((d.id().ok()?.to_string(), d.description().ok()?.name().to_owned())))
+        .collect()
+}
+
+/// A saída escolhida, ou a padrão quando não há escolha ou o dispositivo sumiu.
+fn pick_output(device: &Option<String>) -> Option<cpal::Device> {
+    let host = cpal::default_host();
+    if let Some(id) = device {
+        match id.parse::<cpal::DeviceId>().ok().and_then(|id| host.device_by_id(&id)) {
+            Some(d) => return Some(d),
+            None => debug!("saída de áudio escolhida indisponível; usando a padrão"),
+        }
+    }
+    host.default_output_device()
+}
+
+fn output_loop(
+    samples: Arc<Mutex<VecDeque<f32>>>,
+    stop: Arc<AtomicBool>,
+    gain: Arc<AtomicU32>,
+    device: Option<String>,
+) {
     let mut warned = false; // um aviso por sequência de falhas, não um por segundo
     while !stop.load(Ordering::Relaxed) {
         let lost = Arc::new(AtomicBool::new(false));
-        let opened = cpal::default_host()
-            .default_output_device()
+        let opened = pick_output(&device)
             .ok_or_else(|| anyhow!("sem dispositivo de saída de áudio"))
             .and_then(|d| open_output(&d, samples.clone(), gain.clone(), lost.clone()));
         match opened {

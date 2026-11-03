@@ -14,14 +14,16 @@ const FORCED: &str = "Desligado por config.json ou LIVESCREEN_CAPTURE_OVERRIDES"
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tab {
     Video,
+    Audio,
     Share,
     Updates,
     Experimental,
     Diagnostics,
 }
 
-const TABS: [(Tab, &str); 5] = [
+const TABS: [(Tab, &str); 6] = [
     (Tab::Video, "Vídeo"),
+    (Tab::Audio, "Áudio"),
     (Tab::Share, "Transmissão"),
     (Tab::Updates, "Atualizações"),
     (Tab::Experimental, "Experimental"),
@@ -96,6 +98,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             .max_height(h)
             .show(ui, |ui| match app.settings_tab {
                 Tab::Video => video(app, ui),
+                Tab::Audio => audio(app, ui),
                 Tab::Share => share(app, ui),
                 Tab::Updates => updates(app, ui, ctx),
                 Tab::Experimental => experimental(app, ui),
@@ -115,6 +118,70 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     if app.encoder.lock().unwrap().is_none() {
         ctx.request_repaint_after(Duration::from_millis(200));
     }
+}
+
+/// Lista `(id, nome)` de saídas e entradas; reenumerada a cada 3 s para não pesar no quadro.
+type Devices = (std::time::Instant, Vec<(String, String)>, Vec<(String, String)>);
+
+fn device_combo(
+    ui: &mut egui::Ui,
+    id: &str,
+    value: &mut Option<String>,
+    list: &[(String, String)],
+) -> bool {
+    let name = value
+        .as_ref()
+        .and_then(|v| list.iter().find(|(i, _)| i == v))
+        .map_or("Padrão do Windows", |(_, n)| n.as_str())
+        .to_owned();
+    let before = value.clone();
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(name)
+        .width(320.0)
+        .icon(theme::chevron_icon)
+        .show_ui(ui, |ui| {
+            ui.selectable_value(value, None, "Padrão do Windows");
+            for (i, n) in list {
+                ui.selectable_value(value, Some(i.clone()), n);
+            }
+        });
+    *value != before
+}
+
+fn audio(app: &mut App, ui: &mut egui::Ui) {
+    let key = ui.scope_id().with("audio_devices");
+    let stale = |d: &Option<Devices>| d.as_ref().is_none_or(|d| d.0.elapsed() > Duration::from_secs(3));
+    let mut devices: Option<Devices> = ui.data(|d| d.get_temp(key));
+    if stale(&devices) {
+        devices = Some((
+            std::time::Instant::now(),
+            crate::audio::playback::outputs(),
+            crate::audio::capture::microphones(),
+        ));
+        ui.data_mut(|d| d.insert_temp(key, devices.clone()));
+    }
+    let (_, outputs, mics) = devices.unwrap();
+
+    theme::section_label(ui, "Saída de áudio (ao assistir)");
+    ui.add_space(4.0);
+    device_combo(ui, "output_device", &mut app.prefs.output_device, &outputs);
+    hint(
+        ui,
+        "Vale na próxima vez que você assistir. Se o dispositivo sumir, o som volta pelo padrão do Windows.",
+    );
+    ui.add_space(12.0);
+
+    theme::section_label(ui, "Entrada de áudio (microfone ao transmitir)");
+    ui.add_space(4.0);
+    if device_combo(ui, "settings_mic_device", &mut app.prefs.mic_device, &mics)
+        && let Some(p) = app.picker.as_mut()
+    {
+        p.mic_device = app.prefs.mic_device.clone();
+    }
+    hint(
+        ui,
+        "Vale na próxima transmissão; o microfone só é transmitido se você ligar Transmitir microfone.",
+    );
 }
 
 fn video(app: &mut App, ui: &mut egui::Ui) {
