@@ -129,11 +129,13 @@ fn device_combo(
     value: &mut Option<String>,
     list: &[(String, String)],
 ) -> bool {
-    let name = value
-        .as_ref()
-        .and_then(|v| list.iter().find(|(i, _)| i == v))
-        .map_or("Padrão do Windows", |(_, n)| n.as_str())
-        .to_owned();
+    let name = match value.as_ref() {
+        None => "Padrão do Windows".to_owned(),
+        Some(v) => list
+            .iter()
+            .find(|(i, _)| i == v)
+            .map_or("Dispositivo indisponível (usa o padrão)".to_owned(), |(_, n)| n.clone()),
+    };
     let before = value.clone();
     egui::ComboBox::from_id_salt(id)
         .selected_text(name)
