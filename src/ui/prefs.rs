@@ -24,6 +24,8 @@ pub struct Prefs {
     pub share_mic: bool,
     /// Id do microfone escolhido; `None` = padrão do Windows.
     pub mic_device: Option<String>,
+    /// Id da saída de áudio de quem assiste; `None` = padrão do Windows.
+    pub output_device: Option<String>,
     pub name: String,
     /// Avatar escolhido (0 = automático, 1..=7 para os animais).
     #[serde(default)]
@@ -56,6 +58,7 @@ impl Default for Prefs {
             share_audio: true,
             share_mic: false,
             mic_device: None,
+            output_device: None,
             name: String::new(),
             avatar: 0,
             volume: 1.0,

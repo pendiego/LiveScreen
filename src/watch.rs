@@ -30,6 +30,7 @@ impl WatchSession {
         name: &str,
         avatar: u8,
         gain: f32,
+        output_device: Option<String>,
         hardware_decode: bool,
         target: Option<present::Target>,
         ctx: egui::Context,
@@ -44,6 +45,7 @@ impl WatchSession {
             let (frame, ctx, readback_only) = (frame.clone(), ctx.clone(), readback_only.clone());
             let (need_key, stats) = (need_key.clone(), stats.clone());
             let gain = gain.clone();
+            let output_device = output_device.clone();
             Box::new(move |conn: &iroh::endpoint::Connection, audio: bool| {
                 let (tx, rx) = sync_channel::<EncodedFrame>(8);
                 let _ = decoder::spawn(
@@ -57,7 +59,12 @@ impl WatchSession {
                     readback_only,
                 );
                 let audio_handle = if audio {
-                    match crate::audio::playback::start(&Handle::current(), conn.clone(), gain) {
+                    match crate::audio::playback::start(
+                        &Handle::current(),
+                        conn.clone(),
+                        gain,
+                        output_device.clone(),
+                    ) {
                         Ok(a) => Some(Box::new(a) as Box<dyn Send>),
                         Err(e) => {
                             warn!("áudio do espectador: {e:#}");
