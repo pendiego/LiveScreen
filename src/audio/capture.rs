@@ -328,6 +328,9 @@ fn trim_lag(q: &mut VecDeque<u8>, max: usize) {
     }
 }
 
+#[cfg(test)]
+pub(crate) static ENCODED_SIGNAL_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn capture_loop(
     req: &AudioRequest,
     out: &tokio::sync::broadcast::Sender<Bytes>,
@@ -445,6 +448,10 @@ fn capture_loop(
                     continue;
                 }
             };
+            #[cfg(test)]
+            if super::playback::has_signal(&frame) {
+                ENCODED_SIGNAL_FRAMES.fetch_add(1, Ordering::Relaxed);
+            }
             let mut msg = Vec::with_capacity(4 + len);
             msg.extend_from_slice(&seq.to_le_bytes());
             msg.extend_from_slice(&packet[..len]);

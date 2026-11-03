@@ -736,7 +736,9 @@ impl Host {
                 .congestion_controller_factory(Arc::new(noq_proto::congestion::Bbr3Config::default()))
                 .max_concurrent_uni_streams(noq_proto::VarInt::from_u32(0))
                 .max_concurrent_bidi_streams(noq_proto::VarInt::from_u32(1))
-                .datagram_receive_buffer_size(None)
+                // None desligaria também o ENVIO de datagramas (noq: Disabled), e o áudio vai por eles;
+                // o host não espera datagramas dos espectadores, então o buffer de recepção é mínimo.
+                .datagram_receive_buffer_size(Some(1200))
                 .build();
             Endpoint::builder(presets::N0)
                 .secret_key(cfg.identity)
