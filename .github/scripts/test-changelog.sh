@@ -34,7 +34,6 @@ Refs: #42
 EOF
 commit <<<'fix: trava ao fechar'
 commit <<<'atualiza coisas'
-commit <<<'feat(android): app novo'
 commit <<'EOF'
 chore(release): 0.2.0
 
@@ -51,8 +50,6 @@ lacks() { ! grep -qF -- "$1" <<<"$out" || { echo "SOBRA: $1" >&2; fail=1; }; }
 
 has '## Breaking Changes'
 has '## LiveScreen'
-has '## Android'
-has '* **android:** app novo'
 has '* ui.json com formato novo'
 has '* **ui:** microfone na tela de assistir'
 has '  - interface: fonte Geist embutida, temas claro/escuro, anel de foco e checkboxes padronizados'

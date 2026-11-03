@@ -3533,22 +3533,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "livescreen-android"
-version = "0.7.0"
-dependencies = [
- "anyhow",
- "bytes",
- "iroh",
- "jni 0.21.1",
- "livescreen-core",
- "ndk-context",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "livescreen-core"
 version = "0.7.0"
 dependencies = [

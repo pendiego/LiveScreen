@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0B0D10">
   <title>Ajuda: LiveScreen</title>
-  <meta name="description" content="Requisitos, versões, configurações, Android, arquivos e solução de problemas do LiveScreen.">
+  <meta name="description" content="Requisitos, versões, configurações, arquivos e solução de problemas do LiveScreen.">
   <link rel="canonical" href="https://pendiego.github.io/LiveScreen/ajuda/">
   <link rel="icon" href="../assets/logo.svg" type="image/svg+xml">
   <link rel="preload" as="font" type="font/woff2" href="../assets/fonts/inter-400.woff2" crossorigin>
@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="../assets/sinal.css">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Ajuda: LiveScreen">
-  <meta property="og:description" content="Requisitos, versões, configurações, Android, arquivos e solução de problemas do LiveScreen.">
+  <meta property="og:description" content="Requisitos, versões, configurações, arquivos e solução de problemas do LiveScreen.">
   <meta property="og:url" content="https://pendiego.github.io/LiveScreen/ajuda/">
   <meta property="og:image" content="https://pendiego.github.io/LiveScreen/assets/img/og.png">
   <meta name="twitter:card" content="summary_large_image">
@@ -28,7 +28,6 @@
         <a href="../#como-usar">Como usar</a>
         <a href="../#como-funciona">Como funciona</a>
         <a class="hide-sm" href="../#recursos">Recursos</a>
-        <a class="hide-sm" href="../#android">Android</a>
         <a href="./">Ajuda</a>
         <a class="hide-sm" href="https://github.com/pendiego/LiveScreen">GitHub</a>
       </nav>
@@ -64,7 +63,6 @@
             <li><a class="small" href="#download">Download e atualização</a></li>
             <li><a class="small" href="#configuracoes">Configurações</a></li>
             <li><a class="small" href="#qualidade-pelo-espectador">Qualidade pelo espectador</a></li>
-            <li><a class="small" href="#android">Android</a></li>
             <li><a class="small" href="#arquivos">Arquivos e configurações</a></li>
             <li><a class="small" href="#diagnostico">Diagnóstico</a></li>
             <li><a class="small" href="#problemas">Solução de problemas</a></li>
@@ -79,8 +77,7 @@
             <h2>Requisitos</h2>
             <ul>
               <li><strong>Host (quem transmite):</strong> Windows 10 versão 2004 ou superior, 64 bits.</li>
-              <li><strong>Viewer (quem assiste):</strong> Windows 10 2004+ x64, Android 8.0 (API 26) ou superior, ou o navegador (Chrome, Edge, Firefox ou Safari, pelo link gerado com &ldquo;Copiar link do navegador&rdquo; durante a transmissão). O link do navegador não usa servidor de retransmissão (sem TURN): conecta direto por IPv6 ou IPv4, e o PC avisa quando uma VPN é a rota padrão.</li>
-              <li><strong>Host Android (quem transmite):</strong> Android 8.0 (API 26) ou superior; a transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior, a permissão de microfone/áudio e só captura apps que permitem; o microfone não é transmitido. O aparelho precisa de um codificador Opus; sem ele a transmissão segue sem áudio.</li>
+              <li><strong>Viewer (quem assiste):</strong> Windows 10 2004+ x64, ou o navegador (Chrome, Edge, Firefox ou Safari, pelo link gerado com &ldquo;Copiar link do navegador&rdquo; durante a transmissão). O link do navegador não usa servidor de retransmissão (sem TURN): conecta direto por IPv6 ou IPv4, e o PC avisa quando uma VPN é a rota padrão.</li>
             </ul>
           </section>
 
@@ -99,12 +96,12 @@
                 <tbody>
                   <tr>
                     <td><code>0.5</code></td>
-                    <td><code>0.5 (desktop ou Android)</code></td>
+                    <td><code>0.5 (desktop)</code></td>
                     <td>Sim</td>
                   </tr>
                   <tr>
                     <td><code>0.4</code></td>
-                    <td><code>0.5 ou 0.6 (desktop ou Android)</code></td>
+                    <td><code>0.5 ou 0.6 (desktop)</code></td>
                     <td>Sim, com convite sem chave de sala (sem chat)</td>
                   </tr>
                   <tr>
@@ -114,17 +111,17 @@
                   </tr>
                   <tr>
                     <td><code>0.6</code></td>
-                    <td><code>0.6 (desktop, Android ou navegador)</code></td>
+                    <td><code>0.6 (desktop ou navegador)</code></td>
                     <td>Sim, com chat</td>
                   </tr>
                   <tr>
                     <td><code>0.6</code></td>
-                    <td><code>0.5 (desktop ou Android)</code></td>
+                    <td><code>0.5 (desktop)</code></td>
                     <td>Sim, sem chat</td>
                   </tr>
                   <tr>
                     <td><code>0.5</code></td>
-                    <td><code>0.6 (desktop ou Android)</code></td>
+                    <td><code>0.6 (desktop)</code></td>
                     <td>Sim, sem chat</td>
                   </tr>
                   <tr>
@@ -239,7 +236,7 @@
             <ul>
               <li>
                 <strong>Doações simuladas no chat</strong>
-                <p class="small">Função só para teste, sem utilidade real: quem assiste pelo PC ou pelo navegador manda moedas de mentira junto com a mensagem; nenhum dinheiro de verdade. No Android aparece só a linha da doação. Vale na próxima transmissão.</p>
+                <p class="small">Função só para teste, sem utilidade real: quem assiste pelo PC ou pelo navegador manda moedas de mentira junto com a mensagem; nenhum dinheiro de verdade. Vale na próxima transmissão.</p>
               </li>
             </ul>
 
@@ -264,35 +261,8 @@
           </section>
 
           <section id="android">
-            <h2>Android (assistir e transmitir)</h2>
-            <p>O app Android <strong>assiste</strong>: cole o código de convite e toque em <strong>Assistir</strong>. Ele conecta a hosts 0.5 e 0.6 e também a hosts 0.4 (convite sem chave de sala).</p>
-            <p>Também <strong>transmite</strong> a tela: toque em <strong>Transmitir tela</strong> na Home, aceite o pedido de captura e a notificação (a transmissão roda num serviço em primeiro plano, com a ação <strong>Parar</strong>). A tela mostra o convite, o link do navegador, a qualidade (padrão 720p 30 fps), quem assiste (com <strong>Remover</strong>) e o chat. A sala começa com 4 pessoas, e amigos adicionados assistem sem convite. Girar o aparelho não muda o tamanho da transmissão. Se um espectador pedir qualidade menor, o app reduz sozinho. O link do navegador depende de o navegador alcançar o aparelho (NAT, emuladores). O áudio do sistema exige Android 10 ou superior e só inclui sons de mídia e jogos de apps que permitem a captura; chamadas, alarmes e o microfone não são transmitidos.</p>
-            <p>
-              <a class="btn btn-primary" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen-android.apk">
-                <svg
-  class="lucide lucide-download"
-  xmlns="http://www.w3.org/2000/svg"
-  width="20"
-  height="20"
-  viewBox="0 0 24 24"
-  fill="none"
-  stroke="currentColor"
-  stroke-width="2"
-  stroke-linecap="round"
-  stroke-linejoin="round"
->
-  <path d="M12 15V3" />
-  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-  <path d="m7 10 5 5 5-5" />
-</svg>
-                <span>Baixar o APK</span>
-              </a>
-            </p>
-            <ul>
-              <li><strong>Bateria:</strong> com o app em segundo plano o áudio pausa e, em hosts 0.5 ou mais novos, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar. Hosts 0.4 não entendem esse pedido e continuam enviando vídeo. Mudo também pausa a decodificação do áudio.</li>
-              <li><strong>Atualização:</strong> o app confere a release pelo GitHub e baixa o APK novo.</li>
-              <li><strong>Backup:</strong> a identidade e a lista de amigos não entram no backup do Android nem na troca de aparelho. No celular novo, troque os códigos de amigo de novo.</li>
-            </ul>
+            <h2>Android (descontinuado)</h2>
+            <p>O app Android foi descontinuado e saiu do repositório: não há APK novo nem atualização. Quem já tem o app instalado continua assistindo hosts desktop (o protocolo é o mesmo). No celular, assista pelo link do navegador.</p>
           </section>
 
           <section id="arquivos">

@@ -1,4 +1,4 @@
-//! Núcleo sem plataforma; Windows e Android ligam aqui o próprio decoder e áudio.
+//! Núcleo sem plataforma; o desktop Windows liga aqui o próprio decoder e áudio.
 
 pub mod avatar;
 pub mod chat;

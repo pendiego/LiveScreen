@@ -28,7 +28,6 @@
         <a href="#como-usar">Como usar</a>
         <a href="#como-funciona">Como funciona</a>
         <a class="hide-sm" href="#recursos">Recursos</a>
-        <a class="hide-sm" href="#android">Android</a>
         <a href="ajuda/">Ajuda</a>
         <a class="hide-sm" href="https://github.com/pendiego/LiveScreen">GitHub</a>
       </nav>
@@ -49,10 +48,6 @@
           <a class="btn btn-primary btn-lg" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen.exe">
             <svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg>
             <span>Baixar para Windows</span>
-          </a>
-          <a class="btn btn-secondary btn-lg" href="#android">
-            <svg aria-hidden="true" focusable="false" class="lucide lucide-smartphone" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <rect width="14" height="20" x="5" y="2" rx="2" ry="2" /> <path d="M12 18h.01" /> </svg>
-            <span>Android: assistir e transmitir</span>
           </a>
         </div>
         <p class="small">Windows 10 2004+ x64 · não precisa instalar · código aberto (MIT ou Apache-2.0) · <a href="https://github.com/pendiego/LiveScreen/releases">todas as versões</a></p>
@@ -204,7 +199,7 @@
         <div class="grid-3" style="margin-bottom: var(--s6);">
           <div class="card">
             <h3>Segurança do link do navegador</h3>
-            <p class="small">O link termina em <code>.v3</code> e leva no <code>#</code> uma chave de 256 bits e a impressão digital da chave pública de quem transmite. Para cada espectador, o navegador e o host combinam chaves descartáveis X25519 e ML-KEM-768 (pós-quântica) para cifrar a sinalização: quem gravou os dados e depois vê o link não abre nada, quem tem o link não se passa pelo host para outro espectador e o servidor não consegue trocar a chave do host sem a página recusar. &quot;Novo convite&quot; e remover alguém trocam todas as chaves. O app copia o convite e o link marcados como sensíveis (fora do histórico <code>Win+V</code> e da nuvem no Windows; prévia oculta no Android 13+). Antes de gerar o link, o host confere a página do espectador contra um manifesto assinado offline pelo mantenedor. A página não carrega script de terceiros. Limites reais: o link é a senha da sala (quem o tiver entra), a conexão direta (P2P) revela os IPs entre as pontas, e nada disso protege contra malware ou extensão no aparelho de quem assiste.</p>
+            <p class="small">O link termina em <code>.v3</code> e leva no <code>#</code> uma chave de 256 bits e a impressão digital da chave pública de quem transmite. Para cada espectador, o navegador e o host combinam chaves descartáveis X25519 e ML-KEM-768 (pós-quântica) para cifrar a sinalização: quem gravou os dados e depois vê o link não abre nada, quem tem o link não se passa pelo host para outro espectador e o servidor não consegue trocar a chave do host sem a página recusar. &quot;Novo convite&quot; e remover alguém trocam todas as chaves. O app copia o convite e o link marcados como sensíveis (fora do histórico <code>Win+V</code> e da nuvem no Windows). Antes de gerar o link, o host confere a página do espectador contra um manifesto assinado offline pelo mantenedor. A página não carrega script de terceiros. Limites reais: o link é a senha da sala (quem o tiver entra), a conexão direta (P2P) revela os IPs entre as pontas, e nada disso protege contra malware ou extensão no aparelho de quem assiste.</p>
           </div>
           <div class="card">
             <h3>Remover vale de verdade</h3>
@@ -221,10 +216,6 @@
           <div class="card">
             <h3>Host mais resistente</h3>
             <p class="small">Conexões que travam na entrada são fechadas em 10 s, e o link do navegador não consegue fazer o PC sondar endereços da própria máquina.</p>
-          </div>
-          <div class="card">
-            <h3>Android mais seguro</h3>
-            <p class="small">Sair logo depois de conectar não arrisca mais fechar o app, e a identidade e a lista de amigos ficam fora do backup do Android e da troca de aparelho.</p>
           </div>
         </div>
         <h2>Novidades da 0.6.1</h2>
@@ -247,22 +238,18 @@
           </div>
           <div class="card">
             <h3>Doações simuladas (experimental)</h3>
-            <p class="small">Função só para teste, sem utilidade real: nenhum dinheiro de verdade é movimentado. O host liga em Configurações → Experimental (vale na próxima transmissão). Quem assiste pelo PC ou pelo navegador vê botões de moedas fictícias no chat; no Android aparece só a linha da doação, sem botões.</p>
+            <p class="small">Função só para teste, sem utilidade real: nenhum dinheiro de verdade é movimentado. O host liga em Configurações → Experimental (vale na próxima transmissão). Quem assiste pelo PC ou pelo navegador vê botões de moedas fictícias no chat.</p>
           </div>
         </div>
         <h2>Novidades da 0.6.0</h2>
         <div class="grid-3">
           <div class="card">
             <h3>Chat na transmissão</h3>
-            <p class="small">Mensagens de texto entre quem transmite e quem assiste, no PC, no Android e no navegador. O host define o nome e o papel de cada um.</p>
+            <p class="small">Mensagens de texto entre quem transmite e quem assiste, no PC e no navegador. O host define o nome e o papel de cada um.</p>
           </div>
           <div class="card">
             <h3>Assistir pelo navegador</h3>
             <p class="small">&quot;Copiar link do navegador&quot; leva a quem assiste sem instalar nada. A página também aceita colar o link ou o código da transmissão.</p>
-          </div>
-          <div class="card">
-            <h3>Android transmite</h3>
-            <p class="small">Toque em Transmitir tela na Home do app e compartilhe a tela e o áudio do celular, sem PC.</p>
           </div>
           <div class="card">
             <h3>Navegador mais seguro</h3>
@@ -334,7 +321,7 @@
               <svg aria-hidden="true" focusable="false" class="lucide lucide-message-square" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" /> </svg>
             </div>
             <h3>Chat</h3>
-            <p class="small">Chat de texto na transmissão, no host e em quem assiste (desktop, Android e navegador). Exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona, só sem chat.</p>
+            <p class="small">Chat de texto na transmissão, no host e em quem assiste (desktop e navegador). Exige host e viewer 0.6 ou superior; com uma ponta mais antiga a transmissão funciona, só sem chat.</p>
           </div>
           <div class="card">
             <div class="icon-ring" style="margin-bottom: var(--s4);">
@@ -343,33 +330,6 @@
             <h3>Navegador</h3>
             <p class="small">&quot;Copiar link do navegador&quot; gera um link para assistir sem instalar nada, no Chrome, Edge, Firefox ou Safari, com estatísticas, chat, mudo, menu Qualidade, Picture-in-Picture e tela cheia. O link termina em <code>.v3</code> e a sinalização é cifrada com chaves descartáveis e proteção pós-quântica (ML-KEM-768).</p>
           </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="android">
-      <div class="wrap">
-        <div style="max-width: 640px;">
-          <h2>No celular, assista e transmita</h2>
-          <p>Cole o código de convite e toque em Assistir. O app Android conecta a hosts 0.5 e 0.6 e também a hosts 0.4. Também transmite a tela: toque em Transmitir tela na Home e aceite o pedido de captura.</p>
-          <p class="small">Com o app em segundo plano o áudio pausa e, em hosts 0.5 ou mais novos, o host para de enviar vídeo; tudo volta ao reabrir, sem reconectar.</p>
-          <div style="margin-block: var(--s4);">
-            <a class="btn btn-primary" href="https://github.com/pendiego/LiveScreen/releases/latest/download/livescreen-android.apk">
-              <svg aria-hidden="true" focusable="false" class="lucide lucide-download" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" > <path d="M12 15V3" /> <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /> <path d="m7 10 5 5 5-5" /> </svg>
-              <span>Baixar o APK</span>
-            </a>
-          </div>
-          <p class="small">Android 8.0 ou superior. A transmissão é da tela inteira, com vídeo H.264. O áudio do sistema exige Android 10 ou superior e só inclui sons de mídia e jogos de apps que permitem a captura; chamadas, alarmes e o microfone não são transmitidos.</p>
-        </div>
-        <div class="grid-3" style="margin-top: var(--s5); max-width: 760px;">
-          <figure>
-            <img class="shot" src="assets/img/android-watch.webp" width="720" height="1280" loading="lazy" alt="App Android assistindo a uma transmissão do PC">
-            <figcaption class="small">Assistindo no celular</figcaption>
-          </figure>
-          <figure>
-            <img class="shot" src="assets/img/android-chat.webp" width="720" height="1280" loading="lazy" alt="Chat no app Android durante uma transmissão">
-            <figcaption class="small">Chat no celular</figcaption>
-          </figure>
         </div>
       </div>
     </section>
@@ -395,7 +355,7 @@
               </tr>
               <tr>
                 <td><code>api.github.com</code> / <code>github.com</code></td>
-                <td>ao abrir o app; ao clicar em Atualizar (desktop e Android)</td>
+                <td>ao abrir o app; ao clicar em Atualizar</td>
                 <td>Verificar e baixar versões novas</td>
               </tr>
               <tr>

@@ -16,10 +16,6 @@ use tracing::{info, warn};
 use crate::preset::Preset;
 use crate::protocol::*;
 
-pub fn is_valid_invite(s: &str) -> bool {
-    parse_invite(s).is_some()
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum Phase {
     Connecting,

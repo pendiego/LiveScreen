@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/livescreen-core", "android/rust"]
+members = ["crates/livescreen-core"]
 default-members = [".", "crates/livescreen-core"]
 
 [package]

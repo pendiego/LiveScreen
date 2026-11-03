@@ -20,26 +20,16 @@ body = """
 * {{ c.breaking_description | default(value=c.message) }} ([{{ c.id | truncate(length=7, end="") }}]({{ repo }}/commit/{{ c.id }}))
 {% endfor -%}
 {%- endif %}
-{#- uma seção por componente (como os pacotes das notas do oh-my-pi), com Added/Changed/Fixed dentro -#}
-{%- for comp in ["LiveScreen", "Android"] %}
-{%- set_global n = 0 %}
-{%- for c in commits %}{% if comp == "Android" and c.scope == "android" or comp != "Android" and c.scope != "android" %}{% set_global n = n + 1 %}{% endif %}{% endfor %}
-{%- if n > 0 %}
-## {{ comp }}
+{#- uma seção só; o escopo aparece em negrito no item -#}
+{%- if commits | length > 0 %}
+## LiveScreen
 {%- for group, list in commits | group_by(attribute="group") %}
-{%- set_global k = 0 %}
-{%- for c in list %}{% if comp == "Android" and c.scope == "android" or comp != "Android" and c.scope != "android" %}{% set_global k = k + 1 %}{% endif %}{% endfor %}
-{%- if k > 0 %}
 ### {{ group | striptags | trim }}
 {% for c in list -%}
-{%- if comp == "Android" and c.scope == "android" or comp != "Android" and c.scope != "android" -%}
 {{ self::item(c=c, repo=repo) }}
-{% endif -%}
-{%- endfor -%}
-{%- endif %}
+{% endfor -%}
 {%- endfor %}
 {%- endif %}
-{%- endfor %}
 """
 trim = true
 
