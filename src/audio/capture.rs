@@ -1,9 +1,11 @@
 //! Captura de áudio: loopback do processo compartilhado ou do sistema e/ou microfone,
-//! mixados num único stream Opus.
+//! mixados num único stream Opus. O loopback do sistema confere a saída padrão do Windows
+//! a cada `DEFAULT_CHECK` e reabre nela: o WASAPI prende o cliente ao endpoint aberto.
 
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, anyhow};
 use bytes::Bytes;
@@ -78,6 +80,9 @@ pub struct Opened {
 
 /// Tolerância de atraso da fonte que não é o relógio (100 ms).
 const MAX_LAG_BYTES: usize = FRAME_BYTES * 5;
+
+/// Intervalo de conferência da saída padrão do Windows para o loopback do sistema.
+const DEFAULT_CHECK: Duration = Duration::from_secs(1);
 
 /// Inicia a captura numa thread própria. Bloqueia até a inicialização terminar,
 /// para que erros (ex.: loopback de processo indisponível) cheguem ao chamador.
@@ -160,6 +165,8 @@ struct Source {
     capture: AudioCaptureClient,
     q: VecDeque<u8>,
     errors: u32,
+    /// Id do endpoint aberto; só preenchido no loopback do sistema.
+    device_id: Option<String>,
 }
 
 fn open(mut client: AudioClient) -> anyhow::Result<Source> {
@@ -186,20 +193,65 @@ fn open(mut client: AudioClient) -> anyhow::Result<Source> {
         capture,
         q: VecDeque::new(),
         errors: 0,
+        device_id: None,
     })
 }
 
 fn open_loopback(target: &AudioTarget) -> anyhow::Result<Source> {
-    open(match target {
-        AudioTarget::Process(pid) => AudioClient::new_application_loopback_client(*pid, true)
-            .context("criar cliente de loopback do processo")?,
-        AudioTarget::System => DeviceEnumerator::new()
-            .context("criar enumerador de dispositivos")?
-            .get_default_device(&Direction::Render)
-            .context("obter dispositivo de reprodução padrão")?
-            .get_iaudioclient()
-            .context("abrir cliente de áudio do dispositivo")?,
-    })
+    match target {
+        AudioTarget::Process(pid) => open(
+            AudioClient::new_application_loopback_client(*pid, true)
+                .context("criar cliente de loopback do processo")?,
+        ),
+        AudioTarget::System => {
+            let device = DeviceEnumerator::new()
+                .context("criar enumerador de dispositivos")?
+                .get_default_device(&Direction::Render)
+                .context("obter dispositivo de reprodução padrão")?;
+            let id = device.get_id().ok();
+            let mut s = open(
+                device
+                    .get_iaudioclient()
+                    .context("abrir cliente de áudio do dispositivo")?,
+            )?;
+            s.device_id = id;
+            Ok(s)
+        }
+    }
+}
+
+fn default_render_id() -> Option<String> {
+    DeviceEnumerator::new()
+        .ok()?
+        .get_default_device(&Direction::Render)
+        .ok()?
+        .get_id()
+        .ok()
+}
+
+/// Reabre o loopback do sistema se a saída padrão mudou ou se a fonte caiu.
+fn follow_default_render(slot: &mut Option<Source>) {
+    // Sem saída padrão não há o que capturar; espera aparecer uma.
+    let Some(id) = default_render_id() else { return };
+    if slot
+        .as_ref()
+        .is_some_and(|s| s.device_id.as_deref() == Some(id.as_str()))
+    {
+        return;
+    }
+    if let Some(old) = slot.take() {
+        let _ = old.client.stop_stream();
+    }
+    match open_loopback(&AudioTarget::System).and_then(|s| {
+        s.client.start_stream().context("iniciar captura")?;
+        Ok(s)
+    }) {
+        Ok(s) => {
+            info!("loopback do sistema: saída padrão do Windows mudou; capturando a nova");
+            *slot = Some(s);
+        }
+        Err(e) => debug!("reabrir loopback do sistema falhou: {e:#}"),
+    }
 }
 
 fn open_mic(mic: &Mic) -> anyhow::Result<Source> {
@@ -340,15 +392,24 @@ fn capture_loop(
     let mut seq: u32 = 0;
     let mut last_err = String::new();
 
+    let follow_default = matches!(req.loopback, Some(AudioTarget::System));
+    let mut next_check = Instant::now() + DEFAULT_CHECK;
+
     while !stop.load(Ordering::Relaxed) {
+        if follow_default && Instant::now() >= next_check {
+            next_check = Instant::now() + DEFAULT_CHECK;
+            follow_default_render(&mut loopback);
+        }
         // O microfone entrega dados continuamente; o loopback para em silêncio.
         // Timeout é normal com áudio silencioso.
         if let Some(c) = mic.as_ref().or(loopback.as_ref()) {
             let _ = c.event.wait_for_event(200);
+        } else {
+            std::thread::sleep(Duration::from_millis(200));
         }
         pump(&mut loopback, "loopback", &mut last_err);
         pump(&mut mic, "microfone", &mut last_err);
-        if loopback.is_none() && mic.is_none() {
+        if loopback.is_none() && mic.is_none() && !follow_default {
             return Err(anyhow!("leitura de áudio falhou repetidamente: {last_err}"));
         }
 
