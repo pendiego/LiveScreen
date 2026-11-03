@@ -86,6 +86,7 @@ pub fn connect(app: &mut App, ctx: &egui::Context, target: String) {
             &livescreen_core::protocol::sanitize(&app.prefs.name, 32),
         ),
         app.prefs.gain(),
+        app.prefs.output_device.clone(),
         hw_decode,
         display_target,
         ctx.clone(),

@@ -3,6 +3,9 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use anyhow::{Context, anyhow};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use opus::{Channels, Decoder};
@@ -31,11 +34,13 @@ impl Drop for PlaybackHandle {
     }
 }
 
+/// `device`: id de `outputs()`; `None` ou ausente = padrão do Windows.
 /// `gain`: ganho linear (bits de f32), ajustável durante a reprodução.
 pub fn start(
     rt: &tokio::runtime::Handle,
     conn: iroh::endpoint::Connection,
     gain: Arc<AtomicU32>,
+    device: Option<String>,
 ) -> anyhow::Result<PlaybackHandle> {
     let stop = Arc::new(AtomicBool::new(false));
     let samples: Arc<Mutex<VecDeque<f32>>> = Arc::new(Mutex::new(VecDeque::new()));
@@ -45,7 +50,7 @@ pub fn start(
     let thread_stop = stop.clone();
     let thread = std::thread::Builder::new()
         .name("audio-out".into())
-        .spawn(move || output_loop(samples, thread_stop, gain))?;
+        .spawn(move || output_loop(samples, thread_stop, gain, device))?;
 
     Ok(PlaybackHandle {
         stop,
@@ -118,11 +123,12 @@ fn push(samples: &Mutex<VecDeque<f32>>, data: &[f32]) {
     }
 }
 
-fn output_loop(samples: Arc<Mutex<VecDeque<f32>>>, stop: Arc<AtomicBool>, gain: Arc<AtomicU32>) {
-    let Some(device) = cpal::default_host().default_output_device() else {
-        warn!("sem dispositivo de saída de áudio; seguindo sem som");
-        return;
-    };
+fn open_output(
+    device: &cpal::Device,
+    samples: Arc<Mutex<VecDeque<f32>>>,
+    gain: Arc<AtomicU32>,
+    lost: Arc<AtomicBool>,
+) -> anyhow::Result<cpal::Stream> {
     let config = cpal::StreamConfig {
         channels: 2,
         sample_rate: 48_000,
@@ -130,51 +136,107 @@ fn output_loop(samples: Arc<Mutex<VecDeque<f32>>>, stop: Arc<AtomicBool>, gain: 
     };
 
     let mut playing = false;
-    let stream = device.build_output_stream::<f32, _, _>(
-        config,
-        move |data: &mut [f32], _| {
-            let Ok(mut queue) = samples.lock() else {
-                data.fill(0.0);
-                return;
-            };
-            if !playing {
-                if queue.len() < PREBUFFER_FLOATS {
+    let stream = device
+        .build_output_stream::<f32, _, _>(
+            config,
+            move |data: &mut [f32], _| {
+                let Ok(mut queue) = samples.lock() else {
                     data.fill(0.0);
                     return;
+                };
+                if !playing {
+                    if queue.len() < PREBUFFER_FLOATS {
+                        data.fill(0.0);
+                        return;
+                    }
+                    playing = true;
                 }
-                playing = true;
-            }
-            let take = data.len().min(queue.len());
-            let g = f32::from_bits(gain.load(Ordering::Relaxed));
-            for (dst, src) in data[..take].iter_mut().zip(queue.drain(..take)) {
-                *dst = src * g;
-            }
-            if take < data.len() {
-                // Subrun: preenche com silêncio e volta a pré-bufferizar.
-                data[take..].fill(0.0);
-                playing = false;
-            }
-        },
-        |e| warn!("erro no dispositivo de saída: {e}"),
-        None,
-    );
+                let take = data.len().min(queue.len());
+                let g = f32::from_bits(gain.load(Ordering::Relaxed));
+                for (dst, src) in data[..take].iter_mut().zip(queue.drain(..take)) {
+                    *dst = src * g;
+                }
+                if take < data.len() {
+                    // Subrun: preenche com silêncio e volta a pré-bufferizar.
+                    data[take..].fill(0.0);
+                    playing = false;
+                }
+            },
+            move |e: cpal::Error| match e.kind() {
+                cpal::ErrorKind::DeviceNotAvailable | cpal::ErrorKind::StreamInvalidated => {
+                    lost.store(true, Ordering::Relaxed)
+                }
+                cpal::ErrorKind::DeviceChanged => {
+                    debug!("saída de áudio seguiu o novo dispositivo padrão")
+                }
+                _ => warn!("erro no dispositivo de saída: {e}"),
+            },
+            None,
+        )
+        .context("criar saída de áudio")?;
+    stream.play().context("iniciar saída de áudio")?;
+    Ok(stream)
+}
 
-    let stream = match stream {
-        Ok(stream) => stream,
-        Err(e) => {
-            warn!("criar saída de áudio falhou: {e}");
-            return;
-        }
+/// Saídas de áudio como `(id, nome)`.
+pub fn outputs() -> Vec<(String, String)> {
+    let Ok(devices) = cpal::default_host().output_devices() else {
+        return vec![];
     };
-    if let Err(e) = stream.play() {
-        warn!("iniciar saída de áudio falhou: {e}");
-        return;
-    }
+    devices
+        .filter_map(|d| Some((d.id().ok()?.to_string(), d.description().ok()?.name().to_owned())))
+        .collect()
+}
 
-    while !stop.load(Ordering::Relaxed) {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+/// A saída escolhida, ou a padrão quando não há escolha ou o dispositivo sumiu.
+fn pick_output(device: &Option<String>) -> Option<cpal::Device> {
+    let host = cpal::default_host();
+    if let Some(id) = device {
+        match id.parse::<cpal::DeviceId>().ok().and_then(|id| host.device_by_id(&id)) {
+            Some(d) => return Some(d),
+            None => debug!("saída de áudio escolhida indisponível; usando a padrão"),
+        }
     }
-    drop(stream);
+    host.default_output_device()
+}
+
+fn output_loop(
+    samples: Arc<Mutex<VecDeque<f32>>>,
+    stop: Arc<AtomicBool>,
+    gain: Arc<AtomicU32>,
+    device: Option<String>,
+) {
+    let mut warned = false; // um aviso por sequência de falhas, não um por segundo
+    while !stop.load(Ordering::Relaxed) {
+        let lost = Arc::new(AtomicBool::new(false));
+        let opened = pick_output(&device)
+            .ok_or_else(|| anyhow!("sem dispositivo de saída de áudio"))
+            .and_then(|d| open_output(&d, samples.clone(), gain.clone(), lost.clone()));
+        match opened {
+            Ok(stream) => {
+                warned = false;
+                while !stop.load(Ordering::Relaxed) && !lost.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                drop(stream);
+                if lost.load(Ordering::Relaxed) {
+                    warn!("saída de áudio perdida; reabrindo");
+                }
+            }
+            Err(e) => {
+                if !warned {
+                    warn!("{e:#}; tentando de novo a cada 1 s");
+                    warned = true;
+                }
+                for _ in 0..20 {
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+    }
     debug!("saída de áudio encerrada");
 }
 

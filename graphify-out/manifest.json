@@ -1,19 +1,19 @@
 {
   ".github/workflows/ci.yml": {
-    "mtime": 1793664333.9299803,
-    "seen": 1793664673.7991667,
+    "mtime": 1793666214.1509757,
+    "seen": 1793666219.0080717,
     "ast_hash": "b2e9b0f2011be2f7178fecd733764901",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1793664333.920438,
-    "seen": 1793664673.799173,
+    "mtime": 1793666214.1509757,
+    "seen": 1793666219.0080788,
     "ast_hash": "fa65ef72126357eb1fe4d0d88aada876",
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1793664324.1363747,
-    "seen": 1793664673.7991743,
+    "mtime": 1793666214.1548822,
+    "seen": 1793666219.0080805,
     "ast_hash": "050199b5c02aed2266f6d699feafe6c3",
     "semantic_hash": ""
   },
@@ -24,9 +24,9 @@
     "semantic_hash": ""
   },
   "src/audio/capture.rs": {
-    "mtime": 1793664287.4635324,
-    "seen": 1793664673.799195,
-    "ast_hash": "99ecc919e0210f2e3f6157951ecaa48b",
+    "mtime": 1793666214.4641144,
+    "seen": 1793666219.008103,
+    "ast_hash": "4d3a6f21d8e78866fc08ad075c1db11e",
     "semantic_hash": ""
   },
   "src/audio/mod.rs": {
@@ -36,9 +36,9 @@
     "semantic_hash": ""
   },
   "src/audio/playback.rs": {
-    "mtime": 1793664287.4635324,
-    "seen": 1793664673.7991977,
-    "ast_hash": "e1483ace351f04ac49c51df7181bb87a",
+    "mtime": 1793666214.4641144,
+    "seen": 1793666219.0081055,
+    "ast_hash": "c741a2f0296d2776487c15cfc6aa757a",
     "semantic_hash": ""
   },
   "src/capture/dxgi.rs": {
@@ -72,9 +72,9 @@
     "semantic_hash": ""
   },
   "src/e2e_window.rs": {
-    "mtime": 1793664324.132912,
-    "seen": 1793664673.7992089,
-    "ast_hash": "50857b94b41be15a637f611f4974e769",
+    "mtime": 1793666214.4650908,
+    "seen": 1793666219.0081158,
+    "ast_hash": "f58c74957c1a590afe227998d53cbe82",
     "semantic_hash": ""
   },
   "src/gpu.rs": {
@@ -120,15 +120,15 @@
     "semantic_hash": ""
   },
   "src/ui/prefs.rs": {
-    "mtime": 1793639255.0602636,
-    "seen": 1793654847.7276578,
-    "ast_hash": "8983371d019dcac802c02c202112ce99",
+    "mtime": 1793666214.466067,
+    "seen": 1793666219.0081291,
+    "ast_hash": "42bf9dc0b33705c3a1d6a0a339d70902",
     "semantic_hash": ""
   },
   "src/ui/settings.rs": {
-    "mtime": 1793639255.0612402,
-    "seen": 1793654847.7276597,
-    "ast_hash": "6e87ba1799e400f9b217c2a0b506c9a8",
+    "mtime": 1793666214.466067,
+    "seen": 1793666219.0081303,
+    "ast_hash": "bdfd69928066985f9cc28922a3a82418",
     "semantic_hash": ""
   },
   "src/ui/share_view.rs": {
@@ -150,9 +150,9 @@
     "semantic_hash": ""
   },
   "src/ui/watch_view.rs": {
-    "mtime": 1793654552.7918825,
-    "seen": 1793654847.7276685,
-    "ast_hash": "ff25f330dba3f456bbedfa51145fef6a",
+    "mtime": 1793666214.4670713,
+    "seen": 1793666219.0081353,
+    "ast_hash": "8ce2e643f6c38eca262516a3e4a19096",
     "semantic_hash": ""
   },
   "src/update.rs": {
@@ -204,26 +204,26 @@
     "semantic_hash": ""
   },
   "src/watch.rs": {
-    "mtime": 1793639255.0676348,
-    "seen": 1793654847.7276907,
-    "ast_hash": "a114b5232df3042cff2e8308f4c326ad",
+    "mtime": 1793666214.4670713,
+    "seen": 1793666219.0081472,
+    "ast_hash": "85f5becac8b9744e4b8b95b1e8d33990",
     "semantic_hash": ""
   },
   "AGENTS.md": {
-    "mtime": 1793664438.4056485,
-    "seen": 1793664673.7992563,
+    "mtime": 1793666214.1529288,
+    "seen": 1793666219.0081646,
     "ast_hash": "e627b996bb5f00508261ecc9158e1a28",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1793664441.906841,
-    "seen": 1793664673.7992573,
-    "ast_hash": "883a9a9743d8411dca67cacadb63acc4",
+    "mtime": 1793666214.4458435,
+    "seen": 1793666219.0081654,
+    "ast_hash": "ea593328e19c452ee741181a7fd9073f",
     "semantic_hash": ""
   },
   ".github/scripts/test-changelog.sh": {
-    "mtime": 1793664333.9035604,
-    "seen": 1793664673.799164,
+    "mtime": 1793666214.1499994,
+    "seen": 1793666219.0080688,
     "ast_hash": "b770c0c83228dc1c2d9ac8201b330008",
     "semantic_hash": ""
   },
@@ -234,8 +234,8 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/lib.rs": {
-    "mtime": 1793664324.1363747,
-    "seen": 1793664673.7991872,
+    "mtime": 1793666214.1593285,
+    "seen": 1793666219.0080945,
     "ast_hash": "fd6492b8303cff2c18c466b34577008b",
     "semantic_hash": ""
   },
@@ -252,8 +252,8 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/viewer.rs": {
-    "mtime": 1793664324.1338902,
-    "seen": 1793664673.7991927,
+    "mtime": 1793666214.1593285,
+    "seen": 1793666219.0081,
     "ast_hash": "3090b567aeddd380266f6b2fe19ea294",
     "semantic_hash": ""
   },
@@ -264,8 +264,8 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/friends.rs": {
-    "mtime": 1793664324.1338902,
-    "seen": 1793664673.7991831,
+    "mtime": 1793666214.1573696,
+    "seen": 1793666219.0080898,
     "ast_hash": "3c1ae0e54bc67edd73a546ae0bfeb9d7",
     "semantic_hash": ""
   },
@@ -306,8 +306,8 @@
     "semantic_hash": ""
   },
   "site/ajuda/index.html": {
-    "mtime": 1793664585.5389159,
-    "seen": 1793664673.7992644,
+    "mtime": 1793666214.1692748,
+    "seen": 1793666219.008173,
     "ast_hash": "f98b063b081d53664e6faa33818044fb",
     "semantic_hash": ""
   },
@@ -336,8 +336,8 @@
     "semantic_hash": ""
   },
   "site/index.html": {
-    "mtime": 1793664528.713066,
-    "seen": 1793664673.7992704,
+    "mtime": 1793666214.1702487,
+    "seen": 1793666219.0081794,
     "ast_hash": "f659c4166b281d828e81bb31692c00ae",
     "semantic_hash": ""
   },
@@ -456,8 +456,8 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/host/web.rs": {
-    "mtime": 1793664324.1348662,
-    "seen": 1793664673.799186,
+    "mtime": 1793666214.158353,
+    "seen": 1793666219.008093,
     "ast_hash": "0e4ab60aa366006db4fce188f9740e2c",
     "semantic_hash": ""
   },
@@ -498,8 +498,8 @@
     "semantic_hash": ""
   },
   "crates/livescreen-core/src/avatar.rs": {
-    "mtime": 1793664324.1373613,
-    "seen": 1793664673.79918,
+    "mtime": 1793666214.1558583,
+    "seen": 1793666219.0080864,
     "ast_hash": "8b11376a3419cbcab2350f9f9fff1f97",
     "semantic_hash": ""
   },
